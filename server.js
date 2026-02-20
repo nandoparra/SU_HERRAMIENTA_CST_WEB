@@ -1,20 +1,45 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
-const path = require('path');
+const cors    = require('cors');
+const path    = require('path');
+const session = require('express-session');
 
-const db = require('./utils/db');
+const db      = require('./utils/db');
 const { waClient } = require('./utils/whatsapp-client');
-const apiKey = require('./middleware/apiKey');
+const apiKey  = require('./middleware/apiKey');
+const { requireLogin, requireInterno } = require('./middleware/auth');
 
 const app = express();
 app.use(express.json());
 app.use(cors());
-app.use(express.static(path.join(__dirname, 'public')));
-app.get('/', (req, res) => res.redirect('/generador-cotizaciones.html'));
+
+// Sesiones
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'cst-secret-2026',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 8 * 60 * 60 * 1000 }, // 8 horas
+}));
+
+// Rutas públicas — login/logout/me
+app.use('/', require('./routes/auth'));
+
+// Archivos estáticos — protegidos excepto login.html y assets
+app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
+app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+app.get('/seguimiento.html', requireLogin, (req, res) => res.sendFile(path.join(__dirname, 'public', 'seguimiento.html')));
+app.get('/generador-cotizaciones.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'generador-cotizaciones.html')));
+app.get('/', (req, res) => {
+  if (!req.session.user) return res.redirect('/login');
+  if (req.session.user.tipo === 'C') return res.redirect('/seguimiento.html');
+  res.redirect('/generador-cotizaciones.html');
+});
 
 // Protección API key (todas las rutas /api/*)
 app.use('/api', apiKey);
+
+// Protección de sesión en rutas /api/ — clientes solo acceden a sus endpoints
+app.use('/api', requireLogin);
 
 // Rutas modulares
 app.use('/api', require('./routes/orders'));

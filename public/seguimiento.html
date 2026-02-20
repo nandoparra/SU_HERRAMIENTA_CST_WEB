@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SU HERRAMIENTA CST — Seguimiento</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; min-height: 100vh; }
+    header {
+      background: #1d3557;
+      color: #fff;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 16px; font-weight: 600; }
+    header span { font-size: 13px; opacity: .8; }
+    .logout-btn {
+      background: rgba(255,255,255,0.15);
+      border: none;
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .logout-btn:hover { background: rgba(255,255,255,0.25); }
+    .container { max-width: 700px; margin: 32px auto; padding: 0 16px; }
+    h2 { font-size: 17px; color: #1d3557; margin-bottom: 20px; }
+    .orden-card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+      padding: 20px 24px;
+      margin-bottom: 16px;
+    }
+    .orden-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .orden-num { font-weight: 700; font-size: 15px; color: #1d3557; }
+    .orden-fecha { font-size: 12px; color: #999; }
+    .maquina-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-top: 1px solid #f0f0f0;
+      font-size: 13px;
+    }
+    .maquina-nombre { color: #333; }
+    .estado-badge {
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .empty { text-align: center; color: #aaa; padding: 40px; font-size: 14px; }
+    .loading { text-align: center; color: #888; padding: 40px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SU HERRAMIENTA CST — Seguimiento de Órdenes</h1>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <span id="userName"></span>
+      <button class="logout-btn" onclick="logout()">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <h2>Mis órdenes de servicio</h2>
+    <div id="ordenesList" class="loading">Cargando...</div>
+  </div>
+
+  <script>
+    const ESTADOS = {
+      pendiente_revision: { label: 'Pendiente de revisión', color: '#888' },
+      revisada:           { label: 'Revisada',              color: '#2196F3' },
+      cotizada:           { label: 'Cotizada',              color: '#FF9800' },
+      autorizada:         { label: 'Autorizada',            color: '#4CAF50' },
+      no_autorizada:      { label: 'No autorizada',         color: '#F44336' },
+      reparada:           { label: 'Reparada',              color: '#9C27B0' },
+      entregada:          { label: 'Entregada',             color: '#009688' },
+    };
+
+    function fmtFecha(raw) {
+      if (!raw) return '-';
+      const s = String(raw);
+      const m8 = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+      if (m8) return `${m8[3]}/${m8[2]}/${m8[1]}`;
+      const miso = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (miso) return `${miso[3]}/${miso[2]}/${miso[1]}`;
+      return '-';
+    }
+
+    async function init() {
+      const me = await fetch('/me').then(r => r.json());
+      if (!me.authenticated) { window.location.href = '/login'; return; }
+      document.getElementById('userName').textContent = me.user.nombre;
+
+      const data = await fetch('/api/cliente/mis-ordenes').then(r => r.json());
+      const el = document.getElementById('ordenesList');
+
+      if (!data.length) {
+        el.innerHTML = '<div class="empty">No tienes órdenes de servicio registradas.</div>';
+        return;
+      }
+
+      el.innerHTML = '';
+      data.forEach(orden => {
+        const card = document.createElement('div');
+        card.className = 'orden-card';
+
+        const maquinas = (orden.maquinas || []).map(m => {
+          const est = ESTADOS[m.her_estado] || ESTADOS.pendiente_revision;
+          return `<div class="maquina-row">
+            <span class="maquina-nombre">${m.her_nombre || '-'} ${m.her_marca || ''} ${m.her_serial ? '/ S/N: ' + m.her_serial : ''}</span>
+            <span class="estado-badge" style="background:${est.color}">${est.label}</span>
+          </div>`;
+        }).join('');
+
+        card.innerHTML = `
+          <div class="orden-header">
+            <span class="orden-num">Orden #${orden.ord_consecutivo}</span>
+            <span class="orden-fecha">Ingreso: ${fmtFecha(orden.ord_fecha)}</span>
+          </div>
+          ${maquinas || '<div style="font-size:13px;color:#aaa;padding-top:8px;">Sin máquinas registradas</div>'}`;
+        el.appendChild(card);
+      });
+    }
+
+    async function logout() {
+      await fetch('/logout', { method: 'POST' });
+      window.location.href = '/login';
+    }
+
+    init();
+  </script>
+</body>
+</html>

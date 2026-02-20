@@ -497,4 +497,45 @@ router.post('/orders/:orderId/notify-delivered', async (req, res) => {
   }
 });
 
+// Órdenes del cliente logueado (seguimiento)
+router.get('/cliente/mis-ordenes', async (req, res) => {
+  try {
+    const user = req.session?.user;
+    if (!user || user.tipo !== 'C') return res.status(403).json([]);
+
+    const conn = await db.getConnection();
+
+    // Buscar el uid_cliente vinculado a este usuario
+    const [[cli]] = await conn.execute(
+      `SELECT uid_cliente FROM b2c_cliente WHERE uid_usuario = ? LIMIT 1`,
+      [user.id]
+    );
+    if (!cli) { conn.release(); return res.json([]); }
+
+    const [ordenes] = await conn.execute(
+      `SELECT uid_orden, ord_consecutivo, ord_fecha, ord_estado
+       FROM b2c_orden WHERE uid_cliente = ?
+       ORDER BY ord_fecha DESC LIMIT 50`,
+      [cli.uid_cliente]
+    );
+
+    for (const orden of ordenes) {
+      const [maquinas] = await conn.execute(
+        `SELECT h.her_nombre, h.her_marca, h.her_serial, ho.her_estado
+         FROM b2c_herramienta_orden ho
+         JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+         WHERE ho.uid_orden = ?`,
+        [orden.uid_orden]
+      );
+      orden.maquinas = maquinas;
+    }
+
+    conn.release();
+    res.json(ordenes);
+  } catch (e) {
+    console.error('Error mis-ordenes:', e);
+    res.status(500).json([]);
+  }
+});
+
 module.exports = router;

@@ -88,6 +88,10 @@
     <div class="header">
       <h1>🔧 Generador de Cotizaciones</h1>
       <p>Universal - Cotiza por máquina, guarda en BD y envía un SOLO WhatsApp final</p>
+      <div style="margin-top:10px;font-size:13px;color:#666;">
+        Bienvenido, <strong id="headerUserName"></strong>
+        <button onclick="doLogout()" style="margin-left:12px;padding:4px 12px;font-size:12px;background:#c0392b;color:#fff;border:none;border-radius:4px;cursor:pointer;">Cerrar sesión</button>
+      </div>
     </div>
 
     <!-- IZQUIERDA -->
@@ -223,6 +227,18 @@
 
   <script>
     const API_BASE = 'http://localhost:3001/api';
+
+    // Verificar sesión al cargar
+    (async function checkSession() {
+      const res = await fetch('/me').then(r => r.json()).catch(() => ({}));
+      if (!res.authenticated) { window.location.href = '/login'; return; }
+      document.getElementById('headerUserName').textContent = res.user.nombre;
+    })();
+
+    async function doLogout() {
+      await fetch('/logout', { method: 'POST' });
+      window.location.href = '/login';
+    }
 
     const ESTADOS = [
       { value: 'pendiente_revision', label: 'Pendiente de revisión', color: '#888' },
