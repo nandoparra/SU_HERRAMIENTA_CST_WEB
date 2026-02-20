@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/c/Users/USER/universal-cotizaciones/routes/orders.js:*)",
+      "Bash(python3:*)",
+      "Bash(node:*)",
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(npm start)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(xargs:*)",
+      "Bash(npm install:*)"
+    ]
+  }
+}
