@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SU HERRAMIENTA CST — Nueva Orden</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:#f0f4f8;min-height:100vh;}
+    header{background:#1d3557;color:#fff;padding:13px 24px;display:flex;align-items:center;justify-content:space-between;}
+    header h1{font-size:15px;font-weight:600;}
+    .nav-links{display:flex;gap:12px;align-items:center;}
+    .nav-links a{color:rgba(255,255,255,.8);text-decoration:none;font-size:13px;}
+    .nav-links a:hover{color:#fff;}
+    .logout-btn{background:rgba(255,255,255,.15);border:none;color:#fff;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:13px;}
+
+    .container{max-width:860px;margin:28px auto;padding:0 16px;}
+
+    /* Steps */
+    .steps{display:flex;gap:0;margin-bottom:28px;}
+    .step{flex:1;text-align:center;padding:12px 8px;font-size:13px;font-weight:600;color:#aaa;border-bottom:3px solid #ddd;cursor:default;}
+    .step.active{color:#1d3557;border-color:#1d3557;}
+    .step.done{color:#4CAF50;border-color:#4CAF50;}
+
+    .card{background:#fff;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.07);padding:24px;margin-bottom:16px;}
+    h2{font-size:16px;color:#1d3557;margin-bottom:16px;}
+    h3{font-size:14px;color:#333;margin-bottom:12px;}
+
+    label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px;}
+    input,select,textarea{width:100%;padding:9px 11px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none;transition:border .2s;font-family:inherit;}
+    input:focus,select:focus,textarea:focus{border-color:#457b9d;}
+    textarea{resize:vertical;min-height:70px;}
+    .req{color:#e74c3c;}
+
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+    .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+    .form-group{margin-bottom:12px;}
+
+    button{padding:9px 18px;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;transition:background .2s;}
+    .btn-primary{background:#1d3557;color:#fff;}
+    .btn-primary:hover{background:#457b9d;}
+    .btn-primary:disabled{background:#aaa;cursor:not-allowed;}
+    .btn-secondary{background:#f0f4f8;color:#333;border:1px solid #ddd;}
+    .btn-secondary:hover{background:#e2e8f0;}
+    .btn-success{background:#4CAF50;color:#fff;}
+    .btn-success:hover{background:#388E3C;}
+    .btn-danger{background:#e74c3c;color:#fff;padding:5px 10px;font-size:12px;}
+    .btn-sm{padding:5px 12px;font-size:12px;}
+
+    .search-row{display:flex;gap:8px;margin-bottom:12px;}
+    .search-row input{flex:1;}
+
+    .result-item{padding:10px 14px;border:1px solid #e8e8e8;border-radius:6px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;transition:background .15s;}
+    .result-item:hover{background:#f0f4f8;}
+    .result-item.selected{background:#e8f4fd;border-color:#457b9d;}
+    .result-name{font-weight:600;font-size:13px;color:#1d3557;}
+    .result-sub{font-size:11px;color:#888;margin-top:2px;}
+
+    .selected-client-card{background:#e8f4fd;border:1px solid #457b9d;border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;}
+    .selected-client-card .name{font-weight:700;color:#1d3557;font-size:14px;}
+    .selected-client-card .sub{font-size:12px;color:#555;margin-top:2px;}
+
+    .maq-item{border:1px solid #e8e8e8;border-radius:8px;padding:14px;margin-bottom:10px;background:#fafafa;}
+    .maq-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+    .maq-nombre{font-weight:700;font-size:13px;color:#1d3557;}
+    .maq-sub{font-size:11px;color:#888;}
+
+    .foto-preview{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+    .foto-thumb{position:relative;width:80px;height:80px;border-radius:6px;overflow:hidden;border:1px solid #ddd;}
+    .foto-thumb img{width:100%;height:100%;object-fit:cover;}
+    .foto-thumb .del{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+
+    .divider{border:none;border-top:1px solid #eee;margin:16px 0;}
+    .alert{padding:10px 14px;border-radius:6px;font-size:13px;margin-bottom:12px;}
+    .alert-error{background:#fdecea;color:#c0392b;}
+    .alert-success{background:#e8f5e9;color:#2e7d32;}
+    .muted{font-size:12px;color:#888;}
+    .tag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;}
+
+    .section-toggle{background:none;border:none;color:#1d3557;font-size:13px;font-weight:600;cursor:pointer;padding:0;text-decoration:underline;}
+
+    .order-success{text-align:center;padding:32px;}
+    .order-success .num{font-size:48px;font-weight:800;color:#1d3557;}
+    .order-success .label{font-size:15px;color:#666;margin-bottom:20px;}
+    .order-success .maq-list{text-align:left;max-width:400px;margin:0 auto 24px;}
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🔧 SU HERRAMIENTA CST — Nueva Orden de Servicio</h1>
+  <div class="nav-links">
+    <a href="/generador-cotizaciones.html">← Cotizaciones</a>
+    <span id="headerUser" style="font-size:13px;opacity:.8;"></span>
+    <button class="logout-btn" onclick="doLogout()">Cerrar sesión</button>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Steps -->
+  <div class="steps">
+    <div class="step active" id="step1-tab">1. Cliente</div>
+    <div class="step" id="step2-tab">2. Máquinas</div>
+    <div class="step" id="step3-tab">3. Confirmar</div>
+  </div>
+
+  <!-- ═══════════ STEP 1: CLIENTE ═══════════ -->
+  <div id="step1">
+    <div class="card">
+      <h2>Buscar cliente</h2>
+      <div class="search-row">
+        <input id="clientSearch" type="text" placeholder="Cédula, NIT, nombre o teléfono..." oninput="buscarCliente()">
+      </div>
+      <div id="clientResults"></div>
+
+      <div id="selectedClientCard" style="display:none;"></div>
+
+      <hr class="divider">
+      <button class="section-toggle" onclick="toggleNewClient()">+ Crear nuevo cliente</button>
+
+      <div id="newClientForm" style="display:none;margin-top:16px;">
+        <h3>Nuevo cliente</h3>
+        <div class="grid2">
+          <div class="form-group">
+            <label>Identificación <span class="req">*</span></label>
+            <input id="nc_id" type="text" placeholder="Cédula o NIT" inputmode="numeric"
+              oninput="this.value=this.value.replace(/[^0-9]/g,'')" onblur="sugerirClave()">
+          </div>
+          <div class="form-group">
+            <label>Razón Social <span class="req">*</span></label>
+            <input id="nc_nombre" type="text" placeholder="Nombre o empresa">
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="form-group">
+            <label>Teléfono <span class="req">*</span></label>
+            <input id="nc_tel" type="text" inputmode="numeric" placeholder="Teléfono"
+              oninput="this.value=this.value.replace(/[^0-9\s\/\-]/g,'')">
+          </div>
+          <div class="form-group">
+            <label>Dirección</label>
+            <input id="nc_dir" type="text" placeholder="Dirección">
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="form-group">
+            <label>Contacto</label>
+            <input id="nc_contacto" type="text" placeholder="Nombre del contacto">
+          </div>
+          <div class="form-group">
+            <label>Teléfono Contacto</label>
+            <input id="nc_tel_contacto" type="text" inputmode="numeric" placeholder="Teléfono contacto"
+              oninput="this.value=this.value.replace(/[^0-9\s\/\-]/g,'')">
+          </div>
+        </div>
+        <div class="form-group" style="max-width:200px;">
+          <label>Clave asignada <span class="req">*</span></label>
+          <input id="nc_clave" type="text" placeholder="Últimos 4 dígitos">
+          <div class="muted" style="margin-top:4px;">Por defecto: últimos 4 dígitos de la identificación</div>
+        </div>
+        <div id="newClientError" class="alert alert-error" style="display:none;"></div>
+        <button class="btn-primary" onclick="crearCliente()">Crear cliente</button>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;">
+      <button class="btn-primary" id="btnStep1Next" onclick="goStep2()" disabled>Siguiente →</button>
+    </div>
+  </div>
+
+  <!-- ═══════════ STEP 2: MÁQUINAS ═══════════ -->
+  <div id="step2" style="display:none;">
+    <div class="card">
+      <div id="step2ClientCard"></div>
+
+      <h2>Máquinas en esta orden</h2>
+
+      <!-- Historial -->
+      <h3>Historial del cliente</h3>
+      <div id="herramientasHistorial" class="muted">Cargando...</div>
+
+      <hr class="divider">
+
+      <!-- Nueva máquina -->
+      <button class="section-toggle" onclick="toggleNewMaq()">+ Agregar máquina nueva</button>
+      <div id="newMaqForm" style="display:none;margin-top:14px;">
+        <div class="grid2">
+          <div class="form-group">
+            <label>Nombre <span class="req">*</span></label>
+            <input id="nm_nombre" type="text" placeholder="Ej: Taladro, Esmeril...">
+          </div>
+          <div class="form-group">
+            <label>Marca</label>
+            <input id="nm_marca" type="text" placeholder="Ej: Bosch, DeWalt...">
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="form-group">
+            <label>Serial</label>
+            <input id="nm_serial" type="text" placeholder="Número de serie">
+          </div>
+          <div class="form-group">
+            <label>Referencia</label>
+            <input id="nm_ref" type="text" placeholder="Referencia del modelo">
+          </div>
+        </div>
+        <div id="newMaqError" class="alert alert-error" style="display:none;"></div>
+        <button class="btn-primary" onclick="crearMaquina()">Agregar a la orden</button>
+      </div>
+    </div>
+
+    <!-- Lista de máquinas agregadas -->
+    <div id="maquinasEnOrden"></div>
+
+    <div style="display:flex;justify-content:space-between;margin-top:8px;">
+      <button class="btn-secondary" onclick="goStep1()">← Atrás</button>
+      <button class="btn-primary" id="btnStep2Next" onclick="goStep3()" disabled>Siguiente →</button>
+    </div>
+  </div>
+
+  <!-- ═══════════ STEP 3: CONFIRMAR ═══════════ -->
+  <div id="step3" style="display:none;">
+    <div class="card">
+      <h2>Confirmar orden</h2>
+      <div id="resumenOrden"></div>
+      <div id="step3Error" class="alert alert-error" style="display:none;"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;">
+      <button class="btn-secondary" onclick="goStep2()">← Atrás</button>
+      <button class="btn-success" id="btnCrear" onclick="crearOrden()">✓ Crear Orden</button>
+    </div>
+  </div>
+
+  <!-- ═══════════ ÉXITO ═══════════ -->
+  <div id="stepSuccess" style="display:none;">
+    <div class="card order-success">
+      <div style="font-size:40px;">✅</div>
+      <div class="num" id="successConsecutivo"></div>
+      <div class="label">Orden creada exitosamente</div>
+
+      <div class="maq-list" id="successMaqList"></div>
+
+      <p style="font-size:13px;color:#888;margin-bottom:20px;">Ahora puedes agregar fotos de recepción para cada máquina:</p>
+      <div id="fotosSection"></div>
+
+      <hr class="divider">
+      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+        <button class="btn-primary" onclick="window.location.href='/generador-cotizaciones.html'">Ir a Cotizaciones</button>
+        <button class="btn-secondary" onclick="nuevaOrden()">Nueva Orden</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = '/api';
+let clienteSeleccionado = null;
+let maquinasEnOrden = []; // [{ uid_herramienta, her_nombre, her_marca, her_serial, observaciones, fotos:[] }]
+let ordenCreada = null;
+
+// ── Sesión ────────────────────────────────────────────────────────────────────
+(async function() {
+  const me = await fetch('/me').then(r => r.json()).catch(() => ({}));
+  if (!me.authenticated) { window.location.href = '/login'; return; }
+  document.getElementById('headerUser').textContent = me.user.nombre;
+})();
+
+async function doLogout() {
+  await fetch('/logout', { method: 'POST' });
+  window.location.href = '/login';
+}
+
+// ── Steps ─────────────────────────────────────────────────────────────────────
+function setStep(n) {
+  ['step1','step2','step3','stepSuccess'].forEach((id,i) => {
+    document.getElementById(id).style.display = (i === n-1 || (n===4 && i===3)) ? 'block' : 'none';
+  });
+  [1,2,3].forEach(i => {
+    const t = document.getElementById(`step${i}-tab`);
+    if (!t) return;
+    t.className = 'step' + (i < n ? ' done' : i === n ? ' active' : '');
+  });
+}
+
+function goStep1() { setStep(1); }
+
+async function goStep2() {
+  if (!clienteSeleccionado) return;
+  setStep(2);
+  document.getElementById('step2ClientCard').innerHTML = `
+    <div class="selected-client-card" style="margin-bottom:16px;">
+      <div><div class="name">${clienteSeleccionado.cli_razon_social}</div>
+      <div class="sub">NIT/CC: ${clienteSeleccionado.cli_identificacion} | Tel: ${clienteSeleccionado.cli_telefono||'-'}</div></div>
+    </div>`;
+  await cargarHistorial();
+  renderMaquinasEnOrden();
+}
+
+function goStep3() {
+  if (!maquinasEnOrden.length) return;
+  setStep(3);
+  renderResumen();
+}
+
+// ── Cliente ───────────────────────────────────────────────────────────────────
+let buscarTimer = null;
+function buscarCliente() {
+  clearTimeout(buscarTimer);
+  buscarTimer = setTimeout(async () => {
+    const q = document.getElementById('clientSearch').value.trim();
+    if (q.length < 2) { document.getElementById('clientResults').innerHTML = ''; return; }
+    const data = await fetch(`${API}/crear-orden/cliente/buscar?q=${encodeURIComponent(q)}`).then(r => r.json());
+    const el = document.getElementById('clientResults');
+    if (!data.length) { el.innerHTML = '<div class="muted">No se encontraron clientes.</div>'; return; }
+    el.innerHTML = data.map(c => `
+      <div class="result-item" onclick="seleccionarCliente(${JSON.stringify(JSON.stringify(c))})">
+        <div>
+          <div class="result-name">${c.cli_razon_social}</div>
+          <div class="result-sub">CC/NIT: ${c.cli_identificacion} | Tel: ${c.cli_telefono||'-'}</div>
+        </div>
+        <button class="btn-primary btn-sm">Seleccionar</button>
+      </div>`).join('');
+  }, 300);
+}
+
+function seleccionarCliente(jsonStr) {
+  const c = JSON.parse(jsonStr);
+  clienteSeleccionado = c;
+  document.getElementById('clientResults').innerHTML = '';
+  document.getElementById('clientSearch').value = '';
+  document.getElementById('newClientForm').style.display = 'none';
+  document.getElementById('selectedClientCard').style.display = 'block';
+  document.getElementById('selectedClientCard').innerHTML = `
+    <div class="selected-client-card">
+      <div>
+        <div class="name">${c.cli_razon_social}</div>
+        <div class="sub">CC/NIT: ${c.cli_identificacion} | Tel: ${c.cli_telefono||'-'} | ${c.cli_direccion||''}</div>
+      </div>
+      <button class="btn-secondary btn-sm" onclick="deseleccionarCliente()">Cambiar</button>
+    </div>`;
+  document.getElementById('btnStep1Next').disabled = false;
+}
+
+function deseleccionarCliente() {
+  clienteSeleccionado = null;
+  document.getElementById('selectedClientCard').style.display = 'none';
+  document.getElementById('selectedClientCard').innerHTML = '';
+  document.getElementById('btnStep1Next').disabled = true;
+}
+
+function toggleNewClient() {
+  const f = document.getElementById('newClientForm');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+}
+
+function sugerirClave() {
+  const id = document.getElementById('nc_id').value;
+  if (id.length >= 4) document.getElementById('nc_clave').value = id.slice(-4);
+}
+
+async function crearCliente() {
+  const errEl = document.getElementById('newClientError');
+  errEl.style.display = 'none';
+  const body = {
+    cli_identificacion: document.getElementById('nc_id').value.trim(),
+    cli_razon_social:   document.getElementById('nc_nombre').value.trim(),
+    cli_telefono:       document.getElementById('nc_tel').value.trim(),
+    cli_direccion:      document.getElementById('nc_dir').value.trim(),
+    cli_contacto:       document.getElementById('nc_contacto').value.trim(),
+    cli_tel_contacto:   document.getElementById('nc_tel_contacto').value.trim(),
+    clave:              document.getElementById('nc_clave').value.trim(),
+  };
+  const res = await fetch(`${API}/crear-orden/cliente`, {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+  }).then(r => r.json());
+  if (!res.success) { errEl.textContent = res.error; errEl.style.display = 'block'; return; }
+  seleccionarCliente(JSON.stringify(res.cliente));
+  document.getElementById('newClientForm').style.display = 'none';
+}
+
+// ── Máquinas ──────────────────────────────────────────────────────────────────
+async function cargarHistorial() {
+  const el = document.getElementById('herramientasHistorial');
+  el.innerHTML = 'Cargando...';
+  const data = await fetch(`${API}/crear-orden/herramientas/${clienteSeleccionado.uid_cliente}`).then(r => r.json());
+  if (!data.length) { el.innerHTML = '<div class="muted">Este cliente no tiene máquinas previas.</div>'; return; }
+  el.innerHTML = data.map(h => `
+    <div class="result-item" onclick="agregarMaquina(${JSON.stringify(JSON.stringify(h))})">
+      <div>
+        <div class="result-name">${h.her_nombre} ${h.her_marca||''}</div>
+        <div class="result-sub">${h.her_serial ? 'S/N: '+h.her_serial : ''}${h.her_referencia ? ' | Ref: '+h.her_referencia : ''}</div>
+      </div>
+      <button class="btn-primary btn-sm">Agregar</button>
+    </div>`).join('');
+}
+
+function agregarMaquina(jsonStr) {
+  const h = JSON.parse(jsonStr);
+  if (maquinasEnOrden.find(m => m.uid_herramienta === h.uid_herramienta)) {
+    alert('Esta máquina ya está en la orden.');
+    return;
+  }
+  maquinasEnOrden.push({ ...h, observaciones: '', fotos: [] });
+  renderMaquinasEnOrden();
+}
+
+function toggleNewMaq() {
+  const f = document.getElementById('newMaqForm');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+}
+
+async function crearMaquina() {
+  const errEl = document.getElementById('newMaqError');
+  errEl.style.display = 'none';
+  const body = {
+    uid_cliente:   clienteSeleccionado.uid_cliente,
+    her_nombre:    document.getElementById('nm_nombre').value.trim(),
+    her_marca:     document.getElementById('nm_marca').value.trim(),
+    her_serial:    document.getElementById('nm_serial').value.trim(),
+    her_referencia:document.getElementById('nm_ref').value.trim(),
+  };
+  if (!body.her_nombre) { errEl.textContent = 'El nombre es obligatorio'; errEl.style.display = 'block'; return; }
+  const res = await fetch(`${API}/crear-orden/herramienta`, {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+  }).then(r => r.json());
+  if (!res.success) { errEl.textContent = res.error; errEl.style.display = 'block'; return; }
+  maquinasEnOrden.push({ ...res.herramienta, observaciones: '', fotos: [] });
+  renderMaquinasEnOrden();
+  // limpiar form
+  ['nm_nombre','nm_marca','nm_serial','nm_ref'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('newMaqForm').style.display = 'none';
+  await cargarHistorial();
+}
+
+function quitarMaquina(uid) {
+  maquinasEnOrden = maquinasEnOrden.filter(m => m.uid_herramienta !== uid);
+  renderMaquinasEnOrden();
+}
+
+function setObservacion(uid, val) {
+  const m = maquinasEnOrden.find(m => m.uid_herramienta === uid);
+  if (m) m.observaciones = val;
+}
+
+function renderMaquinasEnOrden() {
+  const el = document.getElementById('maquinasEnOrden');
+  document.getElementById('btnStep2Next').disabled = maquinasEnOrden.length === 0;
+  if (!maquinasEnOrden.length) { el.innerHTML = '<div class="muted" style="margin-bottom:12px;">Ninguna máquina agregada aún.</div>'; return; }
+  el.innerHTML = maquinasEnOrden.map((m, i) => `
+    <div class="card maq-item">
+      <div class="maq-header">
+        <div>
+          <div class="maq-nombre">${i+1}. ${m.her_nombre} ${m.her_marca||''}</div>
+          <div class="maq-sub">${m.her_serial ? 'S/N: '+m.her_serial : 'Sin serial'}${m.her_referencia ? ' | Ref: '+m.her_referencia : ''}</div>
+        </div>
+        <button class="btn-danger" onclick="quitarMaquina(${m.uid_herramienta})">Quitar</button>
+      </div>
+      <div class="form-group">
+        <label>Observaciones de recepción</label>
+        <textarea placeholder="Estado visible, accesorios entregados, falla reportada..." onchange="setObservacion(${m.uid_herramienta}, this.value)">${m.observaciones||''}</textarea>
+      </div>
+    </div>`).join('');
+}
+
+// ── Resumen ───────────────────────────────────────────────────────────────────
+function renderResumen() {
+  document.getElementById('resumenOrden').innerHTML = `
+    <div class="selected-client-card" style="margin-bottom:16px;">
+      <div>
+        <div class="name">${clienteSeleccionado.cli_razon_social}</div>
+        <div class="sub">CC/NIT: ${clienteSeleccionado.cli_identificacion} | Tel: ${clienteSeleccionado.cli_telefono||'-'}</div>
+      </div>
+    </div>
+    <h3 style="margin-bottom:10px;">Máquinas (${maquinasEnOrden.length})</h3>
+    ${maquinasEnOrden.map((m,i) => `
+      <div style="padding:8px 12px;border:1px solid #eee;border-radius:6px;margin-bottom:6px;">
+        <div style="font-weight:600;font-size:13px;">${i+1}. ${m.her_nombre} ${m.her_marca||''}</div>
+        ${m.her_serial ? `<div class="muted">S/N: ${m.her_serial}</div>` : ''}
+        ${m.observaciones ? `<div class="muted" style="margin-top:4px;">${m.observaciones}</div>` : ''}
+      </div>`).join('')}`;
+}
+
+// ── Crear orden ───────────────────────────────────────────────────────────────
+async function crearOrden() {
+  const btn = document.getElementById('btnCrear');
+  const errEl = document.getElementById('step3Error');
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Creando...';
+
+  const res = await fetch(`${API}/crear-orden/orden`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      uid_cliente: clienteSeleccionado.uid_cliente,
+      maquinas: maquinasEnOrden.map(m => ({ uid_herramienta: m.uid_herramienta, observaciones: m.observaciones })),
+    }),
+  }).then(r => r.json());
+
+  btn.disabled = false;
+  btn.textContent = '✓ Crear Orden';
+
+  if (!res.success) { errEl.textContent = res.error; errEl.style.display = 'block'; return; }
+  ordenCreada = res;
+  mostrarExito();
+}
+
+// ── Éxito + fotos ─────────────────────────────────────────────────────────────
+function mostrarExito() {
+  setStep(4);
+  document.getElementById('successConsecutivo').textContent = `Orden #${ordenCreada.ord_consecutivo}`;
+  document.getElementById('successMaqList').innerHTML = maquinasEnOrden.map((m,i) => `
+    <div style="padding:6px 0;border-bottom:1px solid #eee;font-size:13px;">
+      ${i+1}. ${m.her_nombre} ${m.her_marca||''}${m.her_serial ? ' / S/N: '+m.her_serial : ''}
+    </div>`).join('');
+
+  const fotosEl = document.getElementById('fotosSection');
+  fotosEl.innerHTML = ordenCreada.herramientas.map((h, i) => {
+    const maq = maquinasEnOrden[i];
+    return `
+      <div style="border:1px solid #eee;border-radius:8px;padding:14px;margin-bottom:12px;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:10px;">${maq?.her_nombre||''} ${maq?.her_marca||''}</div>
+        <div class="foto-preview" id="preview_${h.uid_herramienta_orden}"></div>
+        <label style="margin-top:10px;display:inline-block;padding:7px 14px;background:#f0f4f8;border:1px solid #ddd;border-radius:6px;cursor:pointer;font-size:12px;">
+          📷 Agregar fotos
+          <input type="file" accept="image/*" multiple style="display:none;" onchange="subirFotos(event, ${h.uid_herramienta_orden})">
+        </label>
+      </div>`;
+  }).join('');
+}
+
+async function subirFotos(event, herramientaOrdenId) {
+  const files = Array.from(event.target.files);
+  const preview = document.getElementById(`preview_${herramientaOrdenId}`);
+  for (const file of files) {
+    const fd = new FormData();
+    fd.append('foto', file);
+    const res = await fetch(`${API}/crear-orden/foto/${herramientaOrdenId}`, { method: 'POST', body: fd }).then(r => r.json());
+    if (res.success) {
+      const thumb = document.createElement('div');
+      thumb.className = 'foto-thumb';
+      thumb.innerHTML = `<img src="${res.url}" alt="foto"><button class="del" title="Quitar">×</button>`;
+      preview.appendChild(thumb);
+    }
+  }
+  event.target.value = '';
+}
+
+function nuevaOrden() {
+  clienteSeleccionado = null;
+  maquinasEnOrden = [];
+  ordenCreada = null;
+  document.getElementById('clientSearch').value = '';
+  document.getElementById('clientResults').innerHTML = '';
+  document.getElementById('selectedClientCard').style.display = 'none';
+  document.getElementById('btnStep1Next').disabled = true;
+  setStep(1);
+}
+</script>
+</body>
+</html>

@@ -29,6 +29,8 @@ app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
 app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 app.get('/seguimiento.html', requireLogin, (req, res) => res.sendFile(path.join(__dirname, 'public', 'seguimiento.html')));
 app.get('/generador-cotizaciones.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'generador-cotizaciones.html')));
+app.get('/crear-orden.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'crear-orden.html')));
+app.use('/uploads', requireLogin, express.static(path.join(__dirname, 'public', 'uploads')));
 app.get('/', (req, res) => {
   if (!req.session.user) return res.redirect('/login');
   if (req.session.user.tipo === 'C') return res.redirect('/seguimiento.html');
@@ -46,6 +48,7 @@ app.use('/api', require('./routes/orders'));
 app.use('/api', require('./routes/quote'));
 app.use('/api', require('./routes/whatsapp'));
 app.use('/api', require('./routes/pdf'));
+app.use('/api', require('./routes/crear-orden'));
 
 // Health
 app.get('/health', (req, res) => {
