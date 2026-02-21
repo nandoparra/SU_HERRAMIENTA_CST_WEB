@@ -19,6 +19,14 @@ waClient.on('ready', async () => {
   await applyLidPatch();
 });
 
+// Capturar logs del browser para diagnóstico LID
+waClient.on('ready', () => {
+  waClient.pupPage.on('console', msg => {
+    const text = msg.text();
+    if (text.startsWith('[LID]')) console.log('[WA-Browser]', text);
+  });
+});
+
 waClient.on('auth_failure', (msg) => console.log('❌ Error de autenticación:', msg));
 
 waClient.on('disconnected', (reason) => {
@@ -31,34 +39,57 @@ function isReady() {
 }
 
 /**
- * Parche para window.WWebJS.getChat — workaround para "No LID for user"
- * en whatsapp-web.js 1.34.6 con contactos que usan el sistema LID.
- *
- * El problema: window.WWebJS.getChat llama a FindOrCreateLatestChat con
- * un WID @c.us, pero WhatsApp ahora requiere el WID @lid para esos contactos.
- * La función enforceLidAndPnRetrieval ya existe en WWebJS y resuelve el LID
- * consultando los servidores de WhatsApp si es necesario.
- *
- * Este parche reemplaza getChat para que al fallar con LID, resuelva el LID
- * y reintente automáticamente. Se aplica una vez al conectar.
+ * Parche para window.WWebJS.getChat con diagnóstico detallado.
+ * Estrategia en 3 niveles:
+ *   1. Intento normal (getChat original)
+ *   2. Resolver LID via enforceLidAndPnRetrieval + reintentar
+ *   3. Buscar chat existente en el store por número de teléfono
  */
 async function applyLidPatch() {
   try {
     await waClient.pupPage.evaluate(() => {
       const originalGetChat = window.WWebJS.getChat;
+
       window.WWebJS.getChat = async (chatId, opts = {}) => {
+        // Nivel 1: intento normal
         try {
           return await originalGetChat(chatId, opts);
         } catch (e) {
           if (!String(e.message).includes('LID')) throw e;
-
-          // Resolver LID consultando servidores de WA si no está en caché
-          const { lid } = await window.WWebJS.enforceLidAndPnRetrieval(String(chatId));
-          if (!lid) throw e; // LID no disponible → propagar error original
-
-          const lidId = lid._serialized || String(lid);
-          return await originalGetChat(lidId, opts);
+          console.log('[LID] getChat falló con LID para:', chatId);
         }
+
+        // Nivel 2: resolver LID y reintentar
+        try {
+          const result = await window.WWebJS.enforceLidAndPnRetrieval(String(chatId));
+          console.log('[LID] enforceLidAndPnRetrieval retornó lid:', result?.lid?._serialized || 'null');
+          if (result?.lid) {
+            const lidId = result.lid._serialized || String(result.lid);
+            return await originalGetChat(lidId, opts);
+          }
+        } catch (e2) {
+          console.log('[LID] enforceLidAndPnRetrieval también falló:', e2.message);
+        }
+
+        // Nivel 3: buscar chat existente en el store por número
+        try {
+          const phoneNum = String(chatId).replace(/@[a-z.]+$/, '');
+          const chats = window.Store.Chat.getModelsArray();
+          const found = chats.find(c => {
+            const jid = String(c.id?._serialized || '');
+            return jid.startsWith(phoneNum + '@') || jid.includes(phoneNum);
+          });
+          if (found) {
+            console.log('[LID] Chat encontrado en store:', found.id?._serialized);
+            if (opts.getAsModel === false) return found;
+            return await window.WWebJS.getChatModel(found);
+          }
+          console.log('[LID] No se encontró chat en store para:', phoneNum);
+        } catch (e3) {
+          console.log('[LID] Búsqueda en store falló:', e3.message);
+        }
+
+        throw new Error('No LID for user - no se pudo resolver el contacto: ' + chatId);
       };
     });
     console.log('✅ Parche LID aplicado correctamente');
@@ -68,22 +99,22 @@ async function applyLidPatch() {
 }
 
 /**
- * Envía un mensaje de WhatsApp resolviendo el ID correcto antes de enviar.
- * Con el parche LID activo, client.sendMessage() ya maneja LID internamente.
- *
  * @param {string} phoneOrChatId  "573104650437" o "573104650437@c.us"
- * @param {string|MessageMedia} content  Texto o archivo a enviar
+ * @param {string|MessageMedia} content
  */
 async function sendWAMessage(phoneOrChatId, content) {
   const phone = String(phoneOrChatId).replace(/@[a-z.]+$/, '');
 
-  // Resolver ID real con getNumberId (devuelve @c.us o @lid según el contacto)
   let resolvedId = `${phone}@c.us`;
   try {
     const numberId = await waClient.getNumberId(phone);
+    console.log(`[WA] getNumberId(${phone}) →`, numberId?._serialized || 'null');
     if (numberId) resolvedId = numberId._serialized;
-  } catch {}
+  } catch (e) {
+    console.log(`[WA] getNumberId falló:`, e.message);
+  }
 
+  console.log(`[WA] Enviando a: ${resolvedId}`);
   return await waClient.sendMessage(resolvedId, content);
 }
 
