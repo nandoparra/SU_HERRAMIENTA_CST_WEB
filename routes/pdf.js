@@ -3,7 +3,7 @@ const express      = require('express');
 const router       = express.Router();
 const db           = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
-const { generateQuotePDF, generateMaintenancePDF } = require('../utils/pdf-generator');
+const { generateQuotePDF, generateMaintenancePDF, generateOrdenServicioPDF } = require('../utils/pdf-generator');
 const { generateText }  = require('../utils/ia');
 const { waClient, isReady } = require('../utils/whatsapp-client');
 const { MessageMedia }  = require('whatsapp-web.js');
@@ -175,6 +175,121 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', async (re
     res.json({ success: true, filename: fname });
   } catch (e) {
     console.error('Error enviando PDF mantenimiento:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ─── Helper: todas las máquinas de una orden para el PDF ─────────────────────
+async function getOrdenServicioDataCompleta(conn, uid_orden) {
+  const [[ordenRow]] = await conn.execute(
+    `SELECT o.uid_orden, o.ord_consecutivo, o.ord_fecha,
+            c.cli_razon_social, c.cli_identificacion, c.cli_telefono, c.cli_direccion
+     FROM b2c_orden o
+     JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+     WHERE o.uid_orden = ?`,
+    [uid_orden]
+  );
+  if (!ordenRow) return null;
+
+  const [maquinas] = await conn.execute(
+    `SELECT h.her_nombre, h.her_marca, h.her_serial, h.her_referencia,
+            ho.hor_observaciones, ho.her_estado
+     FROM b2c_herramienta_orden ho
+     JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+     WHERE ho.uid_orden = ?
+     ORDER BY ho.uid_herramienta_orden`,
+    [uid_orden]
+  );
+  return { ordenRow, maquinas };
+}
+
+function printHtml(pdfUrl) {
+  return `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><title>Imprimir Orden de Servicio</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{display:flex;flex-direction:column;height:100vh;font-family:'Segoe UI',sans-serif;background:#f0f4f8}
+  .bar{background:#1d3557;padding:10px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0}
+  .bar span{color:#fff;font-weight:600;font-size:14px;flex:1}
+  .bar button{background:#fff;color:#1d3557;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:14px;cursor:pointer}
+  .bar button:hover{background:#e2e8f0}
+  iframe{flex:1;border:none;width:100%}
+</style></head><body>
+  <div class="bar">
+    <span>Orden de Servicio</span>
+    <button onclick="document.getElementById('f').contentWindow.print()">🖨️ Imprimir</button>
+  </div>
+  <iframe id="f" src="${pdfUrl}"></iframe>
+  <script>
+    document.getElementById('f').addEventListener('load', function() {
+      try { this.contentWindow.print(); } catch(e) {}
+    });
+  </script>
+</body></html>`;
+}
+
+// ─── DESCARGAR / IMPRIMIR orden completa (todas las máquinas) ─────────────────
+router.get('/orders/:orderId/pdf/orden', async (req, res) => {
+  try {
+    const conn  = await db.getConnection();
+    const order = await resolveOrder(conn, req.params.orderId);
+    if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
+
+    const data = await getOrdenServicioDataCompleta(conn, order.uid_orden);
+    conn.release();
+    if (!data) return res.status(404).json({ error: 'Orden no encontrada' });
+
+    const { ordenRow, maquinas } = data;
+    const pdf = await generateOrdenServicioPDF({
+      orden:   { ord_consecutivo: ordenRow.ord_consecutivo, ord_fecha: ordenRow.ord_fecha },
+      cliente: { cli_razon_social: ordenRow.cli_razon_social, cli_identificacion: ordenRow.cli_identificacion, cli_telefono: ordenRow.cli_telefono, cli_direccion: ordenRow.cli_direccion },
+      maquinas,
+    });
+
+    const fname = 'orden-' + ordenRow.ord_consecutivo + '.pdf';
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="' + fname + '"' });
+    res.send(pdf);
+  } catch (e) {
+    console.error('Error generando PDF orden:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/orders/:orderId/print/orden', async (req, res) => {
+  const conn  = await db.getConnection();
+  const order = await resolveOrder(conn, req.params.orderId);
+  conn.release();
+  if (!order) return res.status(404).send('Orden no encontrada');
+  res.send(printHtml(`/api/orders/${order.uid_orden}/pdf/orden`));
+});
+
+// ─── ENVIAR orden completa PDF por WhatsApp ───────────────────────────────────
+router.post('/orders/:orderId/send-pdf/orden', async (req, res) => {
+  try {
+    if (!isReady()) return res.status(503).json({ success: false, error: 'WhatsApp no est\u00e1 conectado.' });
+
+    const conn  = await db.getConnection();
+    const order = await resolveOrder(conn, req.params.orderId);
+    if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
+
+    const data = await getOrdenServicioDataCompleta(conn, order.uid_orden);
+    conn.release();
+    if (!data) return res.status(404).json({ error: 'Orden no encontrada' });
+
+    const { ordenRow, maquinas } = data;
+    const pdf = await generateOrdenServicioPDF({
+      orden:   { ord_consecutivo: ordenRow.ord_consecutivo, ord_fecha: ordenRow.ord_fecha },
+      cliente: { cli_razon_social: ordenRow.cli_razon_social, cli_identificacion: ordenRow.cli_identificacion, cli_telefono: ordenRow.cli_telefono, cli_direccion: ordenRow.cli_direccion },
+      maquinas,
+    });
+
+    const fname = 'orden-' + ordenRow.ord_consecutivo + '.pdf';
+    const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
+    await waClient.sendMessage(getPhone({ cli_telefono: ordenRow.cli_telefono }), media);
+
+    res.json({ success: true, filename: fname });
+  } catch (e) {
+    console.error('Error enviando PDF orden de servicio:', e);
     res.status(500).json({ success: false, error: e.message });
   }
 });

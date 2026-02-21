@@ -26,18 +26,22 @@ utils/db.js                        Pool MySQL
 utils/schema.js                    Helpers BD + resolveOrder
 utils/ia.js                        Wrapper Anthropic SDK
 utils/whatsapp-client.js           Singleton waClient
-utils/pdf-generator.js             Generación PDFs
+utils/pdf-generator.js             Generación PDFs (quote, maintenance, orden de servicio)
 utils/phones.js                    parseColombianPhones() — separa múltiples números
 routes/auth.js                     GET/POST /login, /logout, /me
 routes/orders.js                   GET/PATCH órdenes + estados + notificaciones WA
+                                     └─ GET /orders/:id/detalle — orden+cliente+máquinas+fotos+cotización
 routes/quote.js                    GET/POST cotizaciones
 routes/whatsapp.js                 POST envío WhatsApp
 routes/pdf.js                      GET descargar/POST enviar PDFs
-routes/crear-orden.js              POST crear cliente/herramienta/orden + fotos (WIP)
+                                     └─ /pdf/orden — PDF con todas las máquinas de la orden
+                                     └─ /print/orden — HTML wrapper con auto-print
+routes/crear-orden.js              POST crear cliente/herramienta/orden + fotos
 public/login.html                  Página de login
 public/seguimiento.html            Vista cliente — seguimiento de sus órdenes
-public/crear-orden.html            Módulo creación de órdenes (WIP — bug selección cliente)
-public/generador-cotizaciones.html UI principal (vanilla JS)
+public/crear-orden.html            Módulo creación de órdenes
+public/ordenes.html                Consulta de órdenes — buscador + detalle + fotos + cotización
+public/generador-cotizaciones.html Módulo de cotizaciones (refactorizado — mismo estilo visual)
 public/assets/logo.png             Logo portrait 1396x2696 px
 public/uploads/fotos-recepcion/    Fotos subidas (en .gitignore)
 ```
@@ -136,11 +140,50 @@ feature/crear-orden   Módulo crear orden (WIP, basada en feature/login)
 
 ---
 
-## Bug pendiente — crear-orden.html
+---
 
-**Problema**: botón "Seleccionar" cliente no funciona.
-**Causa probable**: `JSON.stringify` doble en el `onclick` del resultado — revisar función `seleccionarCliente()` y el template HTML que la llama.
-**Archivo**: `public/crear-orden.html` función `buscarCliente()` → template del resultado.
+## Estilo visual — patrón de páginas internas
+
+Todas las páginas internas (ordenes.html, generador-cotizaciones.html) siguen este patrón:
+
+- **Header**: `background:#1d3557` — logo rotado + título + nav links + logout
+- **Layout**: `display:flex` — `.panel-left` (340px fijo, scrollable) + `.panel-right` (flex:1, scrollable)
+- **Panel izquierdo**: buscador con concept selector (Número / Cédula NIT / Nombre), debounce 350ms, resultados en `.result-card`
+- **Panel derecho**: empty state hasta seleccionar, luego detalle/formulario en `.card` components
+- **Logo CSS**: `<div class="logo-wrap"><img src="/assets/logo.png" style="width:60px;transform:rotate(-90deg)"></div>`
+- **API_BASE**: usar `/api` (relativo), NO `http://localhost:3001/api`
+
+---
+
+## Páginas protegidas — server.js
+
+Cada HTML interno requiere ruta explícita en `server.js`:
+```js
+app.get('/ordenes.html',                requireInterno, (req,res) => res.sendFile(...));
+app.get('/generador-cotizaciones.html', requireInterno, (req,res) => res.sendFile(...));
+// etc.
+```
+Sin esta ruta el servidor devuelve 404 aunque el archivo exista en `public/`.
+
+---
+
+## PDF orden de servicio
+
+`generateOrdenServicioPDF({ orden, cliente, maquinas[] })` en `utils/pdf-generator.js`:
+- Acepta array de máquinas — todas en UN solo PDF
+- Cada máquina tiene sección numerada ("EQUIPO 1 — NOMBRE", "EQUIPO 2 — NOMBRE")
+- Condiciones y firma se renderizan UNA vez al final
+- Texto empresa: "SU HERRAMIENTA CST" (no "UNIVERSAL DE LICUADORAS")
+- Ruta print: `GET /api/orders/:id/print/orden` → HTML con iframe + auto-print dialog
+
+---
+
+## crear-orden.html — bug resuelto
+
+`seleccionarCliente()` / `seleccionarHerramienta()` — patrón `clientMap`/`herramientaMap`:
+- Objetos indexados por uid (`clientMap[uid] = obj`)
+- `onclick` pasa solo el uid: `onclick="seleccionarCliente(${c.uid_cliente})"`
+- La función recibe el uid y busca en el mapa — evita JSON.stringify en atributos HTML
 
 ---
 

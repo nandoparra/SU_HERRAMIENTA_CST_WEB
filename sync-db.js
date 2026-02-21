@@ -31,6 +31,7 @@ const QUOTE_TABLES = [
   'b2c_cotizacion_orden',
   'b2c_cotizacion_maquina',
   'b2c_cotizacion_item',
+  'b2c_herramienta_status_log',
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -86,11 +87,17 @@ async function main() {
   run(importCmd);
 
   // ── PASO 4: Restaurar tablas de cotización ───────────────────────────────
-  log('PASO 4/4 — Restaurando cotizaciones locales...');
+  log('PASO 4/5 — Restaurando cotizaciones y logs locales...');
   const restoreCmd = `"${MYSQL_BIN}" ${connArgs()} < "${backupFile}"`;
   run(restoreCmd);
 
-  log('¡Listo! Base de datos actualizada con datos de GoDaddy y cotizaciones preservadas.');
+  // ── PASO 5: Re-crear columna her_estado si el dump de GoDaddy no la incluye ─
+  log('PASO 5/5 — Verificando columna her_estado en b2c_herramienta_orden...');
+  const alterCmd = `"${MYSQL_BIN}" ${connArgs()} -e "ALTER TABLE b2c_herramienta_orden ADD COLUMN IF NOT EXISTS her_estado VARCHAR(32) NOT NULL DEFAULT 'pendiente_revision';"`;
+  run(alterCmd);
+  console.log('  Columna her_estado verificada.');
+
+  log('¡Listo! Base de datos actualizada con datos de GoDaddy y datos locales preservados.');
   console.log(`  Backup completo en:      ${fullBackupFile}`);
   console.log(`  Backup cotizaciones en:  ${backupFile}\n`);
 }

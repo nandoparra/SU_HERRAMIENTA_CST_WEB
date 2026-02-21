@@ -91,6 +91,7 @@
   <h1>🔧 SU HERRAMIENTA CST — Nueva Orden de Servicio</h1>
   <div class="nav-links">
     <a href="/generador-cotizaciones.html">← Cotizaciones</a>
+    <a href="/ordenes.html">Órdenes</a>
     <span id="headerUser" style="font-size:13px;opacity:.8;"></span>
     <button class="logout-btn" onclick="doLogout()">Cerrar sesión</button>
   </div>
@@ -241,8 +242,7 @@
 
       <div class="maq-list" id="successMaqList"></div>
 
-      <p style="font-size:13px;color:#888;margin-bottom:20px;">Ahora puedes agregar fotos de recepción para cada máquina:</p>
-      <div id="fotosSection"></div>
+        <div id="ordenAcciones"></div>
 
       <hr class="divider">
       <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
@@ -259,6 +259,8 @@ const API = '/api';
 let clienteSeleccionado = null;
 let maquinasEnOrden = []; // [{ uid_herramienta, her_nombre, her_marca, her_serial, observaciones, fotos:[] }]
 let ordenCreada = null;
+let clientMap = {};
+let herramientaMap = {};
 
 // ── Sesión ────────────────────────────────────────────────────────────────────
 (async function() {
@@ -314,8 +316,9 @@ function buscarCliente() {
     const data = await fetch(`${API}/crear-orden/cliente/buscar?q=${encodeURIComponent(q)}`).then(r => r.json());
     const el = document.getElementById('clientResults');
     if (!data.length) { el.innerHTML = '<div class="muted">No se encontraron clientes.</div>'; return; }
+    data.forEach(c => { clientMap[c.uid_cliente] = c; });
     el.innerHTML = data.map(c => `
-      <div class="result-item" onclick="seleccionarCliente(${JSON.stringify(JSON.stringify(c))})">
+      <div class="result-item" onclick="seleccionarCliente(${c.uid_cliente})">
         <div>
           <div class="result-name">${c.cli_razon_social}</div>
           <div class="result-sub">CC/NIT: ${c.cli_identificacion} | Tel: ${c.cli_telefono||'-'}</div>
@@ -325,8 +328,8 @@ function buscarCliente() {
   }, 300);
 }
 
-function seleccionarCliente(jsonStr) {
-  const c = JSON.parse(jsonStr);
+function seleccionarCliente(uid) {
+  const c = clientMap[uid];
   clienteSeleccionado = c;
   document.getElementById('clientResults').innerHTML = '';
   document.getElementById('clientSearch').value = '';
@@ -376,7 +379,8 @@ async function crearCliente() {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
   }).then(r => r.json());
   if (!res.success) { errEl.textContent = res.error; errEl.style.display = 'block'; return; }
-  seleccionarCliente(JSON.stringify(res.cliente));
+  clientMap[res.cliente.uid_cliente] = res.cliente;
+  seleccionarCliente(res.cliente.uid_cliente);
   document.getElementById('newClientForm').style.display = 'none';
 }
 
@@ -386,8 +390,9 @@ async function cargarHistorial() {
   el.innerHTML = 'Cargando...';
   const data = await fetch(`${API}/crear-orden/herramientas/${clienteSeleccionado.uid_cliente}`).then(r => r.json());
   if (!data.length) { el.innerHTML = '<div class="muted">Este cliente no tiene máquinas previas.</div>'; return; }
+  data.forEach(h => { herramientaMap[h.uid_herramienta] = h; });
   el.innerHTML = data.map(h => `
-    <div class="result-item" onclick="agregarMaquina(${JSON.stringify(JSON.stringify(h))})">
+    <div class="result-item" onclick="agregarMaquina(${h.uid_herramienta})">
       <div>
         <div class="result-name">${h.her_nombre} ${h.her_marca||''}</div>
         <div class="result-sub">${h.her_serial ? 'S/N: '+h.her_serial : ''}${h.her_referencia ? ' | Ref: '+h.her_referencia : ''}</div>
@@ -396,8 +401,8 @@ async function cargarHistorial() {
     </div>`).join('');
 }
 
-function agregarMaquina(jsonStr) {
-  const h = JSON.parse(jsonStr);
+function agregarMaquina(uid) {
+  const h = herramientaMap[uid];
   if (maquinasEnOrden.find(m => m.uid_herramienta === h.uid_herramienta)) {
     alert('Esta máquina ya está en la orden.');
     return;
@@ -461,7 +466,50 @@ function renderMaquinasEnOrden() {
         <label>Observaciones de recepción</label>
         <textarea placeholder="Estado visible, accesorios entregados, falla reportada..." onchange="setObservacion(${m.uid_herramienta}, this.value)">${m.observaciones||''}</textarea>
       </div>
+      <div class="form-group" style="margin-top:8px;">
+        <label>Fotos de recepción</label>
+        <div class="foto-preview" id="fotoPreview_${m.uid_herramienta}"></div>
+        <label style="display:inline-block;margin-top:6px;padding:6px 12px;background:#f0f4f8;border:1px solid #ddd;border-radius:6px;cursor:pointer;font-size:12px;">
+          📷 Agregar fotos
+          <input type="file" accept="image/*" multiple style="display:none;"
+            onchange="agregarFotosPreview(${m.uid_herramienta}, this.files)">
+        </label>
+        <span class="muted" style="margin-left:8px;" id="fotoCount_${m.uid_herramienta}"></span>
+      </div>
     </div>`).join('');
+  // Re-renderizar previews en memoria
+  maquinasEnOrden.forEach(m => renderFotoPreviews(m.uid_herramienta));
+}
+
+// ── Fotos en preview (Step 2) ─────────────────────────────────────────────────
+function agregarFotosPreview(uid, files) {
+  const m = maquinasEnOrden.find(m => m.uid_herramienta === uid);
+  if (!m) return;
+  Array.from(files).forEach(f => {
+    m.fotos.push({ file: f, url: URL.createObjectURL(f) });
+  });
+  renderFotoPreviews(uid);
+}
+
+function quitarFotoPreview(uid, idx) {
+  const m = maquinasEnOrden.find(m => m.uid_herramienta === uid);
+  if (!m) return;
+  URL.revokeObjectURL(m.fotos[idx].url);
+  m.fotos.splice(idx, 1);
+  renderFotoPreviews(uid);
+}
+
+function renderFotoPreviews(uid) {
+  const m = maquinasEnOrden.find(m => m.uid_herramienta === uid);
+  const previewEl = document.getElementById('fotoPreview_' + uid);
+  const countEl   = document.getElementById('fotoCount_'   + uid);
+  if (!m || !previewEl) return;
+  previewEl.innerHTML = m.fotos.map((f, i) => `
+    <div class="foto-thumb">
+      <img src="${f.url}" alt="foto">
+      <button class="del" onclick="quitarFotoPreview(${uid}, ${i})" title="Quitar">×</button>
+    </div>`).join('');
+  if (countEl) countEl.textContent = m.fotos.length ? m.fotos.length + ' foto(s)' : '';
 }
 
 // ── Resumen ───────────────────────────────────────────────────────────────────
@@ -479,6 +527,7 @@ function renderResumen() {
         <div style="font-weight:600;font-size:13px;">${i+1}. ${m.her_nombre} ${m.her_marca||''}</div>
         ${m.her_serial ? `<div class="muted">S/N: ${m.her_serial}</div>` : ''}
         ${m.observaciones ? `<div class="muted" style="margin-top:4px;">${m.observaciones}</div>` : ''}
+        ${m.fotos.length ? `<div class="muted" style="margin-top:2px;">📷 ${m.fotos.length} foto(s) adjunta(s)</div>` : ''}
       </div>`).join('')}`;
 }
 
@@ -504,6 +553,21 @@ async function crearOrden() {
 
   if (!res.success) { errEl.textContent = res.error; errEl.style.display = 'block'; return; }
   ordenCreada = res;
+
+  // Subir fotos adjuntadas en Step 2
+  btn.disabled = true;
+  btn.textContent = 'Subiendo fotos...';
+  for (let i = 0; i < res.herramientas.length; i++) {
+    const fotos = maquinasEnOrden[i]?.fotos || [];
+    for (const f of fotos) {
+      const fd = new FormData();
+      fd.append('foto', f.file);
+      await fetch(`${API}/crear-orden/foto/${res.herramientas[i].uid_herramienta_orden}`, { method: 'POST', body: fd });
+    }
+  }
+  btn.disabled = false;
+  btn.textContent = '✓ Crear Orden';
+
   mostrarExito();
 }
 
@@ -516,39 +580,37 @@ function mostrarExito() {
       ${i+1}. ${m.her_nombre} ${m.her_marca||''}${m.her_serial ? ' / S/N: '+m.her_serial : ''}
     </div>`).join('');
 
-  const fotosEl = document.getElementById('fotosSection');
-  fotosEl.innerHTML = ordenCreada.herramientas.map((h, i) => {
-    const maq = maquinasEnOrden[i];
-    return `
-      <div style="border:1px solid #eee;border-radius:8px;padding:14px;margin-bottom:12px;">
-        <div style="font-weight:600;font-size:13px;margin-bottom:10px;">${maq?.her_nombre||''} ${maq?.her_marca||''}</div>
-        <div class="foto-preview" id="preview_${h.uid_herramienta_orden}"></div>
-        <label style="margin-top:10px;display:inline-block;padding:7px 14px;background:#f0f4f8;border:1px solid #ddd;border-radius:6px;cursor:pointer;font-size:12px;">
-          📷 Agregar fotos
-          <input type="file" accept="image/*" multiple style="display:none;" onchange="subirFotos(event, ${h.uid_herramienta_orden})">
-        </label>
-      </div>`;
-  }).join('');
+  const accionesEl = document.getElementById('ordenAcciones');
+  const uid_orden = ordenCreada.uid_orden;
+  accionesEl.innerHTML = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
+      <a href="${API}/orders/${uid_orden}/print/orden" target="_blank"
+         style="padding:9px 20px;background:#1d3557;color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;">
+        🖨️ Imprimir orden
+      </a>
+      <button onclick="enviarOrdenWA(${uid_orden}, this)"
+         style="padding:9px 20px;background:#25D366;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">
+        📱 Enviar por WhatsApp
+      </button>
+    </div>`;
 }
 
-async function subirFotos(event, herramientaOrdenId) {
-  const files = Array.from(event.target.files);
-  const preview = document.getElementById(`preview_${herramientaOrdenId}`);
-  for (const file of files) {
-    const fd = new FormData();
-    fd.append('foto', file);
-    const res = await fetch(`${API}/crear-orden/foto/${herramientaOrdenId}`, { method: 'POST', body: fd }).then(r => r.json());
-    if (res.success) {
-      const thumb = document.createElement('div');
-      thumb.className = 'foto-thumb';
-      thumb.innerHTML = `<img src="${res.url}" alt="foto"><button class="del" title="Quitar">×</button>`;
-      preview.appendChild(thumb);
-    }
+async function enviarOrdenWA(uid_orden, btn) {
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Enviando...';
+  try {
+    const res = await fetch(`${API}/orders/${uid_orden}/send-pdf/orden`, { method: 'POST' }).then(r => r.json());
+    btn.textContent = res.success ? '✓ Enviado' : '✗ Error';
+    if (!res.success) setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+  } catch {
+    btn.textContent = '✗ Error';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
   }
-  event.target.value = '';
 }
 
 function nuevaOrden() {
+  maquinasEnOrden.forEach(m => m.fotos.forEach(f => URL.revokeObjectURL(f.url)));
   clienteSeleccionado = null;
   maquinasEnOrden = [];
   ordenCreada = null;

@@ -497,6 +497,91 @@ router.post('/orders/:orderId/notify-delivered', async (req, res) => {
   }
 });
 
+// Vista de detalle para la página de consulta de órdenes
+router.get('/orders/:orderId/detalle', async (req, res) => {
+  try {
+    const conn  = await db.getConnection();
+    const order = await resolveOrder(conn, req.params.orderId);
+    if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
+
+    // Orden + cliente
+    const [[ordenRow]] = await conn.execute(
+      `SELECT o.uid_orden, o.ord_consecutivo, o.ord_fecha, o.ord_estado,
+              c.cli_razon_social, c.cli_identificacion, c.cli_telefono, c.cli_direccion
+       FROM b2c_orden o
+       JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+       WHERE o.uid_orden = ?`,
+      [order.uid_orden]
+    );
+
+    // Máquinas con observaciones
+    const [maquinas] = await conn.execute(
+      `SELECT ho.uid_herramienta_orden, ho.her_estado, ho.hor_observaciones,
+              h.uid_herramienta, h.her_nombre, h.her_marca, h.her_serial, h.her_referencia
+       FROM b2c_herramienta_orden ho
+       JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+       WHERE ho.uid_orden = ?
+       ORDER BY ho.uid_herramienta_orden`,
+      [order.uid_orden]
+    );
+
+    // Fotos agrupadas por uid_herramienta_orden
+    const fotoMap = {};
+    if (maquinas.length) {
+      const ids = maquinas.map(m => m.uid_herramienta_orden);
+      const placeholders = ids.map(() => '?').join(',');
+      const [fotos] = await conn.execute(
+        `SELECT uid_herramienta_orden, fho_archivo, fho_nombre
+         FROM b2c_foto_herramienta_orden
+         WHERE uid_herramienta_orden IN (${placeholders})
+         ORDER BY uid_foto_herramienta_orden`,
+        ids
+      );
+      fotos.forEach(f => {
+        if (!fotoMap[f.uid_herramienta_orden]) fotoMap[f.uid_herramienta_orden] = [];
+        fotoMap[f.uid_herramienta_orden].push({ fho_archivo: f.fho_archivo, fho_nombre: f.fho_nombre });
+      });
+    }
+    maquinas.forEach(m => { m.fotos = fotoMap[m.uid_herramienta_orden] || []; });
+
+    // Cotización por máquina + items + totales de orden
+    const [cotMaquinas] = await conn.execute(
+      `SELECT uid_herramienta_orden, mano_obra, descripcion_trabajo, subtotal
+       FROM b2c_cotizacion_maquina WHERE uid_orden = ?`,
+      [order.uid_orden]
+    );
+    const tieneCotizacion = cotMaquinas.length > 0;
+
+    if (tieneCotizacion) {
+      const [cotItems] = await conn.execute(
+        `SELECT uid_herramienta_orden, nombre, cantidad, precio, subtotal
+         FROM b2c_cotizacion_item WHERE uid_orden = ?
+         ORDER BY uid_herramienta_orden, id`,
+        [order.uid_orden]
+      );
+      const [[cotOrden]] = await conn.execute(
+        `SELECT subtotal, iva, total FROM b2c_cotizacion_orden WHERE uid_orden = ?`,
+        [order.uid_orden]
+      );
+
+      // Indexar por uid_herramienta_orden
+      const cotMap = {};
+      cotMaquinas.forEach(cm => { cotMap[cm.uid_herramienta_orden] = { ...cm, items: [] }; });
+      cotItems.forEach(ci => { if (cotMap[ci.uid_herramienta_orden]) cotMap[ci.uid_herramienta_orden].items.push(ci); });
+      maquinas.forEach(m => { m.cotizacion = cotMap[m.uid_herramienta_orden] || null; });
+
+      conn.release();
+      res.json({ orden: ordenRow, maquinas, tieneCotizacion, cotOrden: cotOrden || null });
+    } else {
+      conn.release();
+      res.json({ orden: ordenRow, maquinas, tieneCotizacion, cotOrden: null });
+    }
+  } catch (e) {
+    console.error('Error obteniendo detalle de orden:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Órdenes del cliente logueado (seguimiento)
 router.get('/cliente/mis-ordenes', async (req, res) => {
   try {

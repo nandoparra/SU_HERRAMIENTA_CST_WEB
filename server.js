@@ -30,6 +30,7 @@ app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'log
 app.get('/seguimiento.html', requireLogin, (req, res) => res.sendFile(path.join(__dirname, 'public', 'seguimiento.html')));
 app.get('/generador-cotizaciones.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'generador-cotizaciones.html')));
 app.get('/crear-orden.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'crear-orden.html')));
+app.get('/ordenes.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'ordenes.html')));
 app.use('/uploads', requireLogin, express.static(path.join(__dirname, 'public', 'uploads')));
 app.get('/', (req, res) => {
   if (!req.session.user) return res.redirect('/login');

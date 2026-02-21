@@ -440,4 +440,151 @@ function generateMaintenancePDF({ order, machine, items, observation, proxManten
   });
 }
 
-module.exports = { generateQuotePDF, generateMaintenancePDF };
+// ─── ORDEN DE SERVICIO PDF ────────────────────────────────────────────────────
+// maquinas: array de { her_nombre, her_marca, her_serial, her_referencia, hor_observaciones }
+function generateOrdenServicioPDF({ orden, cliente, maquinas }) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    const doc = new PDFDocument({ size: 'A4', margin: 0, compress: true });
+    doc.on('data', d => chunks.push(d));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const parseOrdFecha = (raw) => {
+      const m = String(raw || '').match(/^(\d{4})(\d{2})(\d{2})$/);
+      return m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date();
+    };
+
+    let y = MG;
+
+    // ── Header ────────────────────────────────────────────────────────────────
+    const LOGO_FW = 110;
+    const LOGO_FH = Math.round(LOGO_FW * 1396 / 2696);
+    const HDR_H   = Math.max(LOGO_FH, 65);
+
+    if (fs.existsSync(LOGO)) {
+      const cx = MG + LOGO_FW / 2;
+      const cy = y + HDR_H / 2;
+      doc.save()
+        .translate(cx, cy).rotate(-90)
+        .image(LOGO, -LOGO_FH / 2, -LOGO_FW / 2, { width: LOGO_FH, height: LOGO_FW })
+        .restore();
+    }
+
+    const infoX = MG + LOGO_FW + 5;
+    const infoW = CW - LOGO_FW - 80;
+    doc.save().font('Helvetica-Bold').fontSize(12).fillColor(C.dark)
+      .text(COMPANY.name, infoX, y + 4, { width: infoW, align: 'center' }).restore();
+    [COMPANY.nit, COMPANY.address, COMPANY.phone, COMPANY.website, COMPANY.email].forEach((line, i) => {
+      doc.save().font('Helvetica').fontSize(8).fillColor(C.blk)
+        .text(line, infoX, y + 19 + i * 9.5, { width: infoW, align: 'center' }).restore();
+    });
+
+    const QX = MG + CW - 75;
+    fillRect(doc, QX, y, 75, HDR_H, C.lightBg);
+    strokeRect(doc, QX, y, 75, HDR_H, C.bdr);
+    doc.save().font('Helvetica').fontSize(7.5).fillColor(C.gry)
+      .text('ORDEN DE SERVICIO', QX, y + 8, { width: 75, align: 'center' }).restore();
+    doc.save().font('Helvetica-Bold').fontSize(15).fillColor(C.dark)
+      .text('No. ' + (orden.ord_consecutivo || ''), QX, y + 24, { width: 75, align: 'center' }).restore();
+    doc.save().font('Helvetica').fontSize(7.5).fillColor(C.gry)
+      .text(fmtDate(parseOrdFecha(orden.ord_fecha)), QX, y + 46, { width: 75, align: 'center' }).restore();
+
+    y += HDR_H + 6;
+    hLine(doc, MG, y, MG + CW, C.dark, 1.5);
+    y += 10;
+
+    // ── Datos del cliente ─────────────────────────────────────────────────────
+    const LBL_W = 90;
+    const ROW_H = 20;
+    const HW    = CW / 2;
+
+    const clientRows = [
+      { lbl: 'CLIENTE',                  val: cliente.cli_razon_social || '' },
+      { lbl: 'NIT / CC',                 val: cliente.cli_identificacion || '' },
+      { lbl: 'DIRECCI\u00d3N / TEL\u00c9FONO', val: [cliente.cli_direccion, cliente.cli_telefono].filter(Boolean).join(' / ') },
+    ];
+    for (const row of clientRows) {
+      cell(doc, row.lbl, MG, y, LBL_W, ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+      cell(doc, row.val, MG + LBL_W, y, CW - LBL_W, ROW_H, { size: 8.5 });
+      y += ROW_H;
+    }
+    y += 10;
+
+    // ── Una sección por máquina ───────────────────────────────────────────────
+    const lista = Array.isArray(maquinas) ? maquinas : [maquinas];
+    lista.forEach((maq, idx) => {
+      const label = lista.length > 1
+        ? `EQUIPO ${idx + 1} — ${(maq.her_nombre || '').toUpperCase()}`
+        : 'EQUIPO RECIBIDO';
+      y = sectionBar(doc, y, label);
+
+      cell(doc, 'HERRAMIENTA', MG, y, LBL_W, ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+      cell(doc, maq.her_nombre || '', MG + LBL_W, y, HW - LBL_W, ROW_H, { size: 8.5, font: 'Helvetica-Bold' });
+      cell(doc, 'MARCA', MG + HW, y, LBL_W, ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+      cell(doc, maq.her_marca || '', MG + HW + LBL_W, y, HW - LBL_W, ROW_H, { size: 8.5 });
+      y += ROW_H;
+
+      cell(doc, 'SERIAL', MG, y, LBL_W, ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+      cell(doc, maq.her_serial || '', MG + LBL_W, y, HW - LBL_W, ROW_H, { size: 8.5 });
+      cell(doc, 'REFERENCIA', MG + HW, y, LBL_W, ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+      cell(doc, maq.her_referencia || '', MG + HW + LBL_W, y, HW - LBL_W, ROW_H, { size: 8.5 });
+      y += ROW_H;
+
+      const obsText = maq.hor_observaciones || '';
+      const OBS_H  = 40;
+      cell(doc, 'OBSERVACI\u00d3N', MG, y, LBL_W, OBS_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+      strokeRect(doc, MG + LBL_W, y, CW - LBL_W, OBS_H);
+      if (obsText) {
+        doc.save().font('Helvetica').fontSize(8.5).fillColor(C.blk)
+          .text(obsText, MG + LBL_W + 5, y + 5, { width: CW - LBL_W - 10, height: OBS_H - 8 })
+          .restore();
+      }
+      y += OBS_H + 8;
+    });
+
+    y += 4;
+
+    // ── Condiciones generales (una sola vez al final) ─────────────────────────
+    const conditions = [
+      'CONDICIONES GENERALES: Si transcurridos 30 d\u00edas desde la fecha de notificaci\u00f3n de reparaci\u00f3n o presupuesto, no se han retirado los equipos o cancelada su reparaci\u00f3n, estos equipos pasar\u00e1n a disposici\u00f3n de SU HERRAMIENTA CST, sin nada que reclamar.',
+      'SU HERRAMIENTA CST se declara no responsable de la mercanc\u00eda arriba descrita, asumiendo s\u00f3lo la reparaci\u00f3n de la misma, desligandose de toda responsabilidad sobre el origen o ingreso de dicha mercanc\u00eda.',
+      'La presentaci\u00f3n de este recibo es indispensable para retirar el equipo.',
+      'Declaro haber le\u00eddo y aceptado las condiciones generales.',
+    ];
+    const condX = MG + 20;
+    const condW = CW - 40;
+    const condStartY = y;
+    doc.save().font('Helvetica-Bold').fontSize(7.5).fillColor(C.blk)
+      .text(conditions[0], condX, y, { width: condW, align: 'justify' }).restore();
+    y = doc.y + 5;
+    for (let i = 1; i < conditions.length; i++) {
+      doc.save().font('Helvetica').fontSize(7.5).fillColor(C.blk)
+        .text(conditions[i], condX, y, { width: condW, align: 'center' }).restore();
+      y = doc.y + 4;
+    }
+    strokeRect(doc, MG, condStartY - 6, CW, y - condStartY + 14, C.bdr, 0.6);
+    y += 14;
+
+    // ── Firma ─────────────────────────────────────────────────────────────────
+    const FY = Math.max(y + 30, A4H - 110);
+    const lineW = 200;
+    const lineX = (A4W - lineW) / 2;
+    hLine(doc, lineX, FY, lineX + lineW, C.blk, 0.7);
+    doc.save().font('Helvetica').fontSize(8).fillColor(C.gry)
+      .text('Firma Cliente', 0, FY + 5, { width: A4W, align: 'center' }).restore();
+
+    // ── Footer ────────────────────────────────────────────────────────────────
+    const footY = A4H - 55;
+    hLine(doc, MG, footY, MG + CW, C.dark, 0.8);
+    [COMPANY.email + '   Celular: ' + COMPANY.phone, COMPANY.address, COMPANY.website]
+      .forEach((line, i) => {
+        doc.save().font('Helvetica').fontSize(7.5).fillColor(C.gry)
+          .text(line, MG, footY + 6 + i * 11, { width: CW, align: 'center' }).restore();
+      });
+
+    doc.end();
+  });
+}
+
+module.exports = { generateQuotePDF, generateMaintenancePDF, generateOrdenServicioPDF };
