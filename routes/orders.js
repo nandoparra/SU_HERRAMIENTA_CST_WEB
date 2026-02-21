@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../utils/db');
+const multer = require('multer');
+const path   = require('path');
+const fs     = require('fs');
 const {
   getHerramientaOrdenTechColumn,
   getUsuarioColumns,
@@ -10,6 +13,26 @@ const {
 } = require('../utils/schema');
 const { waClient, isReady } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
+
+// ── Multer para fotos del trabajo ─────────────────────────────────────────────
+const fotoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(__dirname, '..', 'public', 'uploads', 'fotos-recepcion');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `foto_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
+  },
+});
+const uploadFoto = multer({
+  storage: fotoStorage,
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    file.mimetype.startsWith('image/') ? cb(null, true) : cb(new Error('Solo imágenes'));
+  },
+});
 
 const ESTADOS_VALIDOS = [
   'pendiente_revision',
@@ -525,24 +548,55 @@ router.get('/orders/:orderId/detalle', async (req, res) => {
       [order.uid_orden]
     );
 
-    // Fotos agrupadas por uid_herramienta_orden
+    // Fotos agrupadas por uid_herramienta_orden (separadas por tipo)
     const fotoMap = {};
     if (maquinas.length) {
       const ids = maquinas.map(m => m.uid_herramienta_orden);
       const placeholders = ids.map(() => '?').join(',');
       const [fotos] = await conn.execute(
-        `SELECT uid_herramienta_orden, fho_archivo, fho_nombre
+        `SELECT uid_foto_herramienta_orden, uid_herramienta_orden, fho_archivo, fho_nombre,
+                COALESCE(fho_tipo, 'recepcion') AS fho_tipo
          FROM b2c_foto_herramienta_orden
          WHERE uid_herramienta_orden IN (${placeholders})
          ORDER BY uid_foto_herramienta_orden`,
         ids
       );
       fotos.forEach(f => {
-        if (!fotoMap[f.uid_herramienta_orden]) fotoMap[f.uid_herramienta_orden] = [];
-        fotoMap[f.uid_herramienta_orden].push({ fho_archivo: f.fho_archivo, fho_nombre: f.fho_nombre });
+        if (!fotoMap[f.uid_herramienta_orden]) fotoMap[f.uid_herramienta_orden] = { recepcion: [], trabajo: [] };
+        const tipo = f.fho_tipo === 'trabajo' ? 'trabajo' : 'recepcion';
+        fotoMap[f.uid_herramienta_orden][tipo].push({
+          uid_foto_herramienta_orden: f.uid_foto_herramienta_orden,
+          fho_archivo: f.fho_archivo,
+          fho_nombre:  f.fho_nombre,
+        });
       });
     }
-    maquinas.forEach(m => { m.fotos = fotoMap[m.uid_herramienta_orden] || []; });
+    maquinas.forEach(m => {
+      const map = fotoMap[m.uid_herramienta_orden] || { recepcion: [], trabajo: [] };
+      m.fotos         = map.recepcion;
+      m.fotos_trabajo = map.trabajo;
+    });
+
+    // Informes de mantenimiento por máquina
+    if (maquinas.length) {
+      const ids = maquinas.map(m => m.uid_herramienta_orden);
+      const placeholders = ids.map(() => '?').join(',');
+      const [informes] = await conn.execute(
+        `SELECT uid_informe, uid_herramienta_orden, inf_fecha
+         FROM b2c_informe_mantenimiento
+         WHERE uid_herramienta_orden IN (${placeholders})
+         ORDER BY inf_fecha DESC`,
+        ids
+      );
+      const informeMap = {};
+      informes.forEach(i => {
+        if (!informeMap[i.uid_herramienta_orden]) informeMap[i.uid_herramienta_orden] = [];
+        informeMap[i.uid_herramienta_orden].push({ uid_informe: i.uid_informe, inf_fecha: i.inf_fecha });
+      });
+      maquinas.forEach(m => { m.informes = informeMap[m.uid_herramienta_orden] || []; });
+    } else {
+      maquinas.forEach(m => { m.informes = []; });
+    }
 
     // Cotización por máquina + items + totales de orden
     const [cotMaquinas] = await conn.execute(
@@ -620,6 +674,55 @@ router.get('/cliente/mis-ordenes', async (req, res) => {
   } catch (e) {
     console.error('Error mis-ordenes:', e);
     res.status(500).json([]);
+  }
+});
+
+// ── Subir foto del trabajo ────────────────────────────────────────────────────
+router.post('/orders/:id/fotos-trabajo/:uid_herramienta_orden', uploadFoto.single('foto'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No se recibió imagen' });
+    const conn = await db.getConnection();
+    await conn.execute(
+      `INSERT INTO b2c_foto_herramienta_orden (uid_herramienta_orden, fho_archivo, fho_nombre, fho_tipo)
+       VALUES (?, ?, ?, 'trabajo')`,
+      [req.params.uid_herramienta_orden, req.file.filename, req.file.originalname]
+    );
+    const [[ins]] = await conn.execute('SELECT LAST_INSERT_ID() AS id');
+    conn.release();
+    res.json({
+      success:   true,
+      uid_foto:  ins.id,
+      filename:  req.file.filename,
+      url:       '/uploads/fotos-recepcion/' + req.file.filename,
+    });
+  } catch (e) {
+    console.error('Error subiendo foto de trabajo:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Eliminar foto del trabajo ─────────────────────────────────────────────────
+router.delete('/orders/fotos-trabajo/:uid_foto', async (req, res) => {
+  try {
+    const conn = await db.getConnection();
+    const [[foto]] = await conn.execute(
+      `SELECT fho_archivo FROM b2c_foto_herramienta_orden
+       WHERE uid_foto_herramienta_orden = ? AND fho_tipo = 'trabajo'`,
+      [req.params.uid_foto]
+    );
+    if (!foto) { conn.release(); return res.status(404).json({ error: 'Foto no encontrada' }); }
+    await conn.execute(
+      `DELETE FROM b2c_foto_herramienta_orden WHERE uid_foto_herramienta_orden = ?`,
+      [req.params.uid_foto]
+    );
+    conn.release();
+    try {
+      fs.unlinkSync(path.join(__dirname, '..', 'public', 'uploads', 'fotos-recepcion', foto.fho_archivo));
+    } catch {}
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Error eliminando foto de trabajo:', e);
+    res.status(500).json({ error: e.message });
   }
 });
 

@@ -8,8 +8,10 @@
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Segoe UI',sans-serif;background:#f0f4f8;min-height:100vh;display:flex;flex-direction:column;}
 
-    header{background:#1d3557;color:#fff;padding:13px 24px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
-    header h1{font-size:15px;font-weight:600;}
+    header{background:#1d3557;color:#fff;padding:12px 24px;display:flex;align-items:center;gap:14px;flex-shrink:0;}
+    .logo-wrap{position:relative;width:96px;height:50px;flex-shrink:0;overflow:hidden;}
+    .logo-wrap img{position:absolute;left:50%;top:50%;width:50px;transform:translate(-50%,-50%) rotate(-90deg);}
+    header h1{font-size:15px;font-weight:600;flex:1;}
     .nav-links{display:flex;gap:12px;align-items:center;}
     .nav-links a{color:rgba(255,255,255,.8);text-decoration:none;font-size:13px;}
     .nav-links a:hover{color:#fff;}
@@ -80,11 +82,26 @@
     .maq-obs{font-size:12px;color:#555;margin-top:8px;padding:8px 10px;background:#f7f9fb;border-radius:6px;border-left:3px solid #ddd;}
     .maq-obs-lbl{font-size:10px;font-weight:700;color:#aaa;text-transform:uppercase;margin-bottom:3px;}
 
-    .foto-row{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px;}
-    .foto-thumb{width:72px;height:72px;border-radius:6px;overflow:hidden;border:1px solid #ddd;cursor:pointer;flex-shrink:0;}
+    .foto-row{display:flex;flex-wrap:wrap;gap:7px;margin-top:6px;}
+    .foto-thumb{position:relative;width:72px;height:72px;border-radius:6px;overflow:hidden;border:1px solid #ddd;cursor:pointer;flex-shrink:0;}
     .foto-thumb img{width:100%;height:100%;object-fit:cover;}
-    .foto-thumb:hover{border-color:#457b9d;transform:scale(1.04);transition:transform .15s;}
-    .sin-fotos{font-size:11px;color:#aaa;margin-top:8px;}
+    .foto-thumb:hover{border-color:#457b9d;}
+    .foto-thumb .del-btn{position:absolute;top:2px;right:2px;background:rgba(180,0,0,.75);color:#fff;border:none;border-radius:3px;font-size:10px;padding:1px 5px;cursor:pointer;display:none;line-height:16px;}
+    .foto-thumb:hover .del-btn{display:block;}
+    .sin-fotos{font-size:11px;color:#aaa;margin-top:6px;}
+
+    .fotos-seccion{margin-top:10px;}
+    .fotos-lbl{font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;}
+    .fotos-trabajo-lbl{color:#457b9d;}
+    .upload-foto-btn{display:inline-flex;align-items:center;gap:5px;margin-top:4px;padding:5px 10px;background:#f0f4f8;border:1px dashed #aac;border-radius:6px;font-size:12px;color:#457b9d;cursor:pointer;}
+    .upload-foto-btn:hover{background:#e8f4fd;}
+
+    .informes-section{margin-top:10px;padding-top:8px;border-top:1px dashed #e2e8f0;}
+    .informes-title{font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;}
+    .informe-row{display:flex;align-items:center;justify-content:space-between;padding:4px 8px;background:#f7f9fb;border-radius:5px;margin-bottom:4px;font-size:11px;color:#444;}
+    .informe-row a{color:#1d3557;font-weight:600;text-decoration:none;padding:2px 8px;background:#e8f4fd;border-radius:4px;font-size:11px;}
+    .informe-row a:hover{background:#cce4f7;}
+    .sin-informes{font-size:11px;color:#bbb;}
 
     .cot-section{margin-top:12px;padding-top:10px;border-top:1px dashed #e2e8f0;}
     .cot-title{font-size:10px;font-weight:700;color:#6c3483;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
@@ -121,7 +138,10 @@
 <body>
 
 <header>
-  <h1>🔧 SU HERRAMIENTA CST — Órdenes de Servicio</h1>
+  <div class="logo-wrap">
+    <img src="/assets/logo.png" alt="Logo SU HERRAMIENTA CST">
+  </div>
+  <h1>SU HERRAMIENTA CST — Órdenes de Servicio</h1>
   <div class="nav-links">
     <a href="/generador-cotizaciones.html">Cotizaciones</a>
     <a href="/crear-orden.html">+ Nueva Orden</a>
@@ -304,12 +324,49 @@ function renderMaquina(m, orden) {
     m.her_referencia ? 'Ref: ' + m.her_referencia   : null,
   ].filter(Boolean);
 
-  const fotosHtml = m.fotos.length
-    ? `<div class="foto-row">${m.fotos.map(f =>
-        `<div class="foto-thumb" title="${f.fho_nombre||''}" onclick="window.open('/uploads/fotos-recepcion/${f.fho_archivo}','_blank')">
-           <img src="/uploads/fotos-recepcion/${f.fho_archivo}" alt="${f.fho_nombre||'foto'}">
-         </div>`).join('')}</div>`
-    : `<div class="sin-fotos">Sin fotos de recepción</div>`;
+  const fotosHtml = `
+    <div class="fotos-seccion">
+      <div class="fotos-lbl">Recepción</div>
+      ${m.fotos.length
+        ? `<div class="foto-row">${m.fotos.map(f =>
+            `<div class="foto-thumb" title="${f.fho_nombre||''}"
+                  onclick="window.open('/uploads/fotos-recepcion/${f.fho_archivo}','_blank')">
+               <img src="/uploads/fotos-recepcion/${f.fho_archivo}" alt="${f.fho_nombre||'foto'}">
+             </div>`).join('')}</div>`
+        : `<div class="sin-fotos">Sin fotos de recepción</div>`}
+    </div>
+    <div class="fotos-seccion">
+      <div class="fotos-lbl fotos-trabajo-lbl">Del trabajo</div>
+      <div class="foto-row" id="ft-row-${m.uid_herramienta_orden}">${
+        (m.fotos_trabajo || []).map(f =>
+          `<div class="foto-thumb" id="ft-${f.uid_foto_herramienta_orden}" title="${f.fho_nombre||''}">
+             <img src="/uploads/fotos-recepcion/${f.fho_archivo}"
+                  onclick="window.open(this.src,'_blank')" alt="">
+             <button class="del-btn" onclick="deleteFotoTrabajo(${f.uid_foto_herramienta_orden},event)">✕</button>
+           </div>`).join('')}
+      </div>
+      <label class="upload-foto-btn">
+        + Agregar foto
+        <input type="file" accept="image/*" style="display:none"
+               onchange="uploadFotoTrabajo(${orden.uid_orden},${m.uid_herramienta_orden},this)">
+      </label>
+    </div>`;
+
+  // Informes de mantenimiento guardados
+  const informesHtml = `
+    <div class="informes-section">
+      <div class="informes-title">📋 Informes de mantenimiento</div>
+      ${(m.informes && m.informes.length)
+        ? m.informes.map(inf => {
+            const fecha = new Date(inf.inf_fecha).toLocaleString('es-CO',
+              { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+            return `<div class="informe-row">
+              <span>${fecha}</span>
+              <a href="${API}/informes/${inf.uid_informe}" target="_blank">⬇ Descargar</a>
+            </div>`;
+          }).join('')
+        : '<div class="sin-informes">Sin informes generados</div>'}
+    </div>`;
 
   let cotHtml = '';
   if (m.cotizacion) {
@@ -344,8 +401,52 @@ function renderMaquina(m, orden) {
           ${m.hor_observaciones}
         </div>` : ''}
       ${fotosHtml}
+      ${informesHtml}
       ${cotHtml}
     </div>`;
+}
+
+async function uploadFotoTrabajo(uidOrden, uidHerramientaOrden, input) {
+  if (!input.files[0]) return;
+  const file = input.files[0];
+  const label = input.closest('label');
+  const fd = new FormData();
+  fd.append('foto', file);
+  // Resetear input antes de cambiar el label para no perder el archivo ya capturado
+  input.value = '';
+  label.style.opacity = '0.6';
+  label.style.pointerEvents = 'none';
+  const origHtml = label.innerHTML;
+  label.querySelector('span, input') && (label.firstChild.textContent = 'Subiendo...');
+  try {
+    const r = await fetch(`${API}/orders/${uidOrden}/fotos-trabajo/${uidHerramientaOrden}`,
+                          { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.success) {
+      const row = document.getElementById(`ft-row-${uidHerramientaOrden}`);
+      const div = document.createElement('div');
+      div.className = 'foto-thumb';
+      div.id = `ft-${data.uid_foto}`;
+      div.innerHTML = `<img src="${data.url}" onclick="window.open(this.src,'_blank')" alt="">
+                       <button class="del-btn" onclick="deleteFotoTrabajo(${data.uid_foto},event)">✕</button>`;
+      row.appendChild(div);
+    } else {
+      alert('Error al subir foto: ' + (data.error || 'desconocido'));
+    }
+  } catch (e) {
+    alert('Error al subir foto: ' + e.message);
+  }
+  label.style.opacity = '';
+  label.style.pointerEvents = '';
+  label.innerHTML = '+ Agregar foto<input type="file" accept="image/*" style="display:none" onchange="uploadFotoTrabajo(' + uidOrden + ',' + uidHerramientaOrden + ',this)">';
+}
+
+async function deleteFotoTrabajo(uidFoto, e) {
+  e.stopPropagation();
+  if (!confirm('¿Eliminar esta foto?')) return;
+  const thumb = e.target.closest('.foto-thumb');
+  await fetch(`${API}/orders/fotos-trabajo/${uidFoto}`, { method: 'DELETE' });
+  thumb.remove();
 }
 
 function renderTotalCotizacion(cotOrden) {

@@ -291,150 +291,194 @@ function generateQuotePDF({ order, machines, items, quoteNumber }) {
 }
 
 // ─── INFORME DE MANTENIMIENTO PDF ─────────────────────────────────────────────
-function generateMaintenancePDF({ order, machine, items, observation, proxMantenimiento }) {
+function generateMaintenancePDF({ order, machine, items, observation, proxMantenimiento, photos }) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     const doc = new PDFDocument({ size: 'A4', margin: 0, compress: true });
     doc.on('data', d => chunks.push(d));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('end',  () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
+
+    const FOOT_H = 55;                     // altura reservada para el footer
+    const SIG_H  = 50;                     // altura reservada para las firmas
+    const SAFE_Y = A4H - FOOT_H - SIG_H;  // límite de contenido por página
 
     let y = MG;
 
-    // ── Header ────────────────────────────────────────────────────────────────
-    // Logo rotado -90°: imagen portrait → aparece horizontal centrada al tope
+    // ── Header (mismo patrón que cotización / orden de servicio) ─────────────
+    const LOGO_FW = 110;
+    const LOGO_FH = Math.round(LOGO_FW * 1396 / 2696);
+    const HDR_H   = Math.max(LOGO_FH, 65);
+
     if (fs.existsSync(LOGO)) {
-      const LOGO_FW = 200;                                   // ancho final en página
-      const LOGO_FH = Math.round(LOGO_FW * 1396 / 2696);    // alto final ≈ 104 px
-      const logoX   = (A4W - LOGO_FW) / 2;
-      const cx      = logoX + LOGO_FW / 2;
-      const cy      = y + LOGO_FH / 2;
-      doc.save()
-        .translate(cx, cy)
-        .rotate(-90)
+      const cx = MG + LOGO_FW / 2;
+      const cy = y + HDR_H / 2;
+      doc.save().translate(cx, cy).rotate(-90)
         .image(LOGO, -LOGO_FH / 2, -LOGO_FW / 2, { width: LOGO_FH, height: LOGO_FW })
         .restore();
-      y += LOGO_FH + 10;
-    } else {
-      y += 20;
     }
 
-    doc.save().font('Helvetica-Bold').fontSize(13).fillColor(C.gry)
-      .text('INFORME DE MANTENIMIENTO', MG, y, { width: CW, align: 'center' }).restore();
-    y += 18;
-    hLine(doc, MG, y, MG + CW, C.bdr, 1);
+    const infoX = MG + LOGO_FW + 5;
+    const infoW = CW - LOGO_FW - 80;
+    doc.save().font('Helvetica-Bold').fontSize(12).fillColor(C.dark)
+      .text(COMPANY.name, infoX, y + 4, { width: infoW, align: 'center' }).restore();
+    [COMPANY.nit, COMPANY.address, COMPANY.phone, COMPANY.website, COMPANY.email].forEach((line, i) => {
+      doc.save().font('Helvetica').fontSize(8).fillColor(C.blk)
+        .text(line, infoX, y + 19 + i * 9.5, { width: infoW, align: 'center' }).restore();
+    });
+
+    // Caja tipo documento (derecha)
+    const QX = MG + CW - 75;
+    fillRect(doc, QX, y, 75, HDR_H, C.lightBg);
+    strokeRect(doc, QX, y, 75, HDR_H, C.bdr);
+    doc.save().font('Helvetica').fontSize(7.5).fillColor(C.gry)
+      .text('INFORME DE', QX, y + 6, { width: 75, align: 'center' }).restore();
+    doc.save().font('Helvetica').fontSize(7.5).fillColor(C.gry)
+      .text('MANTENIMIENTO', QX, y + 16, { width: 75, align: 'center' }).restore();
+    doc.save().font('Helvetica-Bold').fontSize(15).fillColor(C.dark)
+      .text('No. ' + (order.ord_consecutivo || ''), QX, y + 30, { width: 75, align: 'center' }).restore();
+    doc.save().font('Helvetica').fontSize(7.5).fillColor(C.gry)
+      .text(fmtDate(), QX, y + 52, { width: 75, align: 'center' }).restore();
+
+    y += HDR_H + 6;
+    hLine(doc, MG, y, MG + CW, C.dark, 1.5);
     y += 10;
 
-    // Fecha + Orden
-    doc.save().font('Helvetica').fontSize(9).fillColor(C.blk)
-      .text('Fecha Mantenimiento:', MG, y).restore();
-    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.blk)
-      .text(fmtDate(), MG + 130, y).restore();
-    doc.save().font('Helvetica').fontSize(9).fillColor(C.blk)
-      .text('Orden N\u00famero:', MG + 300, y).restore();
-    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.blk)
-      .text(String(order.ord_consecutivo || ''), MG + 380, y).restore();
-    y += 18;
-    hLine(doc, MG, y, MG + CW, C.bdr);
-    y += 6;
+    // ── Constantes de layout ──────────────────────────────────────────────────
+    const LBL_W = 90;
+    const ROW_H = 20;
+    const HW    = CW / 2;
 
-    // ── T\u00e9cnico ──────────────────────────────────────────────────────────
-    y = sectionBar(doc, y, 'DATOS DEL T\u00c9CNICO ENCARGADO');
-    doc.save().font('Helvetica').fontSize(9).fillColor(C.blk).text('Empresa:', MG + 5, y).restore();
-    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.blk).text('SU HERRAMIENTA CST', MG + 75, y).restore();
-    y += 14;
-    doc.save().font('Helvetica').fontSize(9).fillColor(C.blk).text('Persona Encargada:', MG + 5, y).restore();
-    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.blk).text(machine.hor_tecnico || '', MG + 120, y).restore();
-    doc.save().font('Helvetica').fontSize(9).fillColor(C.blk).text('Cargo:', MG + 290, y).restore();
-    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.blk).text(machine.hor_cargo_tecnico || 'T\u00c9CNICO EN MAQUINARIA', MG + 325, y).restore();
-    y += 18;
-    hLine(doc, MG, y, MG + CW, C.bdr);
-    y += 6;
-
-    // ── Solicitante ───────────────────────────────────────────────────────────
+    // ── Datos del solicitante ─────────────────────────────────────────────────
     y = sectionBar(doc, y, 'DATOS DEL SOLICITANTE');
-    doc.save().font('Helvetica').fontSize(9).fillColor(C.blk).text('Identificaci\u00f3n:', MG + 5, y).restore();
-    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.blk).text(order.cli_identificacion || '', MG + 90, y).restore();
-    doc.save().font('Helvetica').fontSize(9).fillColor(C.blk).text('Nombre:', MG + 230, y).restore();
-    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.blk).text(order.cli_razon_social || '', MG + 275, y).restore();
-    y += 14;
-    doc.save().font('Helvetica').fontSize(9).fillColor(C.blk).text('Direcci\u00f3n:', MG + 5, y).restore();
-    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.blk).text(truncate(order.cli_direccion || order.cli_contacto || '', 60), MG + 90, y).restore();
-    doc.save().font('Helvetica').fontSize(9).fillColor(C.blk).text('Tel\u00e9fono:', MG + 230, y).restore();
-    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.blk).text(order.cli_telefono || '', MG + 275, y).restore();
-    y += 18;
-    hLine(doc, MG, y, MG + CW, C.bdr);
-    y += 6;
+    cell(doc, 'CLIENTE',   MG,      y, LBL_W,       ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+    cell(doc, order.cli_razon_social || '', MG + LBL_W, y, HW - LBL_W, ROW_H, { size: 8.5, font: 'Helvetica-Bold' });
+    cell(doc, 'NIT / CC',  MG + HW, y, LBL_W,       ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+    cell(doc, order.cli_identificacion || '', MG + HW + LBL_W, y, HW - LBL_W, ROW_H, { size: 8.5 });
+    y += ROW_H;
+    cell(doc, 'DIRECCI\u00d3N', MG,  y, LBL_W,       ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+    cell(doc, truncate(order.cli_direccion || '', 42), MG + LBL_W, y, HW - LBL_W, ROW_H, { size: 8.5 });
+    cell(doc, 'TEL\u00c9FONO', MG + HW, y, LBL_W,   ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+    cell(doc, order.cli_telefono || '', MG + HW + LBL_W, y, HW - LBL_W, ROW_H, { size: 8.5 });
+    y += ROW_H + 6;
 
-    // ── Pr\u00f3ximo mantenimiento ────────────────────────────────────────────
-    y = sectionBar(doc, y, 'PR\u00d3XIMO MANTENIMIENTO');
-    doc.save().font('Helvetica-Bold').fontSize(10).fillColor(C.blk)
-      .text(proxMantenimiento || machine.hor_proximo_mantenimiento || '', MG + 10, y).restore();
-    y += 20;
-    hLine(doc, MG, y, MG + CW, C.bdr);
-    y += 6;
+    // ── T\u00e9cnico encargado ──────────────────────────────────────────────────
+    y = sectionBar(doc, y, 'T\u00c9CNICO ENCARGADO');
+    cell(doc, 'EMPRESA',   MG,      y, LBL_W,       ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+    cell(doc, 'SU HERRAMIENTA CST', MG + LBL_W, y, HW - LBL_W, ROW_H, { size: 8.5, font: 'Helvetica-Bold' });
+    cell(doc, 'CARGO',     MG + HW, y, LBL_W,       ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+    cell(doc, machine.hor_cargo_tecnico || 'T\u00c9CNICO EN MAQUINARIA', MG + HW + LBL_W, y, HW - LBL_W, ROW_H, { size: 8.5 });
+    y += ROW_H;
+    cell(doc, 'ENCARGADO', MG,      y, LBL_W,       ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+    cell(doc, machine.hor_tecnico || '', MG + LBL_W, y, CW - LBL_W, ROW_H, { size: 8.5 });
+    y += ROW_H + 6;
 
     // ── Descripci\u00f3n del equipo ───────────────────────────────────────────
     y = sectionBar(doc, y, 'DESCRIPCI\u00d3N DEL EQUIPO');
-    const ECOLS = [
-      { header: 'Equipo',      val: machine.her_nombre || '',  w: 130 },
-      { header: 'Marca',       val: machine.her_marca  || '',  w: 120 },
-      { header: 'Serial',      val: machine.her_serial || '',  w: 130 },
-      { header: 'Referencia',  val: machine.her_referencia || machine.her_serial || '',  w: 135 },
-    ];
-    let ex = MG;
-    for (const ec of ECOLS) {
-      doc.save().font('Helvetica').fontSize(8).fillColor(C.gry)
-        .text(ec.header, ex, y, { width: ec.w, align: 'center' }).restore();
-      ex += ec.w;
+    cell(doc, 'HERRAMIENTA', MG,      y, LBL_W,       ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+    cell(doc, machine.her_nombre || '', MG + LBL_W, y, HW - LBL_W, ROW_H, { size: 8.5, font: 'Helvetica-Bold' });
+    cell(doc, 'MARCA',       MG + HW, y, LBL_W,       ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+    cell(doc, machine.her_marca || '', MG + HW + LBL_W, y, HW - LBL_W, ROW_H, { size: 8.5 });
+    y += ROW_H;
+    cell(doc, 'SERIAL',      MG,      y, LBL_W,       ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+    cell(doc, machine.her_serial || '', MG + LBL_W, y, HW - LBL_W, ROW_H, { size: 8.5 });
+    cell(doc, 'REFERENCIA',  MG + HW, y, LBL_W,       ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+    cell(doc, machine.her_referencia || '', MG + HW + LBL_W, y, HW - LBL_W, ROW_H, { size: 8.5 });
+    y += ROW_H;
+    const proxMant = proxMantenimiento || machine.hor_proximo_mantenimiento || '';
+    if (proxMant) {
+      cell(doc, 'PR\u00d3XIMO MANTENIMIENTO', MG, y, LBL_W, ROW_H, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+      cell(doc, proxMant, MG + LBL_W, y, CW - LBL_W, ROW_H, { size: 8.5 });
+      y += ROW_H;
     }
-    y += 14;
-    ex = MG;
-    for (const ec of ECOLS) {
-      doc.save().font('Helvetica-Bold').fontSize(9.5).fillColor(C.blk)
-        .text(ec.val, ex, y, { width: ec.w, align: 'center' }).restore();
-      ex += ec.w;
-    }
-    y += 18;
-    hLine(doc, MG, y, MG + CW, C.bdr);
     y += 6;
 
-    // ── Repuestos utilizados ──────────────────────────────────────────────────
+    // ── Repuestos utilizados (tabla) ──────────────────────────────────────────
     if (items && items.length > 0) {
       y = sectionBar(doc, y, 'REPUESTOS UTILIZADOS');
-      for (const it of items) {
-        doc.save().font('Helvetica').fontSize(8.5).fillColor(C.blk)
-          .text('\u2022 ' + truncate(it.nombre, 55), MG + 10, y, { width: 280, lineBreak: false })
-          .restore();
-        doc.save().font('Helvetica').fontSize(8.5).fillColor(C.blk)
-          .text('Cant: ' + (it.cantidad || 1) + '   ' + money(it.precio) + ' c/u', MG + 300, y, { width: CW - 310, align: 'right', lineBreak: false })
-          .restore();
-        y += 13;
+      const PCOLS = [
+        { header: 'Repuesto / Componente', w: 335, align: 'left'   },
+        { header: 'Cantidad',              w: 70,  align: 'center' },
+        { header: 'Precio unit.',          w: 110, align: 'right'  },
+      ];
+      const PROW_H = 18;
+      fillRect(doc, MG, y, CW, PROW_H, C.dark);
+      let px = MG;
+      for (const col of PCOLS) {
+        doc.save().font('Helvetica-Bold').fontSize(8.5).fillColor(C.wht)
+          .text(col.header, px + 5, y + 5, { width: col.w - 10, align: col.align, lineBreak: false }).restore();
+        px += col.w;
       }
-      y += 6;
-      hLine(doc, MG, y, MG + CW, C.bdr);
-      y += 6;
+      strokeRect(doc, MG, y, CW, PROW_H, C.dark);
+      y += PROW_H;
+      items.forEach((it, i) => {
+        if (i % 2 === 1) fillRect(doc, MG, y, CW, PROW_H, C.alt);
+        strokeRect(doc, MG, y, CW, PROW_H);
+        px = MG;
+        [truncate(it.nombre, 62), String(it.cantidad || 1), money(it.precio)].forEach((val, ci) => {
+          strokeRect(doc, px, y, PCOLS[ci].w, PROW_H);
+          doc.save().font('Helvetica').fontSize(8.5).fillColor(C.blk)
+            .text(val, px + 5, y + 5, { width: PCOLS[ci].w - 10, align: PCOLS[ci].align, lineBreak: false }).restore();
+          px += PCOLS[ci].w;
+        });
+        y += PROW_H;
+      });
+      y += 8;
     }
 
-    // ── Observaci\u00f3n (IA) ─────────────────────────────────────────────────
-    y = sectionBar(doc, y, 'OBSERVACI\u00d3N');
-    y += 2;
-    const obsText = observation || '';
-    doc.save().font('Helvetica').fontSize(9).fillColor(C.blk);
-    doc.text(obsText, MG + 10, y, { width: CW - 20, align: 'justify' });
-    y = doc.y + 15;
+    // ── Observaci\u00f3n t\u00e9cnica (IA) ─────────────────────────────────────
+    y = sectionBar(doc, y, 'OBSERVACI\u00d3N T\u00c9CNICA');
+    y += 4;
+    doc.save().font('Helvetica').fontSize(9).fillColor(C.blk)
+      .text(observation || '', MG + 8, y, { width: CW - 16, align: 'justify' }).restore();
+    y = doc.y + 14;
 
-    hLine(doc, MG, y, MG + CW, C.bdr);
+    // ── Registro fotogr\u00e1fico ──────────────────────────────────────────────
+    const photoGroups = [
+      { label: 'ESTADO DE RECEPCI\u00d3N',  fotos: photos?.recepcion || [] },
+      { label: 'REGISTRO DEL TRABAJO',      fotos: photos?.trabajo   || [] },
+    ].filter(g => g.fotos.length > 0);
+
+    if (photoGroups.length > 0) {
+      const PW  = 246;
+      const PH  = 160;
+      const GAP = Math.floor((CW - PW * 2) / 2);
+
+      for (const group of photoGroups) {
+        if (y + 30 + PH > SAFE_Y) { doc.addPage(); y = MG; }
+        y = sectionBar(doc, y, group.label);
+        let col = 0;
+        let rowY = y;
+        for (const foto of group.fotos) {
+          const fpath = path.join(__dirname, '..', 'public', 'uploads', 'fotos-recepcion', foto.fho_archivo);
+          if (!fs.existsSync(fpath)) continue;
+          if (col === 0 && y + PH > SAFE_Y) { doc.addPage(); y = MG; rowY = y; }
+          try { doc.image(fpath, MG + col * (PW + GAP), y, { fit: [PW, PH] }); } catch {}
+          col++;
+          if (col === 2) { col = 0; y = rowY + PH + 8; rowY = y; }
+        }
+        if (col > 0) y = rowY + PH + 8;
+        y += 4;
+      }
+    }
 
     // ── Firmas ────────────────────────────────────────────────────────────────
-    const FY = A4H - 80;
+    const FY = Math.max(y + 20, A4H - FOOT_H - SIG_H);
     hLine(doc, MG, FY, MG + 160, C.blk, 0.7);
     doc.save().font('Helvetica').fontSize(8).fillColor(C.gry)
       .text('Firma del T\u00e9cnico', MG, FY + 5).restore();
-
     hLine(doc, A4W / 2 + 20, FY, A4W - MG, C.blk, 0.7);
     doc.save().font('Helvetica').fontSize(8).fillColor(C.gry)
       .text('Firma del Cliente / Recibido', A4W / 2 + 20, FY + 5).restore();
+
+    // ── Footer (mismo que orden de servicio) ──────────────────────────────────
+    const footY = A4H - FOOT_H;
+    hLine(doc, MG, footY, MG + CW, C.dark, 0.8);
+    [COMPANY.email + '   Celular: ' + COMPANY.phone, COMPANY.address, COMPANY.website]
+      .forEach((line, i) => {
+        doc.save().font('Helvetica').fontSize(7.5).fillColor(C.gry)
+          .text(line, MG, footY + 6 + i * 11, { width: CW, align: 'center' }).restore();
+      });
 
     doc.end();
   });

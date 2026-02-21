@@ -9,9 +9,9 @@
     body{font-family:'Segoe UI',sans-serif;background:#f0f4f8;min-height:100vh;display:flex;flex-direction:column;}
 
     /* ─── Header ─── */
-    header{background:#1d3557;color:#fff;padding:10px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0;}
-    .logo-wrap{width:36px;height:44px;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-    .logo-wrap img{width:60px;transform:rotate(-90deg);}
+    header{background:#1d3557;color:#fff;padding:12px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0;}
+    .logo-wrap{position:relative;width:96px;height:50px;flex-shrink:0;overflow:hidden;}
+    .logo-wrap img{position:absolute;left:50%;top:50%;width:50px;transform:translate(-50%,-50%) rotate(-90deg);}
     header h1{font-size:15px;font-weight:600;flex:1;}
     .nav-links{display:flex;gap:12px;align-items:center;}
     .nav-links a{color:rgba(255,255,255,.8);text-decoration:none;font-size:13px;}
