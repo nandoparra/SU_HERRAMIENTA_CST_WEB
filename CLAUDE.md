@@ -19,31 +19,38 @@ Sistema de cotizaciones y órdenes de servicio para **SU HERRAMIENTA CST** (tall
 ## Estructura de archivos clave
 
 ```
-server.js                          Entrada — monta sesión, auth, rutas
+server.js                          Entrada — monta sesión, auth, rutas + migraciones automáticas BD
 middleware/apiKey.js               Guard API key opcional (env API_SECRET_KEY)
 middleware/auth.js                 requireLogin / requireInterno / requireCliente
+                                     └─ requireInterno devuelve 401/403 JSON en rutas /api/
 utils/db.js                        Pool MySQL
 utils/schema.js                    Helpers BD + resolveOrder
 utils/ia.js                        Wrapper Anthropic SDK
-utils/whatsapp-client.js           Singleton waClient
+utils/whatsapp-client.js           Singleton waClient + parche LID + validación getNumberId
 utils/pdf-generator.js             Generación PDFs (quote, maintenance, orden de servicio)
 utils/phones.js                    parseColombianPhones() — separa múltiples números
-routes/auth.js                     GET/POST /login, /logout, /me
+routes/auth.js                     GET/POST /login (rate limit 10/15min), /logout, /me
 routes/orders.js                   GET/PATCH órdenes + estados + notificaciones WA
+                                     └─ todos los endpoints con requireInterno
                                      └─ GET /orders/:id/detalle — orden+cliente+máquinas+fotos+cotización
+                                     └─ POST /orders/:id/fotos-trabajo/:uid — subir foto de trabajo
+                                     └─ DELETE /orders/fotos-trabajo/:uid — eliminar foto de trabajo
 routes/quote.js                    GET/POST cotizaciones
 routes/whatsapp.js                 POST envío WhatsApp
 routes/pdf.js                      GET descargar/POST enviar PDFs
                                      └─ /pdf/orden — PDF con todas las máquinas de la orden
                                      └─ /print/orden — HTML wrapper con auto-print
+                                     └─ /informes/:uid — requireInterno
 routes/crear-orden.js              POST crear cliente/herramienta/orden + fotos
+                                     └─ todos los endpoints con requireInterno
 public/login.html                  Página de login
 public/seguimiento.html            Vista cliente — seguimiento de sus órdenes
 public/crear-orden.html            Módulo creación de órdenes
 public/ordenes.html                Consulta de órdenes — buscador + detalle + fotos + cotización
+                                     └─ sección "Fotos del trabajo" por máquina (upload/delete)
 public/generador-cotizaciones.html Módulo de cotizaciones (refactorizado — mismo estilo visual)
 public/assets/logo.png             Logo portrait 1396x2696 px
-public/uploads/fotos-recepcion/    Fotos subidas (en .gitignore)
+public/uploads/fotos-recepcion/    Fotos subidas — recepción Y trabajo (en .gitignore)
 ```
 
 ---
@@ -58,21 +65,38 @@ ANTHROPIC_API_KEY
 CLAUDE_MODEL
 IVA_RATE              (decimal, default 0 — sin IVA)
 API_SECRET_KEY        (opcional, guard de rutas)
-SESSION_SECRET        (secreto de sesión — agregar al .env)
+SESSION_SECRET        (requerido en producción — lanza error si no está)
 PARTS_WHATSAPP_NUMBER (número del encargado de repuestos, ej: 3104650437)
 ```
 
 ---
 
-## Git — ramas activas
+## Git — ramas
 
 ```
-main                  Estado estable inicial
-feature/login         Login completo — pendiente merge a main
-feature/crear-orden   Módulo crear orden (WIP, basada en feature/login)
+main                    Estado estable inicial
+feature/login           Login completo — pendiente merge a main
+feature/crear-orden     Módulo crear orden — pendiente merge a main
+feature/security-fixes  Todas las correcciones de seguridad — pendiente merge a main
 ```
 
-**Flujo**: trabajar en ramas, mergear a main cuando estén probadas.
+Las 3 ramas feature están subidas a GitHub. Mergear en orden: login → crear-orden → security-fixes.
+
+---
+
+## Seguridad — correcciones aplicadas (feature/security-fixes)
+
+1. `SESSION_SECRET` obligatorio en producción (lanza error), warning en dev
+2. CORS restringido a mismo origen (`origin: false`)
+3. Cookie: `httpOnly`, `sameSite: lax`, `secure` en producción
+4. Rate limiting en POST /login: 10 intentos / 15 minutos
+5. `/health` y `/api/debug/usuario-schema` detrás de `requireInterno`
+6. `requireInterno` devuelve 401/403 JSON para rutas `/api/` (antes era 302 redirect)
+7. `routes/orders.js` — todos los endpoints protegidos con `requireInterno`
+8. `routes/crear-orden.js` — todos los endpoints protegidos con `requireInterno`
+9. `routes/pdf.js` — `/informes/:uid` detrás de `requireInterno`
+10. `buildMaintenancePrompt` sanitiza inputs contra prompt injection
+11. twilio desinstalado
 
 ---
 
@@ -104,7 +128,7 @@ feature/crear-orden   Módulo crear orden (WIP, basada en feature/login)
 | `b2c_cliente` | uid_cliente(int AI), uid_usuario, cli_identificacion, cli_razon_social, cli_direccion, cli_telefono, cli_contacto, cli_tel_contacto, cli_estado |
 | `b2c_herramienta` | uid_herramienta(int AI), uid_cliente, her_nombre, her_marca, her_serial, her_referencia, her_tipo_medicion, her_cantidad, her_ultima_medicion, her_proximo_mantenimiento, her_estado |
 | `b2c_herramienta_orden` | uid_herramienta_orden(int AI), uid_orden, uid_herramienta, hor_tiene_arreglo, hor_fecha_prom_entrega, hor_fecha_real_entrega, hor_aceptada_cliente, hor_fecha_aceptada, hor_observaciones, hor_tecnico, hor_cargo_tecnico, hor_proximo_mantenimiento, **her_estado**(agregado) |
-| `b2c_foto_herramienta_orden` | uid_foto_herramienta_orden(int AI), uid_herramienta_orden, fho_archivo(varchar100), fho_nombre(varchar100) |
+| `b2c_foto_herramienta_orden` | uid_foto_herramienta_orden(int AI), uid_herramienta_orden, fho_archivo(varchar100), fho_nombre(varchar100), **fho_tipo**(agregado: 'recepcion'\|'trabajo') |
 | `b2c_usuario` | ver arriba |
 | `b2c_concepto_costos` | uid_concepto_costo, cco_descripcion, cco_valor, cco_tipo, cco_estado |
 
@@ -115,9 +139,37 @@ feature/crear-orden   Módulo crear orden (WIP, basada en feature/login)
 | `b2c_cotizacion_maquina` | Cotización por máquina (mano de obra, descripción) |
 | `b2c_cotizacion_item` | Ítems/repuestos por máquina |
 | `b2c_herramienta_status_log` | Historial cambios de estado por máquina |
+| `b2c_informe_mantenimiento` | Registro de informes PDF generados por máquina |
 
-### Columna agregada al ERP
-`b2c_herramienta_orden.her_estado` VARCHAR(32) DEFAULT 'pendiente_revision'
+### Columnas agregadas al ERP (auto-migradas en server.js al arrancar)
+- `b2c_herramienta_orden.her_estado` VARCHAR(32) DEFAULT 'pendiente_revision'
+- `b2c_foto_herramienta_orden.fho_tipo` VARCHAR(20) DEFAULT 'recepcion'
+
+---
+
+## Fotos — dos tipos
+
+Ambos tipos se guardan en `public/uploads/fotos-recepcion/` (mismo directorio).
+Se diferencian por la columna `fho_tipo`:
+
+| fho_tipo | Origen | Cuándo |
+|----------|--------|--------|
+| `recepcion` | `crear-orden.html` | Al crear la orden |
+| `trabajo` | `ordenes.html` | Durante la reparación |
+
+Las fotos aparecen en el informe de mantenimiento PDF agrupadas por tipo.
+
+---
+
+## WhatsApp — utils/whatsapp-client.js
+
+- `sendWAMessage(phone, content)` — valida con `getNumberId` antes de enviar
+  - Si `getNumberId` retorna null → error claro "El número no tiene WhatsApp registrado"
+  - Si retorna ID → envía normalmente
+- Parche LID en 3 niveles (para contactos migrados al sistema LID de WA):
+  1. Intento normal con `getChat`
+  2. Resolver via `enforceLidAndPnRetrieval`
+  3. Buscar chat existente en el store (funciona si alguna vez se ha chateado desde ese teléfono)
 
 ---
 
@@ -137,8 +189,6 @@ feature/crear-orden   Módulo crear orden (WIP, basada en feature/login)
 - Naranja: lista repuestos al encargado (máquinas autorizadas)
 - Morado: notifica cliente máquinas reparadas
 - Verde: confirma entrega al cliente
-
----
 
 ---
 
