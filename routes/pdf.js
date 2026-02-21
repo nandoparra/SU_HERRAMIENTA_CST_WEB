@@ -7,7 +7,7 @@ const fs           = require('fs');
 const { resolveOrder } = require('../utils/schema');
 const { generateQuotePDF, generateMaintenancePDF, generateOrdenServicioPDF } = require('../utils/pdf-generator');
 const { generateText }  = require('../utils/ia');
-const { waClient, isReady } = require('../utils/whatsapp-client');
+const { waClient, isReady, resolveWAId } = require('../utils/whatsapp-client');
 const { MessageMedia }  = require('whatsapp-web.js');
 const { requireInterno } = require('../middleware/auth');
 
@@ -195,7 +195,7 @@ router.post('/orders/:orderId/send-pdf/quote', async (req, res) => {
     const pdf    = await generateQuotePDF({ order, machines, items, quoteNumber: order.ord_consecutivo });
     const fname  = 'cotizacion-' + order.ord_consecutivo + '.pdf';
     const media  = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
-    await waClient.sendMessage(getPhone(order), media);
+    await waClient.sendMessage(await resolveWAId(getPhone(order)), media);
 
     res.json({ success: true, filename: fname });
   } catch (e) {
@@ -221,7 +221,7 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', async (re
       conn.release();
       const pdfBuf = fs.readFileSync(existing.fpath);
       const media  = new MessageMedia('application/pdf', pdfBuf.toString('base64'), fname);
-      await waClient.sendMessage(getPhone(order), media);
+      await waClient.sendMessage(await resolveWAId(getPhone(order)), media);
       return res.json({ success: true, filename: fname });
     }
 
@@ -234,7 +234,7 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', async (re
     conn.release();
 
     const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
-    await waClient.sendMessage(getPhone(order), media);
+    await waClient.sendMessage(await resolveWAId(getPhone(order)), media);
     res.json({ success: true, filename: fname });
   } catch (e) {
     console.error('Error enviando PDF mantenimiento:', e);
@@ -370,7 +370,7 @@ router.post('/orders/:orderId/send-pdf/orden', async (req, res) => {
 
     const fname = 'orden-' + ordenRow.ord_consecutivo + '.pdf';
     const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
-    await waClient.sendMessage(getPhone({ cli_telefono: ordenRow.cli_telefono }), media);
+    await waClient.sendMessage(await resolveWAId(getPhone({ cli_telefono: ordenRow.cli_telefono })), media);
 
     res.json({ success: true, filename: fname });
   } catch (e) {

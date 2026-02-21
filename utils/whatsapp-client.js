@@ -29,4 +29,20 @@ function isReady() {
   return waReady;
 }
 
-module.exports = { waClient, isReady };
+/**
+ * Resuelve el chatId correcto para un número antes de enviar.
+ * Necesario porque WhatsApp migró algunos contactos al sistema LID
+ * (Linked ID Device). Construir "57XXXXXXXX@c.us" a mano falla con
+ * "No LID for user" en esos contactos.
+ * Usa getNumberId() para obtener el ID real (@c.us o @lid según corresponda).
+ */
+async function resolveWAId(phoneOrChatId) {
+  const phone = String(phoneOrChatId).replace(/@c\.us$/, '').replace(/@lid$/, '');
+  try {
+    const result = await waClient.getNumberId(phone);
+    if (result) return result._serialized;
+  } catch {}
+  return phoneOrChatId; // fallback al formato original si falla
+}
+
+module.exports = { waClient, isReady, resolveWAId };

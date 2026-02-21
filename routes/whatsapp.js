@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
-const { waClient, isReady } = require('../utils/whatsapp-client');
+const { waClient, isReady, resolveWAId } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 
 // Enviar WhatsApp usando el mensaje guardado de la orden
@@ -38,7 +38,7 @@ router.post('/quotes/order/:orderId/send-whatsapp', async (req, res) => {
       conn.release();
       return res.status(400).json({ success: false, error: 'No se encontró número móvil válido para el cliente' });
     }
-    for (const chatId of chatIds) await waClient.sendMessage(chatId, msg);
+    for (const chatId of chatIds) await waClient.sendMessage(await resolveWAId(chatId), msg);
 
     await conn.execute(
       `UPDATE b2c_cotizacion_orden SET whatsapp_enviado = 1, whatsapp_enviado_at = NOW() WHERE uid_orden = ?`,
@@ -77,7 +77,7 @@ router.post('/whatsapp/send', async (req, res) => {
       conn.release();
       return res.status(400).json({ success: false, error: 'No se encontró número móvil válido para el cliente' });
     }
-    for (const chatId of chatIds) await waClient.sendMessage(chatId, String(message || ''));
+    for (const chatId of chatIds) await waClient.sendMessage(await resolveWAId(chatId), String(message || ''));
 
     conn.release();
     res.json({ success: true, destinatarios: chatIds.length, status: 'Enviado' });
