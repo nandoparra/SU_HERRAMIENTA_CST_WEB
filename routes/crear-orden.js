@@ -6,6 +6,10 @@ const bcrypt  = require('bcrypt');
 const multer  = require('multer');
 const path    = require('path');
 const fs      = require('fs');
+const { requireInterno } = require('../middleware/auth');
+
+// Todas las rutas de crear-orden requieren rol interno
+router.use(requireInterno);
 
 // ── Multer — almacenamiento de fotos ─────────────────────────────────────────
 const storage = multer.diskStorage({

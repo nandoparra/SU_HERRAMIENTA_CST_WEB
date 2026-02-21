@@ -882,7 +882,7 @@
       const resp = await fetch(`${API_BASE}/quotes/order/${encodeURIComponent(currentOrderId)}/send-whatsapp`, { method: 'POST' });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok || data.success === false) throw new Error(data.error || 'No se pudo enviar');
-      alert(`✅ Mensaje final enviado a ${data.phone}`);
+      alert(`✅ Mensaje enviado a ${data.cliente || 'cliente'}`);
       btn.textContent = '📱 Enviar WA final';
     } catch(e) {
       console.error(e);

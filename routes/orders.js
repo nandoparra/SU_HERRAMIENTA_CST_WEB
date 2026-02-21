@@ -13,6 +13,13 @@ const {
 } = require('../utils/schema');
 const { waClient, isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
+const { requireInterno } = require('../middleware/auth');
+
+// Todas las rutas de órdenes requieren rol interno, excepto mis-ordenes (es del cliente)
+router.use((req, res, next) => {
+  if (req.path === '/cliente/mis-ordenes') return next();
+  return requireInterno(req, res, next);
+});
 
 // ── Multer para fotos del trabajo ─────────────────────────────────────────────
 const fotoStorage = multer.diskStorage({

@@ -182,6 +182,17 @@ async function ensureStatusTables() {
       );
     }
 
+    // Agregar columna fho_tipo a fotos si no existe
+    const [colsFho] = await conn.execute(
+      `SHOW COLUMNS FROM b2c_foto_herramienta_orden LIKE 'fho_tipo'`
+    );
+    if (colsFho.length === 0) {
+      await conn.execute(
+        `ALTER TABLE b2c_foto_herramienta_orden
+         ADD COLUMN fho_tipo VARCHAR(20) NOT NULL DEFAULT 'recepcion'`
+      );
+    }
+
     // Tabla de historial de cambios de estado
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS b2c_herramienta_status_log (

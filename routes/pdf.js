@@ -40,21 +40,31 @@ async function saveInforme(conn, uid_orden, uid_herramienta_orden, pdfBuffer, co
 }
 
 // ─── Prompt IA para informe de mantenimiento ──────────────────────────────────
+// Elimina saltos de línea y caracteres de control que podrían inyectar instrucciones al prompt
+function sanitizeForPrompt(str) {
+  return String(str || '').replace(/[\r\n\t]/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, 200);
+}
+
 function buildMaintenancePrompt(machine, workDesc, items) {
+  const nombre  = sanitizeForPrompt(machine.her_nombre) || 'Herramienta';
+  const marca   = sanitizeForPrompt(machine.her_marca)  || 'N/A';
+  const serial  = sanitizeForPrompt(machine.her_serial) || 'N/A';
+  const trabajo = sanitizeForPrompt(workDesc)            || 'Mantenimiento general';
+
   const partsList = items.length
-    ? items.map(it => '- ' + it.nombre + ' (x' + it.cantidad + ')').join('\n')
+    ? items.map(it => '- ' + sanitizeForPrompt(it.nombre) + ' (x' + Number(it.cantidad) + ')').join('\n')
     : 'Sin repuestos registrados';
 
   return 'Eres un t\u00e9cnico especialista en reparaci\u00f3n y mantenimiento de herramientas en Colombia.\n\n'
     + 'Genera un informe t\u00e9cnico de mantenimiento profesional en espa\u00f1ol.\n\n'
     + 'DATOS DEL EQUIPO:\n'
-    + '- Equipo: ' + (machine.her_nombre || 'Herramienta') + '\n'
-    + '- Marca: '  + (machine.her_marca  || 'N/A') + '\n'
-    + '- Serial: ' + (machine.her_serial || 'N/A') + '\n\n'
-    + 'TRABAJO REALIZADO:\n' + (workDesc || 'Mantenimiento general') + '\n\n'
+    + '- Equipo: ' + nombre + '\n'
+    + '- Marca: '  + marca  + '\n'
+    + '- Serial: ' + serial + '\n\n'
+    + 'TRABAJO REALIZADO:\n' + trabajo + '\n\n'
     + 'REPUESTOS UTILIZADOS:\n' + partsList + '\n\n'
     + 'INSTRUCCIONES:\n'
-    + '1. Comienza con "Informe T\u00e9cnico \u2014 ' + (machine.her_nombre || 'Equipo') + (machine.her_serial ? ' N\u00b0 ' + machine.her_serial : '') + ':"\n'
+    + '1. Comienza con "Informe T\u00e9cnico \u2014 ' + nombre + (machine.her_serial ? ' N\u00b0 ' + serial : '') + ':"\n'
     + '2. Describe t\u00e9cnicamente el trabajo realizado y la justificaci\u00f3n de los repuestos cambiados\n'
     + '3. Finaliza con una nota de verificaci\u00f3n de funcionamiento \u00f3ptimo\n'
     + '4. Entre 80 y 150 palabras, terminolog\u00eda t\u00e9cnica apropiada\n'

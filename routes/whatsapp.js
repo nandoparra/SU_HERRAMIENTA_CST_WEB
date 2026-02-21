@@ -46,7 +46,7 @@ router.post('/quotes/order/:orderId/send-whatsapp', async (req, res) => {
     );
 
     conn.release();
-    res.json({ success: true, destinatarios: chatIds.length, status: 'Enviado' });
+    res.json({ success: true, destinatarios: chatIds.length, cliente: order.cli_razon_social || order.cli_contacto || '', status: 'Enviado' });
   } catch (e) {
     console.error('Error enviando WhatsApp final:', e);
     res.status(500).json({ success: false, error: e.message });
