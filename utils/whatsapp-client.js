@@ -30,19 +30,38 @@ function isReady() {
 }
 
 /**
- * Resuelve el chatId correcto para un número antes de enviar.
- * Necesario porque WhatsApp migró algunos contactos al sistema LID
- * (Linked ID Device). Construir "57XXXXXXXX@c.us" a mano falla con
- * "No LID for user" en esos contactos.
- * Usa getNumberId() para obtener el ID real (@c.us o @lid según corresponda).
+ * Envía un mensaje de WhatsApp con manejo del sistema LID.
+ *
+ * WhatsApp migró contactos al sistema LID (Linked ID Device). Enviar
+ * directamente con "57XXX@c.us" o con client.sendMessage() puede lanzar
+ * "No LID for user" en esos contactos. Estrategia en 3 pasos:
+ *   1. Resolver el ID real con getNumberId() (@c.us o @lid)
+ *   2. Intentar envío con client.sendMessage()
+ *   3. Si falla por LID, obtener el chat y enviar por chat.sendMessage()
+ *
+ * @param {string} phoneOrChatId  Número con o sin @c.us  (ej: "573104650437" o "573104650437@c.us")
+ * @param {string|MessageMedia} content  Texto o archivo a enviar
  */
-async function resolveWAId(phoneOrChatId) {
-  const phone = String(phoneOrChatId).replace(/@c\.us$/, '').replace(/@lid$/, '');
+async function sendWAMessage(phoneOrChatId, content) {
+  const phone = String(phoneOrChatId).replace(/@[a-z.]+$/, '');
+
+  // Paso 1 — resolver ID real (puede devolver @c.us o @lid según el contacto)
+  let resolvedId = `${phone}@c.us`;
   try {
-    const result = await waClient.getNumberId(phone);
-    if (result) return result._serialized;
+    const numberId = await waClient.getNumberId(phone);
+    if (numberId) resolvedId = numberId._serialized;
   } catch {}
-  return phoneOrChatId; // fallback al formato original si falla
+
+  // Paso 2 — intento directo
+  try {
+    return await waClient.sendMessage(resolvedId, content);
+  } catch (e) {
+    if (!String(e.message).includes('LID')) throw e; // otro error → propagar
+  }
+
+  // Paso 3 — fallback: enviar desde el objeto Chat
+  const chat = await waClient.getChatById(resolvedId);
+  return await chat.sendMessage(content);
 }
 
-module.exports = { waClient, isReady, resolveWAId };
+module.exports = { waClient, isReady, sendWAMessage };

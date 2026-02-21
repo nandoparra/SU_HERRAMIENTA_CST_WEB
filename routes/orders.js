@@ -11,7 +11,7 @@ const {
   getTechnicianWhereClause,
   resolveOrder,
 } = require('../utils/schema');
-const { waClient, isReady, resolveWAId } = require('../utils/whatsapp-client');
+const { waClient, isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 
 // ── Multer para fotos del trabajo ─────────────────────────────────────────────
@@ -422,7 +422,7 @@ router.post('/orders/:orderId/notify-parts', async (req, res) => {
 
     let phone = partsNumber;
     if (!phone.startsWith('57')) phone = '57' + phone.slice(-10);
-    await waClient.sendMessage(await resolveWAId(`${phone}@c.us`), msg);
+    await sendWAMessage(`${phone}@c.us`, msg);
 
     conn.release();
     res.json({ success: true, maquinas: maquinas.length });
@@ -466,7 +466,7 @@ router.post('/orders/:orderId/notify-ready', async (req, res) => {
 
     const chatIds = parseColombianPhones(cliente?.cli_telefono);
     if (!chatIds.length) { conn.release(); return res.status(400).json({ success: false, error: 'No se encontró número móvil válido para el cliente' }); }
-    for (const chatId of chatIds) await waClient.sendMessage(await resolveWAId(chatId), msg);
+    for (const chatId of chatIds) await sendWAMessage(chatId, msg);
 
     conn.release();
     res.json({ success: true, maquinas: maquinas.length, destinatarios: chatIds.length });
@@ -510,7 +510,7 @@ router.post('/orders/:orderId/notify-delivered', async (req, res) => {
 
     const chatIds = parseColombianPhones(cliente?.cli_telefono);
     if (!chatIds.length) { conn.release(); return res.status(400).json({ success: false, error: 'No se encontró número móvil válido para el cliente' }); }
-    for (const chatId of chatIds) await waClient.sendMessage(await resolveWAId(chatId), msg);
+    for (const chatId of chatIds) await sendWAMessage(chatId, msg);
 
     conn.release();
     res.json({ success: true, maquinas: maquinas.length, destinatarios: chatIds.length });
