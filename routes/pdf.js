@@ -9,6 +9,7 @@ const { generateQuotePDF, generateMaintenancePDF, generateOrdenServicioPDF } = r
 const { generateText }  = require('../utils/ia');
 const { waClient, isReady } = require('../utils/whatsapp-client');
 const { MessageMedia }  = require('whatsapp-web.js');
+const { requireInterno } = require('../middleware/auth');
 
 // ─── Helper: buscar informe existente para esta máquina en esta orden ────────
 async function getExistingInforme(conn, uid_herramienta_orden) {
@@ -241,8 +242,8 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', async (re
   }
 });
 
-// ─── DESCARGAR informe guardado por uid ──────────────────────────────────────
-router.get('/informes/:uid_informe', async (req, res) => {
+// ─── DESCARGAR informe guardado por uid — solo usuarios internos ──────────────
+router.get('/informes/:uid_informe', requireInterno, async (req, res) => {
   try {
     const conn = await db.getConnection();
     const [[inf]] = await conn.execute(

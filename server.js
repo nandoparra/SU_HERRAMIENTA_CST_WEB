@@ -9,16 +9,31 @@ const { waClient } = require('./utils/whatsapp-client');
 const apiKey  = require('./middleware/apiKey');
 const { requireLogin, requireInterno } = require('./middleware/auth');
 
+// Validar SESSION_SECRET antes de arrancar
+if (!process.env.SESSION_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('SESSION_SECRET no configurado. Defina esta variable de entorno antes de iniciar en producción.');
+  } else {
+    console.warn('\x1b[33m⚠️  SEGURIDAD: SESSION_SECRET no configurado — usando valor de desarrollo. NO usar en producción.\x1b[0m');
+  }
+}
+
 const app = express();
 app.use(express.json());
-app.use(cors());
+// CORS: solo mismo origen — bloquea peticiones cross-origin de otros dominios
+app.use(cors({ origin: false }));
 
 // Sesiones
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'cst-secret-2026',
+  secret: process.env.SESSION_SECRET || 'cst-dev-insecure',
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 8 * 60 * 60 * 1000 }, // 8 horas
+  cookie: {
+    maxAge:   8 * 60 * 60 * 1000, // 8 horas
+    httpOnly: true,                // JS del frontend no puede leer la cookie
+    sameSite: 'lax',               // protección CSRF básica
+    secure:   process.env.NODE_ENV === 'production', // solo HTTPS en prod
+  },
 }));
 
 // Rutas públicas — login/logout/me
@@ -51,15 +66,15 @@ app.use('/api', require('./routes/whatsapp'));
 app.use('/api', require('./routes/pdf'));
 app.use('/api', require('./routes/crear-orden'));
 
-// Health
-app.get('/health', (req, res) => {
+// Health — solo usuarios internos autenticados
+app.get('/health', requireInterno, (req, res) => {
   const { isReady } = require('./utils/whatsapp-client');
   res.json({ status: 'OK', whatsappReady: isReady(), timestamp: new Date() });
 });
 
-// Debug endpoint: solo en desarrollo
+// Debug endpoint: solo en desarrollo y solo usuarios internos
 if (process.env.NODE_ENV !== 'production') {
-  app.get('/api/debug/usuario-schema', async (req, res) => {
+  app.get('/api/debug/usuario-schema', requireInterno, async (req, res) => {
     try {
       const conn = await db.getConnection();
       const { getUsuarioColumns } = require('./utils/schema');

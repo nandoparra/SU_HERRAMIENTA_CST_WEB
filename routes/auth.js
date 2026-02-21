@@ -1,8 +1,18 @@
 'use strict';
-const express = require('express');
-const router  = express.Router();
-const bcrypt  = require('bcrypt');
-const db      = require('../utils/db');
+const express    = require('express');
+const router     = express.Router();
+const bcrypt     = require('bcrypt');
+const rateLimit  = require('express-rate-limit');
+const db         = require('../utils/db');
+
+// Máximo 10 intentos de login por IP en 15 minutos
+const loginLimiter = rateLimit({
+  windowMs:        15 * 60 * 1000,
+  max:             10,
+  message:         { success: false, error: 'Demasiados intentos fallidos. Espere 15 minutos.' },
+  standardHeaders: true,
+  legacyHeaders:   false,
+});
 
 const ROLES = { A: 'admin', F: 'funcionario', T: 'tecnico', C: 'cliente' };
 
@@ -12,8 +22,8 @@ router.get('/login', (req, res) => {
   res.sendFile(require('path').join(__dirname, '..', 'public', 'login.html'));
 });
 
-// POST /login
-router.post('/login', async (req, res) => {
+// POST /login — protegido con rate limiting
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
