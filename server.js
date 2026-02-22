@@ -6,6 +6,7 @@ const session = require('express-session');
 
 const db      = require('./utils/db');
 const { waClient } = require('./utils/whatsapp-client');
+require('./utils/wa-handler'); // Listener de mensajes entrantes (autorización por WA)
 const apiKey  = require('./middleware/apiKey');
 const { requireLogin, requireInterno } = require('./middleware/auth');
 
@@ -201,6 +202,18 @@ async function ensureStatusTables() {
         estado      VARCHAR(32) NOT NULL,
         changed_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_hsl (uid_herramienta_orden)
+      )
+    `);
+
+    // Tabla de conversaciones de autorización por WhatsApp
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_wa_autorizacion_pendiente (
+        uid_autorizacion INT AUTO_INCREMENT PRIMARY KEY,
+        uid_orden        INT NOT NULL,
+        wa_phone         VARCHAR(20) NOT NULL,
+        estado           ENUM('esperando_opcion','esperando_maquinas') NOT NULL DEFAULT 'esperando_opcion',
+        created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_wa_phone (wa_phone)
       )
     `);
 

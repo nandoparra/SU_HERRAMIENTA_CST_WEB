@@ -256,14 +256,24 @@ INSTRUCCIONES:
 2) El mensaje DEBE comenzar con una presentación: "Hola, le saluda *Su Herramienta CST*" (o variación natural).
 3) Debe incluir TODAS las máquinas (lista corta y clara).
 4) Incluye total final SIN IVA.
-5) CTA: "¿Autorizas proceder con la reparación de todas las máquinas?"
-6) Máximo 650 caracteres (para que quepa bien en WhatsApp).
+5) Cierra con una frase breve invitando a responder (ej: "Por favor indíquenos su decisión:"). NO incluyas las opciones numeradas.
+6) Máximo 550 caracteres (las opciones se agregan automáticamente aparte).
 7) Usa emojis moderadamente (máximo 3).
 8) No inventes datos que no estén arriba.
 
 Genera SOLO el mensaje, sin explicaciones adicionales.`;
 
-    const generated = await generateText(prompt, 450);
+    const generated = await generateText(prompt, 400);
+
+    // Agregar menú de autorización de forma determinista
+    const advisorNumber = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
+    const menu =
+      '\n\nResponda con el número de su elección:\n' +
+      '1️⃣ Autorizar toda la cotización\n' +
+      '2️⃣ No autorizar la cotización\n' +
+      '3️⃣ Autorización parcial (seleccionar máquinas)\n' +
+      `4️⃣ Hablar con un asesor → ${advisorNumber}`;
+    const fullMessage = generated + menu;
 
     await conn.execute(
       `INSERT INTO b2c_cotizacion_orden (uid_orden, subtotal, iva, total, mensaje_whatsapp)
@@ -274,11 +284,11 @@ Genera SOLO el mensaje, sin explicaciones adicionales.`;
          total = VALUES(total),
          mensaje_whatsapp = VALUES(mensaje_whatsapp),
          updated_at = CURRENT_TIMESTAMP`,
-      [order.uid_orden, machineSubtotal, iva, total, generated]
+      [order.uid_orden, machineSubtotal, iva, total, fullMessage]
     );
 
     conn.release();
-    res.json({ success: true, message: generated, totals: { subtotal: machineSubtotal, iva, total }, machinesCount: machines.length });
+    res.json({ success: true, message: fullMessage, totals: { subtotal: machineSubtotal, iva, total }, machinesCount: machines.length });
   } catch (e) {
     console.error('Error generando mensaje final:', e);
     res.status(500).json({ success: false, error: e.message });

@@ -45,6 +45,21 @@ router.post('/quotes/order/:orderId/send-whatsapp', async (req, res) => {
       [order.uid_orden]
     );
 
+    // Registrar conversación de autorización pendiente por cada número del cliente
+    // UNIQUE(wa_phone): si ya había un pendiente anterior de este número, se reemplaza con esta orden
+    for (const chatId of chatIds) {
+      const phone = chatId.replace(/@[a-z.]+$/, '');
+      await conn.execute(
+        `INSERT INTO b2c_wa_autorizacion_pendiente (uid_orden, wa_phone, estado)
+         VALUES (?, ?, 'esperando_opcion')
+         ON DUPLICATE KEY UPDATE
+           uid_orden = VALUES(uid_orden),
+           estado    = 'esperando_opcion',
+           created_at = CURRENT_TIMESTAMP`,
+        [order.uid_orden, phone]
+      );
+    }
+
     conn.release();
     res.json({ success: true, destinatarios: chatIds.length, cliente: order.cli_razon_social || order.cli_contacto || '', status: 'Enviado' });
   } catch (e) {
