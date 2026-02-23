@@ -69,7 +69,7 @@ async function getTechnicianWhereClause(connection, usrCols) {
     const match = roles
       .map(x => (x && x.r ? String(x.r).trim() : ''))
       .filter(Boolean)
-      .filter(r => r.includes('tecn') || r.includes('func') || r === 'f');
+      .filter(r => r.includes('tecn') || r === 't');
 
     if (match.length === 0) {
       TECH_FILTER_CACHE = { whereSql: 'WHERE 1=0', warning: 'No se pudo detectar el rol de técnicos en b2c_usuario.' };
