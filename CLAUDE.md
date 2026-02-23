@@ -24,31 +24,48 @@ middleware/apiKey.js               Guard API key opcional (env API_SECRET_KEY)
 middleware/auth.js                 requireLogin / requireInterno / requireCliente
                                      └─ requireInterno devuelve 401/403 JSON en rutas /api/
 utils/db.js                        Pool MySQL
-utils/schema.js                    Helpers BD + resolveOrder
+utils/schema.js                    Helpers BD + resolveOrder + getTechnicianWhereClause
+                                     └─ filtra usu_tipo='T' — solo técnicos en selector cotizaciones
 utils/ia.js                        Wrapper Anthropic SDK
 utils/whatsapp-client.js           Singleton waClient + parche LID + validación getNumberId
+utils/wa-handler.js                Listener mensajes entrantes WA — flujo autorización cotizaciones
+                                     └─ resuelve LID vía msg.getContact() antes de buscar pendiente
 utils/pdf-generator.js             Generación PDFs (quote, maintenance, orden de servicio)
 utils/phones.js                    parseColombianPhones() — separa múltiples números
 routes/auth.js                     GET/POST /login (rate limit 10/15min), /logout, /me
+                                     └─ POST /login redirige a /dashboard.html (internos) o /seguimiento.html (C)
 routes/orders.js                   GET/PATCH órdenes + estados + notificaciones WA
                                      └─ todos los endpoints con requireInterno
                                      └─ GET /orders/:id/detalle — orden+cliente+máquinas+fotos+cotización
                                      └─ POST /orders/:id/fotos-trabajo/:uid — subir foto de trabajo
                                      └─ DELETE /orders/fotos-trabajo/:uid — eliminar foto de trabajo
-routes/quote.js                    GET/POST cotizaciones
-routes/whatsapp.js                 POST envío WhatsApp
+routes/quote.js                    GET/POST cotizaciones — mensaje incluye menú WA autorización
+routes/whatsapp.js                 POST envío WhatsApp — registra pendiente en b2c_wa_autorizacion_pendiente
 routes/pdf.js                      GET descargar/POST enviar PDFs
                                      └─ /pdf/orden — PDF con todas las máquinas de la orden
                                      └─ /print/orden — HTML wrapper con auto-print
                                      └─ /informes/:uid — requireInterno
 routes/crear-orden.js              POST crear cliente/herramienta/orden + fotos
                                      └─ todos los endpoints con requireInterno
+routes/dashboard.js                KPIs + CRUD clientes, funcionarios, inventario (requireInterno)
+                                     └─ GET /dashboard?mes=YYYY-MM — KPIs + alertas reparadas sin entregar
+                                     └─ GET /clientes/search, GET /clientes/:id
+                                     └─ GET/POST/PATCH /funcionarios, GET/POST/PATCH /inventario
 public/login.html                  Página de login
 public/seguimiento.html            Vista cliente — seguimiento de sus órdenes
 public/crear-orden.html            Módulo creación de órdenes
 public/ordenes.html                Consulta de órdenes — buscador + detalle + fotos + cotización
-                                     └─ sección "Fotos del trabajo" por máquina (upload/delete)
-public/generador-cotizaciones.html Módulo de cotizaciones (refactorizado — mismo estilo visual)
+                                     └─ selector de estado por máquina inline
+                                     └─ botón Informe por máquina
+                                     └─ botón Editar/Ver cotización según estado
+public/dashboard.html              SPA principal — 6 vistas con sidebar responsive
+                                     └─ Inicio: KPIs del mes + alertas reparadas (amarillo/naranja/rojo)
+                                     └─ Órdenes: migración completa de ordenes.html
+                                     └─ Cotizaciones: migración completa de generador-cotizaciones.html
+                                     └─ Clientes: búsqueda + historial de órdenes
+                                     └─ Funcionarios: CRUD con editar nombre/rol/clave + toggle estado
+                                     └─ Inventario: CRUD conceptos de costo
+public/generador-cotizaciones.html Módulo de cotizaciones standalone (sin lista de estado en panel izq.)
 public/assets/logo.png             Logo portrait 1396x2696 px
 public/uploads/fotos-recepcion/    Fotos subidas — recepción Y trabajo (en .gitignore)
 ```
@@ -77,10 +94,13 @@ PARTS_WHATSAPP_NUMBER (número del encargado de repuestos, ej: 3104650437)
 main                    Estado estable inicial
 feature/login           Login completo — pendiente merge a main
 feature/crear-orden     Módulo crear orden — pendiente merge a main
-feature/security-fixes  Todas las correcciones de seguridad — pendiente merge a main
+feature/security-fixes  Correcciones de seguridad — pendiente merge a main
+feature/wa-autorizacion Flujo autorización cotizaciones por WhatsApp — pendiente merge
+feature/ui-fixes        Quitar lista máquinas panel izq. cotizaciones — pendiente merge
+feature/dashboard       Dashboard SPA + edición funcionarios + fix técnicos — pendiente merge
 ```
 
-Las 3 ramas feature están subidas a GitHub. Mergear en orden: login → crear-orden → security-fixes.
+Mergear en orden: login → crear-orden → security-fixes → wa-autorizacion → ui-fixes → dashboard.
 
 ---
 
@@ -100,6 +120,26 @@ Las 3 ramas feature están subidas a GitHub. Mergear en orden: login → crear-o
 
 ---
 
+## WhatsApp — flujo de autorización (feature/wa-autorizacion)
+
+Al enviar cotización por WA (`routes/whatsapp.js`) se registra conversación pendiente en
+`b2c_wa_autorizacion_pendiente`. El cliente responde con 1/2/3/4:
+
+| Opción | Acción |
+|--------|--------|
+| 1 | Autorizar todas las máquinas → estado `autorizada` + envía lista repuestos al encargado |
+| 2 | No autorizar → estado `no_autorizada` |
+| 3 | Autorización parcial → envía lista numerada, cliente selecciona (ej: "1,3") |
+| 4 | Hablar con asesor → notifica a PARTS_WHATSAPP_NUMBER + confirma al cliente |
+
+**LID fix en wa-handler.js**: si `msg.from` no es `57XXXXXXXXXX`, se resuelve vía
+`msg.getContact().number` antes de buscar el pendiente en BD.
+
+**Tabla**: `b2c_wa_autorizacion_pendiente` (uid_autorizacion, uid_orden, wa_phone,
+estado ENUM('esperando_opcion','esperando_maquinas'), created_at). UNIQUE KEY en wa_phone.
+
+---
+
 ## Autenticación — b2c_usuario
 
 | Columna | Uso |
@@ -113,7 +153,7 @@ Las 3 ramas feature están subidas a GitHub. Mergear en orden: login → crear-o
 
 - Clientes: `b2c_cliente.uid_usuario` apunta a `b2c_usuario`
 - Login con `usu_login` + `usu_clave`
-- Admin/F/T → `/generador-cotizaciones.html`
+- Admin/F/T → `/dashboard.html` (antes `/generador-cotizaciones.html`)
 - C → `/seguimiento.html`
 - Clave por defecto al crear cliente: últimos 4 dígitos de la identificación
 
@@ -140,6 +180,7 @@ Las 3 ramas feature están subidas a GitHub. Mergear en orden: login → crear-o
 | `b2c_cotizacion_item` | Ítems/repuestos por máquina |
 | `b2c_herramienta_status_log` | Historial cambios de estado por máquina |
 | `b2c_informe_mantenimiento` | Registro de informes PDF generados por máquina |
+| `b2c_wa_autorizacion_pendiente` | Conversaciones WA activas de autorización |
 
 ### Columnas agregadas al ERP (auto-migradas en server.js al arrancar)
 - `b2c_herramienta_orden.her_estado` VARCHAR(32) DEFAULT 'pendiente_revision'
@@ -192,6 +233,19 @@ Las fotos aparecen en el informe de mantenimiento PDF agrupadas por tipo.
 
 ---
 
+## Dashboard SPA — public/dashboard.html (feature/dashboard)
+
+- **Entrada**: login redirige a `/dashboard.html` para usuarios internos (A/F/T)
+- **Sidebar**: 240px desktop, drawer en móvil (hamburger), logo portrait centrado arriba + nombre
+- **Logo sidebar**: wrapper `154×80px` overflow:hidden + img `width:80px` rotate(-90deg)
+- **Navegación**: hash-based (`#inicio`, `#ordenes`, `#cotizaciones`, `#clientes`, `#funcionarios`, `#inventario`)
+- **Vistas**: objetos JS con `render()` + `init()`, funciones prefijadas (`ord_`, `cot_`, `cli_`, `fun_`, `inv_`)
+- **KPIs Inicio**: filtro por mes, tarjetas de estado, alertas reparadas sin entregar (amarillo ≥7d, naranja ≥15d, rojo ≥30d)
+- **Funcionarios**: editar nombre/rol/clave (modal), toggle activo/inactivo — solo admin
+- **Técnico asignado**: `getTechnicianWhereClause` filtra `usu_tipo='T'` — solo técnicos
+
+---
+
 ## Estilo visual — patrón de páginas internas
 
 Todas las páginas internas (ordenes.html, generador-cotizaciones.html) siguen este patrón:
@@ -200,7 +254,7 @@ Todas las páginas internas (ordenes.html, generador-cotizaciones.html) siguen e
 - **Layout**: `display:flex` — `.panel-left` (340px fijo, scrollable) + `.panel-right` (flex:1, scrollable)
 - **Panel izquierdo**: buscador con concept selector (Número / Cédula NIT / Nombre), debounce 350ms, resultados en `.result-card`
 - **Panel derecho**: empty state hasta seleccionar, luego detalle/formulario en `.card` components
-- **Logo CSS**: `<div class="logo-wrap"><img src="/assets/logo.png" style="width:60px;transform:rotate(-90deg)"></div>`
+- **Logo CSS wrapper**: `position:relative; width:96px; height:50px; overflow:hidden` + img `position:absolute; left:50%; top:50%; width:50px; transform:translate(-50%,-50%) rotate(-90deg)`
 - **API_BASE**: usar `/api` (relativo), NO `http://localhost:3001/api`
 
 ---
@@ -211,6 +265,7 @@ Cada HTML interno requiere ruta explícita en `server.js`:
 ```js
 app.get('/ordenes.html',                requireInterno, (req,res) => res.sendFile(...));
 app.get('/generador-cotizaciones.html', requireInterno, (req,res) => res.sendFile(...));
+app.get('/dashboard.html',              requireInterno, (req,res) => res.sendFile(...));
 // etc.
 ```
 Sin esta ruta el servidor devuelve 404 aunque el archivo exista en `public/`.
@@ -255,7 +310,14 @@ COMPANY = {
 ## Logo — problema conocido y solución aplicada
 
 `public/assets/logo.png` es portrait (1396x2696 px). En PDFs se rota -90 con PDFKit.
-En HTML se rota con CSS: `transform: rotate(-90deg)` + `width: 100px` en login.html.
+En HTML siempre usar el patrón wrapper:
+```html
+<div style="position:relative;width:Wpx;height:Hpx;overflow:hidden;">
+  <img src="/assets/logo.png" style="position:absolute;left:50%;top:50%;width:Xpx;transform:translate(-50%,-50%) rotate(-90deg)">
+</div>
+```
+Donde `X` = altura deseada, `W` ≈ X × 1.93 (ancho después de rotar), `H` = X.
+Sidebar dashboard: X=80, W=154, H=80.
 
 ---
 
