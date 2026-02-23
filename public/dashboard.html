@@ -1244,7 +1244,8 @@ Views.funcionarios = {
           <td style="color:#666">${esc(u.usu_login||'-')}</td>
           <td><span class="tipo-badge tipo-${u.usu_tipo}">${TIPOS[u.usu_tipo]||u.usu_tipo}</span></td>
           <td><span class="estado-pill est-${u.usu_estado}">${u.usu_estado==='A'?'Activo':'Inactivo'}</span></td>
-          ${isAdmin()?`<td>
+          ${isAdmin()?`<td style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-dark" onclick="fun_openEdit(${u.uid_usuario},'${esc(u.usu_nombre||'')}','${u.usu_tipo}')">Editar</button>
             <button class="btn btn-sm btn-grey" onclick="fun_toggleEstado(${u.uid_usuario},'${u.usu_estado==='A'?'I':'A'}')">${u.usu_estado==='A'?'Desactivar':'Activar'}</button>
           </td>`:''}
         </tr>`).join('');
@@ -1274,6 +1275,37 @@ Views.funcionarios = {
       if (clave.length<6) { alert('La contraseña debe tener al menos 6 caracteres'); return; }
       const r = await fetch(`${API}/funcionarios`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,login,clave,tipo})}).then(r=>r.json()).catch(()=>({success:false}));
       if (r.success) { document.getElementById('funModal')?.remove(); showToast('✅ Funcionario creado'); await fun_reload(); }
+      else alert('Error: '+(r.error||'Error desconocido'));
+    };
+    window.fun_openEdit = (uid, nombre, tipo) => {
+      const bg = document.createElement('div'); bg.className='modal-bg'; bg.id='funEditModal';
+      bg.innerHTML=`<div class="modal">
+        <h3>Editar Funcionario</h3>
+        <label>Nombre completo</label><input id="editNombre" type="text" value="${nombre}">
+        <label>Rol</label>
+        <select id="editTipo">
+          <option value="T"${tipo==='T'?' selected':''}>Técnico</option>
+          <option value="F"${tipo==='F'?' selected':''}>Funcionario</option>
+          <option value="A"${tipo==='A'?' selected':''}>Administrador</option>
+        </select>
+        <label>Nueva contraseña <span style="color:#999;font-weight:400">(dejar vacío para no cambiar)</span></label>
+        <input id="editClave" type="password" placeholder="Opcional">
+        <div class="modal-actions">
+          <button class="btn btn-grey" onclick="document.getElementById('funEditModal').remove()">Cancelar</button>
+          <button class="btn btn-dark" onclick="fun_save(${uid})">Guardar</button>
+        </div>
+      </div>`;
+      document.body.appendChild(bg);
+    };
+    window.fun_save = async (uid) => {
+      const nombre = document.getElementById('editNombre')?.value.trim();
+      const tipo   = document.getElementById('editTipo')?.value;
+      const clave  = document.getElementById('editClave')?.value;
+      if (!nombre) { alert('El nombre es requerido'); return; }
+      const body = { nombre, tipo };
+      if (clave) { if (clave.length<6){alert('La contraseña debe tener al menos 6 caracteres');return;} body.clave=clave; }
+      const r = await fetch(`${API}/funcionarios/${uid}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json()).catch(()=>({success:false}));
+      if (r.success) { document.getElementById('funEditModal')?.remove(); showToast('✅ Funcionario actualizado'); await fun_reload(); }
       else alert('Error: '+(r.error||'Error desconocido'));
     };
     window.fun_toggleEstado = async (uid, nuevoEstado) => {
