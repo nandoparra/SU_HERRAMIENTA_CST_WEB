@@ -18,7 +18,8 @@
     /* ── Sidebar ── */
     .sidebar{width:var(--sidebar-w);background:var(--dark);display:flex;flex-direction:column;flex-shrink:0;z-index:200;transition:transform .25s;}
     .sb-logo{padding:16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,.1);}
-    .sb-logo img{width:38px;transform:rotate(-90deg);flex-shrink:0;}
+    .sb-logo-img{position:relative;width:52px;height:42px;overflow:hidden;flex-shrink:0;}
+    .sb-logo-img img{position:absolute;left:50%;top:50%;width:42px;transform:translate(-50%,-50%) rotate(-90deg);}
     .sb-logo-text{color:#fff;font-size:12px;font-weight:700;line-height:1.35;}
     .sb-nav{flex:1;padding:10px 0;overflow-y:auto;}
     .nav-item{display:flex;align-items:center;gap:12px;padding:12px 18px;color:rgba(255,255,255,.72);cursor:pointer;font-size:13.5px;border-left:3px solid transparent;transition:all .15s;user-select:none;}
@@ -325,7 +326,7 @@
 <!-- ── Sidebar ── -->
 <aside class="sidebar" id="sidebar">
   <div class="sb-logo">
-    <img src="/assets/logo.png" alt="Logo">
+    <div class="sb-logo-img"><img src="/assets/logo.png" alt="Logo"></div>
     <div class="sb-logo-text">SU HERRAMIENTA<br>CST</div>
   </div>
   <nav class="sb-nav">
