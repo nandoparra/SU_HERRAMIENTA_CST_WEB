@@ -82,7 +82,7 @@ router.post('/login', loginLimiter, async (req, res) => {
       rol:    ROLES[tipo] || 'funcionario',
     };
 
-    const redirect = tipo === 'C' ? '/seguimiento.html' : '/generador-cotizaciones.html';
+    const redirect = tipo === 'C' ? '/seguimiento.html' : '/dashboard.html';
     res.json({ success: true, rol: req.session.user.rol, redirect });
   } catch (e) {
     console.error('Error en login:', e);
