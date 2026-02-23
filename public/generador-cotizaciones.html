@@ -193,9 +193,6 @@
         <span id="equipmentName"></span><span id="equipmentBrand" style="color:#888;margin-left:4px;"></span>
       </div>
 
-      <div class="slabel">Estado de equipos</div>
-      <div class="status-list" id="equipmentList"></div>
-
       <div class="slabel">Notificaciones WhatsApp</div>
       <div class="wa-buttons">
         <button class="wa-btn btn-parts" type="button" onclick="notifyParts()">
@@ -514,24 +511,6 @@
       sel.appendChild(opt);
     });
 
-    list.forEach((eq, idx) => {
-      const tech = eq.tecnico_nombre ? ` | Tec: ${eq.tecnico_nombre}` : '';
-      const estadoActual = eq.her_estado || 'pendiente_revision';
-      const estadoInfo = ESTADOS.find(e => e.value === estadoActual) || ESTADOS[0];
-      const opciones = ESTADOS.map(e =>
-        `<option value="${e.value}"${e.value === estadoActual ? ' selected' : ''}>${e.label}</option>`
-      ).join('');
-      const uid = eq.uid_herramienta_orden;
-      const row = document.createElement('div');
-      row.className = 'status-row';
-      row.innerHTML = `
-        <span>• ${idx+1}. ${eq.her_nombre||'-'}${eq.her_serial ? ' / '+eq.her_serial : ''}${tech}</span>
-        <select id="status_${uid}" onchange="updateEquipmentStatus('${uid}', this)"
-          style="color:${estadoInfo.color};font-weight:600;">
-          ${opciones}
-        </select>`;
-      box.appendChild(row);
-    });
   }
 
   async function updateEquipmentStatus(uid, selectEl) {
