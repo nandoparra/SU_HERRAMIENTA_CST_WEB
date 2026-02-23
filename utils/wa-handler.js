@@ -18,13 +18,37 @@ function normalizePhone(raw) {
   return String(raw).replace(/@[a-z.]+$/, '');
 }
 
+console.log('✅ wa-handler: listener de mensajes entrantes registrado');
+
 waClient.on('message', async (msg) => {
   // Solo chats individuales con texto
   if (msg.from.endsWith('@g.us')) return;
   const text = String(msg.body || '').trim();
   if (!text) return;
 
-  const senderPhone = normalizePhone(msg.from);
+  let senderPhone = normalizePhone(msg.from);
+
+  // Si no es un número colombiano estándar (57 + 10 dígitos), es un LID —
+  // resolverlo al número real via getContact()
+  if (!/^57\d{10}$/.test(senderPhone)) {
+    try {
+      const contact = await msg.getContact();
+      let resolved = String(contact.number || '').replace(/[^0-9]/g, '');
+      if (resolved.length === 10 && resolved.startsWith('3')) resolved = '57' + resolved;
+      if (/^57\d{10}$/.test(resolved)) {
+        console.log(`📨 wa-handler: LID ${senderPhone} → resuelto a ${resolved}`);
+        senderPhone = resolved;
+      } else {
+        console.log(`📨 wa-handler: no se pudo resolver LID ${senderPhone} a número colombiano`);
+        return;
+      }
+    } catch (e) {
+      console.warn('⚠️ wa-handler: error resolviendo LID:', e.message);
+      return;
+    }
+  }
+
+  console.log(`📨 wa-handler: mensaje de ${senderPhone} → "${text}"`);
 
   let conn;
   try {
@@ -39,7 +63,12 @@ waClient.on('message', async (msg) => {
       [senderPhone]
     );
 
-    if (!pendiente) return; // No hay conversación activa para este número
+    if (!pendiente) {
+      console.log(`📨 wa-handler: ${senderPhone} no tiene conversación activa — ignorando`);
+      return;
+    }
+
+    console.log(`📨 wa-handler: pendiente encontrado uid_orden=${pendiente.uid_orden} estado=${pendiente.estado}`);
 
     if (pendiente.estado === 'esperando_opcion') {
       await handleOpcion(conn, pendiente, text, senderPhone);
@@ -47,7 +76,7 @@ waClient.on('message', async (msg) => {
       await handleSeleccionMaquinas(conn, pendiente, text, senderPhone);
     }
   } catch (e) {
-    console.error('❌ wa-handler error:', e.message);
+    console.error('❌ wa-handler error:', e.message, e.stack);
   } finally {
     if (conn) conn.release();
   }
@@ -144,6 +173,23 @@ async function handleOpcion(conn, pendiente, text, senderPhone) {
       `DELETE FROM b2c_wa_autorizacion_pendiente WHERE uid_autorizacion = ?`,
       [uid_autorizacion]
     );
+    // Notificar al asesor
+    if (advisorNumber) {
+      const [[orderRow]] = await conn.execute(
+        `SELECT o.ord_consecutivo, c.cli_razon_social, c.cli_contacto
+         FROM b2c_orden o
+         JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+         WHERE o.uid_orden = ?`,
+        [uid_orden]
+      );
+      const nombre = orderRow?.cli_razon_social || orderRow?.cli_contacto || 'Cliente';
+      let phone = advisorNumber;
+      if (!phone.startsWith('57')) phone = '57' + phone.slice(-10);
+      await sendWAMessage(`${phone}@c.us`,
+        `📞 *ATENCIÓN REQUERIDA*\nEl cliente *${nombre}* (Orden #${orderRow?.ord_consecutivo || uid_orden}) solicita hablar con un asesor sobre su cotización.`
+      );
+    }
+    // Confirmar al cliente
     await sendWAMessage(senderPhone,
       `Le comunicamos con nuestro asesor: *${advisorNumber}* — SU HERRAMIENTA CST`
     );

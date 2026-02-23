@@ -127,6 +127,16 @@
     .btn-quote-ver{padding:9px 18px;background:#6c3483;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;}
     .btn-quote-ver:hover{background:#5b2c6f;}
 
+    /* ── Controles por máquina ── */
+    .maq-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0 4px;}
+    .estado-select{padding:5px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;color:#333;background:#fff;outline:none;cursor:pointer;}
+    .estado-select:focus{border-color:#457b9d;}
+    .estado-select:disabled{opacity:.6;cursor:wait;}
+    .btn-maq{padding:5px 12px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:4px;}
+    .btn-maq:hover{opacity:.85;}
+    .btn-informe{background:#16a085;color:#fff;}
+    .btn-cot-maq{background:#6c3483;color:#fff;}
+
     .loading{text-align:center;padding:20px;color:#888;font-size:13px;}
 
     @media(max-width:700px){
@@ -305,8 +315,9 @@ async function verDetalle(uid_orden) {
     <!-- Acciones generales -->
     <div class="acciones">
       <a class="btn-print" href="${API}/orders/${orden.uid_orden}/print/orden" target="_blank">🖨️ Imprimir orden</a>
-      ${!tieneCotizacion
-        ? `<a class="btn-quote" href="/generador-cotizaciones.html?orden=${orden.uid_orden}" target="_blank">✏️ Cotizar</a>`
+      <a class="btn-quote" href="/generador-cotizaciones.html?orden=${orden.uid_orden}" target="_blank">${tieneCotizacion ? '✏️ Editar cotización' : '✏️ Cotizar'}</a>
+      ${tieneCotizacion
+        ? `<a class="btn-quote-ver" href="${API}/orders/${orden.uid_orden}/pdf/quote" target="_blank">📄 Ver cotización PDF</a>`
         : ''
       }
     </div>`;
@@ -393,7 +404,19 @@ function renderMaquina(m, orden) {
           <div class="maq-nombre">${m.her_nombre || '-'}</div>
           ${subParts.length ? `<div class="maq-sub">${subParts.join(' | ')}</div>` : ''}
         </div>
-        <span class="${badgeClass}">${estadoLabel}</span>
+        <span id="badge-${m.uid_herramienta_orden}" class="${badgeClass}">${estadoLabel}</span>
+      </div>
+      <div class="maq-actions">
+        <select class="estado-select" id="sel-${m.uid_herramienta_orden}"
+                data-prev="${m.her_estado || 'pendiente_revision'}"
+                onchange="cambiarEstado(${m.uid_herramienta_orden}, this)">
+          ${Object.entries(ESTADO_LABELS).map(([v,l]) =>
+              `<option value="${v}"${(m.her_estado||'pendiente_revision')===v?' selected':''}>${l}</option>`
+            ).join('')}
+        </select>
+        <a class="btn-maq btn-informe"
+           href="${API}/orders/${orden.uid_orden}/pdf/maintenance/${m.uid_herramienta_orden}"
+           target="_blank">📋 Informe</a>
       </div>
       ${m.hor_observaciones ? `
         <div class="maq-obs">
@@ -447,6 +470,35 @@ async function deleteFotoTrabajo(uidFoto, e) {
   const thumb = e.target.closest('.foto-thumb');
   await fetch(`${API}/orders/fotos-trabajo/${uidFoto}`, { method: 'DELETE' });
   thumb.remove();
+}
+
+async function cambiarEstado(uid, select) {
+  const nuevo = select.value;
+  const prev  = select.dataset.prev || nuevo;
+  select.disabled = true;
+  try {
+    const r    = await fetch(`${API}/equipment-order/${uid}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: nuevo }),
+    });
+    const data = await r.json();
+    if (data.success) {
+      select.dataset.prev = nuevo;
+      const badge = document.getElementById(`badge-${uid}`);
+      if (badge) {
+        badge.className = 'badge b-' + nuevo;
+        badge.textContent = ESTADO_LABELS[nuevo] || nuevo;
+      }
+    } else {
+      alert('Error al cambiar estado: ' + (data.error || 'desconocido'));
+      select.value = prev;
+    }
+  } catch (e) {
+    alert('Error al cambiar estado: ' + e.message);
+    select.value = prev;
+  }
+  select.disabled = false;
 }
 
 function renderTotalCotizacion(cotOrden) {

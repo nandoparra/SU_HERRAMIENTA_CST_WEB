@@ -46,12 +46,13 @@ app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'log
 app.get('/seguimiento.html', requireLogin, (req, res) => res.sendFile(path.join(__dirname, 'public', 'seguimiento.html')));
 app.get('/generador-cotizaciones.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'generador-cotizaciones.html')));
 app.get('/crear-orden.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'crear-orden.html')));
+app.get('/dashboard.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.html')));
 app.get('/ordenes.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'ordenes.html')));
 app.use('/uploads', requireLogin, express.static(path.join(__dirname, 'public', 'uploads')));
 app.get('/', (req, res) => {
   if (!req.session.user) return res.redirect('/login');
   if (req.session.user.tipo === 'C') return res.redirect('/seguimiento.html');
-  res.redirect('/generador-cotizaciones.html');
+  res.redirect('/dashboard.html');
 });
 
 // Protección API key (todas las rutas /api/*)
@@ -61,6 +62,7 @@ app.use('/api', apiKey);
 app.use('/api', requireLogin);
 
 // Rutas modulares
+app.use('/api', require('./routes/dashboard'));
 app.use('/api', require('./routes/orders'));
 app.use('/api', require('./routes/quote'));
 app.use('/api', require('./routes/whatsapp'));

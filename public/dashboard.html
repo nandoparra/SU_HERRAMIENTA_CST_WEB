@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SU HERRAMIENTA CST</title>
+  <style>
+    /* ── Variables ── */
+    :root {
+      --dark:#1d3557; --mid:#457b9d; --light:#a8dadc;
+      --bg:#f0f4f8; --white:#fff;
+      --sidebar-w:240px; --topbar-h:54px;
+      --radius:10px; --shadow:0 2px 8px rgba(0,0,0,.07);
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:var(--bg);display:flex;height:100vh;overflow:hidden;}
+
+    /* ── Sidebar ── */
+    .sidebar{width:var(--sidebar-w);background:var(--dark);display:flex;flex-direction:column;flex-shrink:0;z-index:200;transition:transform .25s;}
+    .sb-logo{padding:16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,.1);}
+    .sb-logo img{width:38px;transform:rotate(-90deg);flex-shrink:0;}
+    .sb-logo-text{color:#fff;font-size:12px;font-weight:700;line-height:1.35;}
+    .sb-nav{flex:1;padding:10px 0;overflow-y:auto;}
+    .nav-item{display:flex;align-items:center;gap:12px;padding:12px 18px;color:rgba(255,255,255,.72);cursor:pointer;font-size:13.5px;border-left:3px solid transparent;transition:all .15s;user-select:none;}
+    .nav-item:hover{background:rgba(255,255,255,.08);color:#fff;}
+    .nav-item.active{background:rgba(255,255,255,.13);color:#fff;border-left-color:var(--light);}
+    .nav-item .ni{font-size:17px;flex-shrink:0;}
+    .sb-footer{padding:14px;border-top:1px solid rgba(255,255,255,.1);}
+    .sb-user{color:rgba(255,255,255,.6);font-size:11px;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .sb-logout{width:100%;background:rgba(255,255,255,.12);border:none;color:#fff;padding:8px;border-radius:6px;cursor:pointer;font-size:12px;}
+    .sb-logout:hover{background:rgba(255,255,255,.22);}
+
+    /* ── Main area ── */
+    .main-area{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
+
+    /* ── Topbar ── */
+    .topbar{height:var(--topbar-h);background:var(--white);border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:12px;padding:0 20px;flex-shrink:0;}
+    .hamburger{display:none;background:none;border:none;font-size:22px;cursor:pointer;color:var(--dark);padding:4px 6px;border-radius:5px;}
+    .hamburger:hover{background:#f0f4f8;}
+    .topbar-title{font-weight:700;color:var(--dark);font-size:15px;}
+    .topbar-badge{margin-left:8px;background:#e8f4fd;color:var(--mid);font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;}
+    .topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+    .topbar-user{font-size:12px;color:#888;}
+    .btn-nueva-orden{background:var(--dark);color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;}
+    .btn-nueva-orden:hover{background:var(--mid);}
+
+    /* ── View container ── */
+    #viewContainer{flex:1;overflow-y:auto;overflow-x:hidden;}
+
+    /* ── Sidebar overlay (mobile) ── */
+    .sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:199;}
+    .sb-overlay.show{display:block;}
+
+    /* ── Shared: two-panel layout ── */
+    .two-panel{display:flex;height:calc(100vh - var(--topbar-h));}
+    .pnl-left{width:320px;min-width:280px;background:var(--white);border-right:1px solid #e2e8f0;display:flex;flex-direction:column;flex-shrink:0;}
+    .pnl-right{flex:1;overflow-y:auto;padding:22px;}
+
+    /* ── Shared: search box ── */
+    .search-box{padding:14px;border-bottom:1px solid #eee;flex-shrink:0;}
+    .search-box h2{font-size:11px;font-weight:700;color:var(--dark);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px;}
+    .concept-row{margin-bottom:8px;}
+    .concept-row select,.input-row input{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;outline:none;background:#fff;}
+    .concept-row select:focus,.input-row input:focus{border-color:var(--mid);}
+    .input-row{display:flex;gap:6px;}
+    .input-row input{flex:1;}
+    .input-row button{padding:8px 13px;background:var(--dark);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;}
+    .input-row button:hover{background:var(--mid);}
+    .results-list{flex:1;overflow-y:auto;padding:10px;}
+    .results-empty{padding:20px;text-align:center;color:#aaa;font-size:12px;}
+
+    /* ── Shared: result cards ── */
+    .result-card{padding:10px 13px;border:1px solid #e8e8e8;border-radius:8px;margin-bottom:7px;cursor:pointer;transition:background .12s,border-color .12s;}
+    .result-card:hover{background:#f0f4f8;border-color:var(--mid);}
+    .result-card.active{background:#e8f4fd;border-color:var(--dark);}
+    .rc-top{display:flex;justify-content:space-between;align-items:center;}
+    .rc-num{font-weight:700;font-size:13px;color:var(--dark);}
+    .rc-fecha{font-size:11px;color:#999;}
+    .rc-cliente{font-size:12px;color:#333;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .rc-maq{font-size:11px;color:#888;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+    /* ── Shared: cards ── */
+    .card{background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;margin-bottom:14px;}
+    .card-title{font-size:11px;font-weight:700;color:var(--mid);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;}
+
+    /* ── Shared: empty state ── */
+    .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#bbb;text-align:center;gap:12px;}
+    .empty-state .es-icon{font-size:52px;opacity:.35;}
+    .empty-state p{font-size:14px;}
+
+    /* ── Shared: badges ── */
+    .badge{display:inline-block;padding:3px 9px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;}
+    .b-pendiente_revision{background:#888;} .b-revisada{background:var(--mid);}
+    .b-cotizada{background:#6c3483;} .b-autorizada{background:#27ae60;}
+    .b-no_autorizada{background:#e74c3c;} .b-reparada{background:#16a085;}
+    .b-entregada{background:#1e8449;}
+
+    /* ── Shared: buttons ── */
+    .btn{padding:8px 15px;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:12px;transition:opacity .15s,transform .1s;}
+    .btn:hover{transform:translateY(-1px);opacity:.88;}
+    .btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+    .btn-dark{background:var(--dark);color:#fff;}
+    .btn-mid{background:var(--mid);color:#fff;}
+    .btn-green{background:#27ae60;color:#fff;}
+    .btn-purple{background:#6c3483;color:#fff;}
+    .btn-red{background:#e74c3c;color:#fff;}
+    .btn-grey{background:#6c757d;color:#fff;}
+    .btn-teal{background:#16a085;color:#fff;}
+    .btn-sm{padding:5px 10px;font-size:11px;}
+
+    /* ── Shared: toast ── */
+    #_toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#323232;color:#fff;padding:10px 22px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 3px 10px rgba(0,0,0,.3);opacity:0;transition:opacity .3s;pointer-events:none;}
+
+    /* ── Shared: modal ── */
+    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;}
+    .modal{background:#fff;border-radius:12px;padding:24px;width:100%;max-width:440px;box-shadow:0 8px 32px rgba(0,0,0,.18);}
+    .modal h3{color:var(--dark);font-size:16px;margin-bottom:18px;}
+    .modal label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:3px;margin-top:12px;}
+    .modal input,.modal select{width:100%;padding:9px 11px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none;}
+    .modal input:focus,.modal select:focus{border-color:var(--mid);}
+    .modal-actions{display:flex;gap:8px;margin-top:18px;justify-content:flex-end;}
+
+    /* ══════════════════════════════════════════════════════════
+       VISTA: INICIO (Dashboard KPIs)
+    ══════════════════════════════════════════════════════════ */
+    .dash-wrap{padding:22px;}
+    .dash-header{display:flex;align-items:center;gap:12px;margin-bottom:22px;flex-wrap:wrap;}
+    .dash-header h2{font-size:20px;font-weight:800;color:var(--dark);flex:1;}
+    .mes-selector{display:flex;align-items:center;gap:8px;}
+    .mes-selector input{padding:7px 11px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none;}
+    .mes-selector input:focus{border-color:var(--mid);}
+
+    .kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:14px;margin-bottom:28px;}
+    .kpi-card{background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 16px;display:flex;flex-direction:column;gap:6px;border-top:4px solid transparent;transition:transform .15s;}
+    .kpi-card:hover{transform:translateY(-2px);}
+    .kpi-card .kpi-icon{font-size:26px;}
+    .kpi-card .kpi-val{font-size:32px;font-weight:800;line-height:1;}
+    .kpi-card .kpi-lbl{font-size:12px;color:#666;line-height:1.3;}
+    .kc-blue{border-top-color:#1d3557;} .kc-blue .kpi-val{color:#1d3557;}
+    .kc-orange{border-top-color:#FF9800;} .kc-orange .kpi-val{color:#e65100;}
+    .kc-green{border-top-color:#4CAF50;} .kc-green .kpi-val{color:#2e7d32;}
+    .kc-purple{border-top-color:#9C27B0;} .kc-purple .kpi-val{color:#6a1b9a;}
+    .kc-red{border-top-color:#F44336;} .kc-red .kpi-val{color:#c62828;}
+    .kc-teal{border-top-color:#009688;} .kc-teal .kpi-val{color:#00695c;}
+    .kc-grey{border-top-color:#78909C;} .kc-grey .kpi-val{color:#455a64;}
+
+    .alertas-section{background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;}
+    .alertas-header{padding:16px 18px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;gap:10px;}
+    .alertas-header h3{font-size:14px;font-weight:700;color:var(--dark);flex:1;}
+    .alertas-legend{display:flex;gap:12px;flex-wrap:wrap;}
+    .legend-dot{display:flex;align-items:center;gap:4px;font-size:11px;color:#666;}
+    .dot{width:10px;height:10px;border-radius:50%;}
+    .dot-y{background:#FFC107;} .dot-o{background:#FF9800;} .dot-r{background:#F44336;}
+    .alerta-row{display:flex;align-items:center;gap:12px;padding:13px 18px;border-bottom:1px solid #f5f5f5;border-left:4px solid transparent;transition:background .12s;cursor:pointer;}
+    .alerta-row:hover{background:#fafafa;}
+    .alerta-row:last-child{border-bottom:none;}
+    .alerta-amarillo{border-left-color:#FFC107;}
+    .alerta-naranja{border-left-color:#FF9800;background:#fffaf5;}
+    .alerta-rojo{border-left-color:#F44336;background:#fff5f5;}
+    .alerta-info{flex:1;min-width:0;}
+    .alerta-maq{font-weight:700;font-size:13px;color:var(--dark);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .alerta-cli{font-size:12px;color:#666;margin-top:2px;}
+    .alerta-orden{font-size:11px;color:var(--mid);margin-top:1px;}
+    .dias-badge{flex-shrink:0;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:700;white-space:nowrap;}
+    .dias-amarillo{background:#FFF8E1;color:#F57F17;}
+    .dias-naranja{background:#FFF3E0;color:#E65100;}
+    .dias-rojo{background:#FFEBEE;color:#C62828;}
+    .alertas-empty{padding:30px;text-align:center;color:#bbb;font-size:13px;}
+
+    /* ══════════════════════════════════════════════════════════
+       VISTA: ÓRDENES
+    ══════════════════════════════════════════════════════════ */
+    .ord-detail-header{display:flex;align-items:baseline;gap:12px;margin-bottom:16px;}
+    .ord-num{font-size:22px;font-weight:800;color:var(--dark);}
+    .ord-fecha{font-size:13px;color:#888;}
+    .client-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;}
+    .field .lbl{color:#888;font-size:11px;display:block;margin-bottom:1px;}
+    .field .val{color:var(--dark);font-weight:600;font-size:12px;}
+    .maq-card{background:var(--white);border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin-bottom:10px;}
+    .maq-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;}
+    .maq-nombre{font-weight:700;font-size:14px;color:var(--dark);}
+    .maq-sub{font-size:11px;color:#888;margin-top:2px;}
+    .maq-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0 4px;}
+    .estado-select{padding:5px 9px;border:1px solid #ddd;border-radius:6px;font-size:12px;outline:none;cursor:pointer;}
+    .estado-select:disabled{opacity:.6;}
+    .maq-obs{font-size:12px;color:#555;margin-top:8px;padding:8px 10px;background:#f7f9fb;border-radius:6px;border-left:3px solid #ddd;}
+    .maq-obs-lbl{font-size:10px;font-weight:700;color:#aaa;text-transform:uppercase;margin-bottom:3px;}
+    .foto-row{display:flex;flex-wrap:wrap;gap:7px;margin-top:6px;}
+    .foto-thumb{position:relative;width:72px;height:72px;border-radius:6px;overflow:hidden;border:1px solid #ddd;cursor:pointer;flex-shrink:0;}
+    .foto-thumb img{width:100%;height:100%;object-fit:cover;}
+    .foto-thumb:hover{border-color:var(--mid);}
+    .foto-thumb .del-btn{position:absolute;top:2px;right:2px;background:rgba(180,0,0,.75);color:#fff;border:none;border-radius:3px;font-size:10px;padding:1px 5px;cursor:pointer;display:none;}
+    .foto-thumb:hover .del-btn{display:block;}
+    .fotos-seccion{margin-top:10px;}
+    .fotos-lbl{font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;}
+    .fotos-trabajo-lbl{color:var(--mid);}
+    .sin-fotos{font-size:11px;color:#aaa;margin-top:4px;}
+    .upload-foto-btn{display:inline-flex;align-items:center;gap:5px;margin-top:4px;padding:5px 10px;background:#f0f4f8;border:1px dashed #aac;border-radius:6px;font-size:12px;color:var(--mid);cursor:pointer;}
+    .upload-foto-btn:hover{background:#e8f4fd;}
+    .informes-section{margin-top:10px;padding-top:8px;border-top:1px dashed #e2e8f0;}
+    .informes-title{font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;}
+    .informe-row{display:flex;align-items:center;justify-content:space-between;padding:4px 8px;background:#f7f9fb;border-radius:5px;margin-bottom:4px;font-size:11px;color:#444;}
+    .informe-row a{color:var(--dark);font-weight:600;text-decoration:none;padding:2px 8px;background:#e8f4fd;border-radius:4px;}
+    .informe-row a:hover{background:#cce4f7;}
+    .sin-informes{font-size:11px;color:#bbb;}
+    .cot-section{margin-top:12px;padding-top:10px;border-top:1px dashed #e2e8f0;}
+    .cot-title{font-size:10px;font-weight:700;color:#6c3483;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;}
+    .cot-row{display:flex;justify-content:space-between;font-size:12px;color:#333;padding:3px 0;}
+    .cot-row .lbl{color:#666;} .cot-row .val{font-weight:600;color:var(--dark);}
+    .cot-items{margin:6px 0 4px 8px;}
+    .cot-item{font-size:11px;color:#555;padding:2px 0;}
+    .cot-item::before{content:'• ';color:#aaa;}
+    .cot-subtotal{display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--dark);padding:4px 0;border-top:1px solid #eee;margin-top:4px;}
+    .total-card{background:var(--dark);border-radius:var(--radius);padding:16px 20px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;}
+    .tc-item{text-align:center;}
+    .tc-lbl{font-size:10px;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;}
+    .tc-val{font-size:16px;font-weight:800;color:#fff;}
+    .tc-val.big{font-size:22px;}
+    .ord-acciones{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;}
+
+    /* ══════════════════════════════════════════════════════════
+       VISTA: COTIZACIONES
+    ══════════════════════════════════════════════════════════ */
+    .cot-pnl-info{padding:14px;border-bottom:1px solid #eee;flex-shrink:0;}
+    .orden-badge{background:var(--dark);color:#fff;border-radius:6px;padding:8px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}
+    .orden-badge .num{font-weight:700;font-size:14px;}
+    .back-btn{background:rgba(255,255,255,.2);border:none;color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;}
+    .back-btn:hover{background:rgba(255,255,255,.35);}
+    .info-field{font-size:12px;color:#555;margin-bottom:4px;}
+    .info-field strong{color:var(--dark);}
+    .slabel{font-size:10px;font-weight:700;color:var(--mid);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 5px;}
+    .maq-sel select,.tech-row select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;color:#333;outline:none;}
+    .eq-info{font-size:11px;color:var(--mid);margin-top:4px;min-height:16px;}
+    .wa-buttons{display:flex;flex-direction:column;gap:5px;}
+    .wa-btn{border:none;border-radius:5px;padding:7px 10px;font-size:11px;cursor:pointer;text-align:left;font-weight:600;}
+    .wa-btn:hover{opacity:.85;}
+    .btn-parts{background:#FF9800;color:#fff;} .btn-ready{background:#9C27B0;color:#fff;} .btn-deliv{background:#009688;color:#fff;}
+    .tech-row{display:flex;gap:6px;align-items:center;}
+    .tech-row select{flex:1;}
+    .tech-row button{padding:5px 8px;background:#6c757d;color:#fff;border:none;border-radius:5px;font-size:11px;cursor:pointer;white-space:nowrap;}
+    .items-container{background:#f7f9fb;border-radius:6px;padding:10px;max-height:220px;overflow-y:auto;margin-bottom:10px;}
+    .item-row{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:6px;padding:7px;border-bottom:1px solid #eee;align-items:center;}
+    .item-row:last-child{border-bottom:none;}
+    .item-row input{padding:5px 7px;border:1px solid #ddd;border-radius:4px;font-size:12px;width:100%;}
+    .item-row .del-item{padding:4px 8px;font-size:11px;background:#dc3545;color:#fff;border:none;border-radius:4px;cursor:pointer;}
+    .add-item-group{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:6px;}
+    .add-item-group input,.add-item-group select{padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:inherit;outline:none;background:#fff;width:100%;}
+    .add-item-group button{padding:7px 11px;background:#27ae60;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:600;font-size:12px;white-space:nowrap;}
+    .summary-box{background:#f0f4f8;border-radius:8px;padding:14px;}
+    .summary-row{display:flex;justify-content:space-between;font-size:13px;color:#555;padding:4px 0;}
+    .summary-row strong{color:var(--dark);}
+    .summary-total{display:flex;justify-content:space-between;font-size:16px;font-weight:700;color:var(--dark);border-top:2px solid #dde;padding-top:8px;margin-top:4px;}
+    .btn-group{display:flex;gap:8px;flex-wrap:wrap;}
+    .preview-box{background:#f7f9fb;border:1px solid #e2e8f0;border-radius:8px;padding:14px;min-height:80px;}
+    .preview-content{color:#333;line-height:1.6;font-size:12px;white-space:pre-wrap;word-wrap:break-word;font-family:'Courier New',monospace;}
+
+    /* ══════════════════════════════════════════════════════════
+       VISTA: CLIENTES
+    ══════════════════════════════════════════════════════════ */
+    .cli-name{font-size:18px;font-weight:800;color:var(--dark);margin-bottom:4px;}
+    .cli-sub{font-size:13px;color:#888;margin-bottom:12px;}
+    .ordenes-list-table{width:100%;border-collapse:collapse;}
+    .ordenes-list-table th{text-align:left;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px;padding:6px 10px;border-bottom:2px solid #eee;}
+    .ordenes-list-table td{padding:9px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;}
+    .ordenes-list-table tr:hover td{background:#f8f9fa;}
+    .ord-link{color:var(--mid);font-weight:600;cursor:pointer;text-decoration:none;}
+    .ord-link:hover{text-decoration:underline;}
+
+    /* ══════════════════════════════════════════════════════════
+       VISTA: FUNCIONARIOS
+    ══════════════════════════════════════════════════════════ */
+    .func-header{display:flex;align-items:center;gap:12px;margin-bottom:18px;}
+    .func-header h2{font-size:18px;font-weight:800;color:var(--dark);flex:1;}
+    .func-table{width:100%;border-collapse:collapse;}
+    .func-table th{text-align:left;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px;padding:8px 12px;border-bottom:2px solid #eee;}
+    .func-table td{padding:11px 12px;font-size:13px;border-bottom:1px solid #f0f0f0;vertical-align:middle;}
+    .func-table tr:hover td{background:#fafafa;}
+    .tipo-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;color:#fff;}
+    .tipo-A{background:#1d3557;} .tipo-F{background:#457b9d;} .tipo-T{background:#16a085;}
+    .estado-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;}
+    .est-A{background:#e8f5e9;color:#2e7d32;} .est-I{background:#ffebee;color:#c62828;}
+
+    /* ══════════════════════════════════════════════════════════
+       VISTA: INVENTARIO
+    ══════════════════════════════════════════════════════════ */
+    .inv-header{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap;}
+    .inv-header h2{font-size:18px;font-weight:800;color:var(--dark);flex:1;}
+    .inv-table{width:100%;border-collapse:collapse;}
+    .inv-table th{text-align:left;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px;padding:8px 12px;border-bottom:2px solid #eee;}
+    .inv-table td{padding:10px 12px;font-size:13px;border-bottom:1px solid #f0f0f0;vertical-align:middle;}
+    .inv-table tr:hover td{background:#fafafa;}
+    .inv-precio{font-weight:700;color:var(--dark);}
+
+    /* ── Mobile back button ── */
+    .mobile-back{display:none;align-items:center;gap:8px;padding:10px 14px;background:#f0f4f8;border-bottom:1px solid #e2e8f0;cursor:pointer;font-size:13px;font-weight:600;color:var(--dark);flex-shrink:0;}
+    .mobile-back:hover{background:#e2e8f0;}
+
+    /* ── Responsive ── */
+    @media (max-width:768px) {
+      .sidebar{position:fixed;top:0;left:0;bottom:0;transform:translateX(-100%);z-index:200;}
+      .sidebar.open{transform:translateX(0);}
+      .hamburger{display:flex;}
+      .btn-nueva-orden{display:none;}
+      /* Two-panel mobile */
+      .two-panel{flex-direction:column;height:auto;min-height:calc(100vh - var(--topbar-h));}
+      .pnl-left{width:100%;min-width:unset;border-right:none;border-bottom:1px solid #e2e8f0;max-height:320px;}
+      .pnl-right{padding:14px;}
+      /* Immersive detail on mobile */
+      .two-panel.immersive .pnl-left{display:none;}
+      .two-panel.immersive .pnl-right{display:flex;flex-direction:column;}
+      .two-panel.immersive .mobile-back{display:flex;}
+      /* Item grid adaptations */
+      .item-row,.add-item-group{grid-template-columns:1fr 1fr;}
+      .item-row .del-item,.add-item-group button{grid-column:span 2;}
+      .kpi-grid{grid-template-columns:repeat(2,1fr);}
+      .client-grid{grid-template-columns:1fr;}
+    }
+    @media (min-width:769px) and (max-width:1024px) {
+      :root{--sidebar-w:200px;}
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<aside class="sidebar" id="sidebar">
+  <div class="sb-logo">
+    <img src="/assets/logo.png" alt="Logo">
+    <div class="sb-logo-text">SU HERRAMIENTA<br>CST</div>
+  </div>
+  <nav class="sb-nav">
+    <div class="nav-item active" data-view="inicio" onclick="navigate('inicio')">
+      <span class="ni">🏠</span><span>Inicio</span>
+    </div>
+    <div class="nav-item" data-view="ordenes" onclick="navigate('ordenes')">
+      <span class="ni">📋</span><span>Órdenes</span>
+    </div>
+    <div class="nav-item" data-view="cotizaciones" onclick="navigate('cotizaciones')">
+      <span class="ni">💰</span><span>Cotizaciones</span>
+    </div>
+    <div class="nav-item" data-view="clientes" onclick="navigate('clientes')">
+      <span class="ni">👥</span><span>Clientes</span>
+    </div>
+    <div class="nav-item" data-view="funcionarios" onclick="navigate('funcionarios')">
+      <span class="ni">👨‍💼</span><span>Funcionarios</span>
+    </div>
+    <div class="nav-item" data-view="inventario" onclick="navigate('inventario')">
+      <span class="ni">📦</span><span>Inventario</span>
+    </div>
+  </nav>
+  <div class="sb-footer">
+    <div class="sb-user" id="sidebarUser"></div>
+    <button class="sb-logout" onclick="doLogout()">⏏ Cerrar sesión</button>
+  </div>
+</aside>
+
+<!-- ── Sidebar overlay (mobile) ── -->
+<div class="sb-overlay" id="sbOverlay" onclick="closeSidebar()"></div>
+
+<!-- ── Main area ── -->
+<div class="main-area">
+  <div class="topbar">
+    <button class="hamburger" onclick="toggleSidebar()">☰</button>
+    <span class="topbar-title" id="topbarTitle">Inicio</span>
+    <div class="topbar-right">
+      <span class="topbar-user" id="topbarUser"></span>
+      <a class="btn-nueva-orden" href="/crear-orden.html">+ Nueva Orden</a>
+    </div>
+  </div>
+  <div id="viewContainer"></div>
+</div>
+
+<div id="_toast"></div>
+
+<script>
+const API = '/api';
+let _currentUser = null;
+
+// ── Shared utilities ──────────────────────────────────────────────────────────
+function fmtFecha(raw) {
+  const m = String(raw || '').match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  const iso = String(raw || '').match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  return raw || '-';
+}
+function money(n) { return '$' + Number(n || 0).toLocaleString('es-CO', {maximumFractionDigits:0}); }
+function esc(s)   { return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function showToast(msg, ms=3000) {
+  const t = document.getElementById('_toast');
+  t.textContent = msg; t.style.opacity = '1';
+  clearTimeout(t._t); t._t = setTimeout(() => t.style.opacity='0', ms);
+}
+function isAdmin() { return _currentUser?.tipo === 'A'; }
+
+// ── Sidebar / navigation shell ────────────────────────────────────────────────
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sbOverlay').classList.toggle('show');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sbOverlay').classList.remove('show');
+}
+
+const VIEW_LABELS = {
+  inicio:'Inicio', ordenes:'Órdenes', cotizaciones:'Cotizaciones',
+  clientes:'Clientes', funcionarios:'Funcionarios', inventario:'Inventario'
+};
+
+function navigate(viewName) {
+  if (!Views[viewName]) return;
+  closeSidebar();
+  document.querySelectorAll('.nav-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.view === viewName));
+  document.getElementById('topbarTitle').textContent = VIEW_LABELS[viewName] || viewName;
+  const vc = document.getElementById('viewContainer');
+  vc.scrollTop = 0;
+  vc.innerHTML = Views[viewName].render();
+  Views[viewName].init();
+  location.hash = viewName;
+}
+
+async function doLogout() {
+  await fetch('/logout', { method:'POST' });
+  location.href = '/login';
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: INICIO
+// ════════════════════════════════════════════════════════════════════════════
+const Views = {};
+
+Views.inicio = {
+  render() {
+    const now = new Date();
+    const mes = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    return `
+      <div class="dash-wrap">
+        <div class="dash-header">
+          <h2>Resumen del negocio</h2>
+          <div class="mes-selector">
+            <input type="month" id="mesInput" value="${mes}" onchange="ini_load()">
+          </div>
+        </div>
+        <div class="kpi-grid" id="kpiGrid">
+          <div class="kpi-card kc-grey" style="grid-column:1/-1;justify-content:center;align-items:center;min-height:80px;">
+            <span style="color:#aaa;font-size:13px;">Cargando...</span>
+          </div>
+        </div>
+        <div class="alertas-section" id="alertasSection" style="display:none">
+          <div class="alertas-header">
+            <h3>⚠️ Equipos reparados pendientes de entrega</h3>
+            <div class="alertas-legend">
+              <div class="legend-dot"><div class="dot dot-y"></div>7-14 días</div>
+              <div class="legend-dot"><div class="dot dot-o"></div>15-29 días</div>
+              <div class="legend-dot"><div class="dot dot-r"></div>30+ días</div>
+            </div>
+          </div>
+          <div id="alertasList"></div>
+        </div>
+      </div>`;
+  },
+  async init() {
+    window.ini_load = async () => {
+      const mes = document.getElementById('mesInput')?.value || '';
+      const data = await fetch(`${API}/dashboard?mes=${mes}`).then(r=>r.json()).catch(()=>null);
+      if (!data) return;
+      const k = data.kpis;
+      document.getElementById('kpiGrid').innerHTML = `
+        <div class="kpi-card kc-blue">
+          <div class="kpi-icon">📋</div>
+          <div class="kpi-val">${k.total_ordenes}</div>
+          <div class="kpi-lbl">Órdenes del mes</div>
+        </div>
+        <div class="kpi-card kc-orange">
+          <div class="kpi-icon">💬</div>
+          <div class="kpi-val">${k.cotizadas}</div>
+          <div class="kpi-lbl">Cotizadas — esperando respuesta</div>
+        </div>
+        <div class="kpi-card kc-green">
+          <div class="kpi-icon">✅</div>
+          <div class="kpi-val">${k.autorizadas}</div>
+          <div class="kpi-lbl">Autorizadas — en reparación</div>
+        </div>
+        <div class="kpi-card kc-purple">
+          <div class="kpi-icon">🔧</div>
+          <div class="kpi-val">${k.reparadas}</div>
+          <div class="kpi-lbl">Reparadas — pendientes entrega</div>
+        </div>
+        <div class="kpi-card kc-red">
+          <div class="kpi-icon">🚫</div>
+          <div class="kpi-val">${k.no_autorizadas}</div>
+          <div class="kpi-lbl">No autorizadas</div>
+        </div>
+        <div class="kpi-card kc-teal">
+          <div class="kpi-icon">📦</div>
+          <div class="kpi-val">${k.entregadas}</div>
+          <div class="kpi-lbl">Entregadas</div>
+        </div>
+        <div class="kpi-card kc-grey">
+          <div class="kpi-icon">🔍</div>
+          <div class="kpi-val">${k.pendiente_revision + k.revisadas}</div>
+          <div class="kpi-lbl">Pendientes de revisión / revisar</div>
+        </div>`;
+
+      const sec = document.getElementById('alertasSection');
+      const lst = document.getElementById('alertasList');
+      if (!data.alertas.length) {
+        sec.style.display = 'block';
+        lst.innerHTML = '<div class="alertas-empty">✅ Sin equipos reparados pendientes de entrega</div>';
+      } else {
+        sec.style.display = 'block';
+        lst.innerHTML = data.alertas.map(a => `
+          <div class="alerta-row alerta-${a.rango}" onclick="navigate('ordenes');setTimeout(()=>ord_verDetalle(${a.uid_orden}),50)">
+            <div class="alerta-info">
+              <div class="alerta-maq">${esc(a.her_nombre||'')} ${esc(a.her_marca||'')}</div>
+              <div class="alerta-cli">${esc(a.cliente)}</div>
+              <div class="alerta-orden">Orden #${a.ord_consecutivo}</div>
+            </div>
+            <div class="dias-badge dias-${a.rango}">${a.dias} día${a.dias!==1?'s':''}</div>
+          </div>`).join('');
+      }
+    };
+    await window.ini_load();
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: ÓRDENES
+// ════════════════════════════════════════════════════════════════════════════
+Views.ordenes = {
+  _timer: null,
+  render() {
+    return `
+      <div class="two-panel" id="ordPanel">
+        <div class="pnl-left">
+          <div class="search-box">
+            <h2>Buscar orden</h2>
+            <div class="concept-row">
+              <select id="ordConcepto" onchange="ord_placeholder()">
+                <option value="consecutivo">Número de orden</option>
+                <option value="cedula">Cédula / NIT</option>
+                <option value="nombre">Nombre del cliente</option>
+              </select>
+            </div>
+            <div class="input-row">
+              <input id="ordSearch" type="text" placeholder="Ej: 7833" oninput="ord_debounce()">
+              <button onclick="ord_buscar()">🔍</button>
+            </div>
+          </div>
+          <div class="results-list" id="ordResults">
+            <div class="results-empty">Escribe para buscar</div>
+          </div>
+        </div>
+        <div class="pnl-right" id="ordRight">
+          <div class="mobile-back" onclick="ord_back()">← Volver a resultados</div>
+          <div class="empty-state">
+            <div class="es-icon">📋</div>
+            <p>Selecciona una orden para ver el detalle</p>
+          </div>
+        </div>
+      </div>`;
+  },
+  init() {
+    const PLCH = { consecutivo:'Ej: 7833', cedula:'Ej: 8914110164', nombre:'Ej: Cliente X' };
+    const ELBL = { pendiente_revision:'Pendiente revisión',revisada:'Revisada',cotizada:'Cotizada',autorizada:'Autorizada',no_autorizada:'No autorizada',reparada:'Reparada',entregada:'Entregada' };
+
+    window.ord_placeholder = () => {
+      const v = document.getElementById('ordConcepto')?.value;
+      const si = document.getElementById('ordSearch');
+      if (si) { si.placeholder = PLCH[v]||''; si.value=''; }
+      const rl = document.getElementById('ordResults');
+      if (rl) rl.innerHTML = '<div class="results-empty">Escribe para buscar</div>';
+    };
+    window.ord_debounce = () => {
+      clearTimeout(Views.ordenes._timer);
+      Views.ordenes._timer = setTimeout(ord_buscar, 350);
+    };
+    window.ord_buscar = async () => {
+      const q = document.getElementById('ordSearch')?.value.trim();
+      if (!q) return;
+      const rl = document.getElementById('ordResults');
+      if (!rl) return;
+      rl.innerHTML = '<div class="results-empty">Buscando...</div>';
+      const data = await fetch(`${API}/orders/search?q=${encodeURIComponent(q)}`).then(r=>r.json()).catch(()=>[]);
+      if (!data.length) { rl.innerHTML='<div class="results-empty">Sin resultados</div>'; return; }
+      rl.innerHTML = data.map(o=>`
+        <div class="result-card" onclick="ord_verDetalle(${o.uid_orden})">
+          <div class="rc-top">
+            <span class="rc-num">Orden #${o.ord_consecutivo}</span>
+            <span class="rc-fecha">${fmtFecha(o.ord_fecha)}</span>
+          </div>
+          <div class="rc-cliente">${esc(o.cli_razon_social||'')}</div>
+          <div class="rc-maq">${esc(o.maquinas_resumen||(o.maquinas?o.maquinas+' máquina(s)':''))}</div>
+        </div>`).join('');
+    };
+    window.ord_back = () => {
+      document.getElementById('ordPanel')?.classList.remove('immersive');
+    };
+    window.ord_verDetalle = async (uid) => {
+      document.querySelectorAll('#ordResults .result-card').forEach(el => {
+        el.classList.toggle('active', el.onclick?.toString().includes(`(${uid})`));
+      });
+      const right = document.getElementById('ordRight');
+      if (!right) return;
+      document.getElementById('ordPanel')?.classList.add('immersive');
+      right.innerHTML = `
+        <div class="mobile-back" onclick="ord_back()">← Volver a resultados</div>
+        <div style="padding:20px;color:#888;text-align:center;">Cargando...</div>`;
+      const data = await fetch(`${API}/orders/${uid}/detalle`).then(r=>r.json()).catch(e=>({error:e.message}));
+      if (data.error) { right.innerHTML=`<div class="mobile-back" onclick="ord_back()">← Volver</div><div style="padding:20px;color:#e74c3c;">${data.error}</div>`; return; }
+      const {orden,maquinas,tieneCotizacion,cotOrden} = data;
+
+      const maqHtml = maquinas.map(m => {
+        const lbl = ELBL[m.her_estado]||m.her_estado||'-';
+        const bc  = 'badge b-'+(m.her_estado||'pendiente_revision');
+        const sub = [m.her_marca,m.her_serial?'S/N: '+m.her_serial:null,m.her_referencia?'Ref: '+m.her_referencia:null].filter(Boolean).join(' | ');
+        const opts = Object.entries(ELBL).map(([v,l])=>`<option value="${v}"${(m.her_estado||'pendiente_revision')===v?' selected':''}>${l}</option>`).join('');
+        const fotosRec = m.fotos?.length
+          ? `<div class="foto-row">${m.fotos.map(f=>`<div class="foto-thumb" onclick="window.open('/uploads/fotos-recepcion/${f.fho_archivo}','_blank')"><img src="/uploads/fotos-recepcion/${f.fho_archivo}" alt=""></div>`).join('')}</div>`
+          : `<div class="sin-fotos">Sin fotos de recepción</div>`;
+        const fotosTrab = (m.fotos_trabajo||[]).map(f=>`
+          <div class="foto-thumb" id="ft-${f.uid_foto_herramienta_orden}">
+            <img src="/uploads/fotos-recepcion/${f.fho_archivo}" onclick="window.open(this.src,'_blank')" alt="">
+            <button class="del-btn" onclick="ord_delFoto(${f.uid_foto_herramienta_orden},event)">✕</button>
+          </div>`).join('');
+        const informesHtml = (m.informes?.length)
+          ? m.informes.map(inf=>{
+              const fd = new Date(inf.inf_fecha).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+              return `<div class="informe-row"><span>${fd}</span><a href="${API}/informes/${inf.uid_informe}" target="_blank">⬇ Descargar</a></div>`;
+            }).join('')
+          : '<div class="sin-informes">Sin informes generados</div>';
+        let cotHtml = '';
+        if (m.cotizacion) {
+          const c = m.cotizacion;
+          cotHtml = `<div class="cot-section">
+            <div class="cot-title">💰 Cotización</div>
+            <div class="cot-row"><span class="lbl">Mano de obra</span><span class="val">${money(c.mano_obra)}</span></div>
+            ${c.descripcion_trabajo?`<div class="cot-row" style="flex-direction:column;gap:2px;"><span class="lbl">Trabajo</span><span style="font-size:12px;color:#444;margin-top:2px;">${esc(c.descripcion_trabajo)}</span></div>`:''}
+            ${c.items.length?`<div class="cot-items">${c.items.map(it=>`<div class="cot-item">${it.cantidad}x ${esc(it.nombre)} — ${money(it.precio)} c/u</div>`).join('')}</div>`:''}
+            <div class="cot-subtotal"><span>Subtotal</span><span>${money(c.subtotal)}</span></div>
+          </div>`;
+        }
+        return `
+          <div class="maq-card">
+            <div class="maq-top">
+              <div>
+                <div class="maq-nombre">${esc(m.her_nombre||'-')}</div>
+                ${sub?`<div class="maq-sub">${esc(sub)}</div>`:''}
+              </div>
+              <span id="badge-${m.uid_herramienta_orden}" class="${bc}">${lbl}</span>
+            </div>
+            <div class="maq-actions">
+              <select class="estado-select" data-prev="${m.her_estado||'pendiente_revision'}"
+                      onchange="ord_cambiarEstado(${m.uid_herramienta_orden},this)">${opts}</select>
+              <a class="btn btn-sm btn-teal" href="${API}/orders/${orden.uid_orden}/pdf/maintenance/${m.uid_herramienta_orden}" target="_blank">📋 Informe</a>
+            </div>
+            ${m.hor_observaciones?`<div class="maq-obs"><div class="maq-obs-lbl">Observaciones</div>${esc(m.hor_observaciones)}</div>`:''}
+            <div class="fotos-seccion">
+              <div class="fotos-lbl">Recepción</div>${fotosRec}
+            </div>
+            <div class="fotos-seccion">
+              <div class="fotos-lbl fotos-trabajo-lbl">Del trabajo</div>
+              <div class="foto-row" id="ft-row-${m.uid_herramienta_orden}">${fotosTrab}</div>
+              <label class="upload-foto-btn">+ Agregar foto
+                <input type="file" accept="image/*" style="display:none"
+                  onchange="ord_uploadFoto(${orden.uid_orden},${m.uid_herramienta_orden},this)">
+              </label>
+            </div>
+            <div class="informes-section">
+              <div class="informes-title">📋 Informes de mantenimiento</div>${informesHtml}
+            </div>
+            ${cotHtml}
+          </div>`;
+      }).join('');
+
+      const totalHtml = cotOrden ? `
+        <div class="total-card">
+          <div class="tc-item"><div class="tc-lbl">Subtotal</div><div class="tc-val">${money(cotOrden.subtotal)}</div></div>
+          ${Number(cotOrden.iva)>0?`<div class="tc-item"><div class="tc-lbl">IVA</div><div class="tc-val">${money(cotOrden.iva)}</div></div>`:''}
+          <div class="tc-item"><div class="tc-lbl">Total</div><div class="tc-val big">${money(cotOrden.total)}</div></div>
+        </div>` : '';
+
+      right.innerHTML = `
+        <div class="mobile-back" onclick="ord_back()">← Volver a resultados</div>
+        <div style="padding:22px;">
+          <div class="ord-detail-header">
+            <span class="ord-num">Orden #${orden.ord_consecutivo}</span>
+            <span class="ord-fecha">${fmtFecha(orden.ord_fecha)}</span>
+          </div>
+          <div class="card">
+            <div class="card-title">Cliente</div>
+            <div class="client-grid">
+              <div class="field"><span class="lbl">Nombre / Razón social</span><span class="val">${esc(orden.cli_razon_social||'-')}</span></div>
+              <div class="field"><span class="lbl">Cédula / NIT</span><span class="val">${esc(orden.cli_identificacion||'-')}</span></div>
+              <div class="field"><span class="lbl">Teléfono</span><span class="val">${esc(orden.cli_telefono||'-')}</span></div>
+              <div class="field"><span class="lbl">Dirección</span><span class="val">${esc(orden.cli_direccion||'-')}</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Equipos (${maquinas.length})</div>
+            ${maqHtml}
+          </div>
+          ${totalHtml}
+          <div class="ord-acciones">
+            <a class="btn btn-dark" href="${API}/orders/${orden.uid_orden}/print/orden" target="_blank">🖨️ Imprimir orden</a>
+            <button class="btn btn-green" onclick="navigate('cotizaciones');setTimeout(()=>cot_loadById(${orden.uid_orden}),80)">
+              ${tieneCotizacion?'✏️ Editar cotización':'✏️ Cotizar'}
+            </button>
+            ${tieneCotizacion?`<a class="btn btn-purple" href="${API}/orders/${orden.uid_orden}/pdf/quote" target="_blank">📄 PDF Cotización</a>`:''}
+          </div>
+        </div>`;
+    };
+    window.ord_cambiarEstado = async (uid, sel) => {
+      const nuevo = sel.value; const prev = sel.dataset.prev||nuevo;
+      sel.disabled = true;
+      try {
+        const r = await fetch(`${API}/equipment-order/${uid}/status`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:nuevo})});
+        const d = await r.json();
+        if (d.success) {
+          sel.dataset.prev = nuevo;
+          const b = document.getElementById(`badge-${uid}`);
+          if (b) { b.className='badge b-'+nuevo; b.textContent=ELBL[nuevo]||nuevo; }
+        } else { alert('Error: '+(d.error||'desconocido')); sel.value=prev; }
+      } catch(e) { alert(e.message); sel.value=prev; }
+      sel.disabled = false;
+    };
+    window.ord_uploadFoto = async (uidOrden, uidHo, input) => {
+      if (!input.files[0]) return;
+      const fd = new FormData(); fd.append('foto', input.files[0]);
+      input.value='';
+      try {
+        const r = await fetch(`${API}/orders/${uidOrden}/fotos-trabajo/${uidHo}`,{method:'POST',body:fd});
+        const d = await r.json();
+        if (d.success) {
+          const row = document.getElementById(`ft-row-${uidHo}`);
+          const div = document.createElement('div');
+          div.className='foto-thumb'; div.id=`ft-${d.uid_foto}`;
+          div.innerHTML=`<img src="${d.url}" onclick="window.open(this.src,'_blank')" alt=""><button class="del-btn" onclick="ord_delFoto(${d.uid_foto},event)">✕</button>`;
+          row?.appendChild(div);
+        } else alert('Error al subir foto: '+(d.error||''));
+      } catch(e) { alert(e.message); }
+    };
+    window.ord_delFoto = async (uid, e) => {
+      e.stopPropagation();
+      if (!confirm('¿Eliminar esta foto?')) return;
+      await fetch(`${API}/orders/fotos-trabajo/${uid}`,{method:'DELETE'});
+      document.getElementById(`ft-${uid}`)?.remove();
+    };
+    // Trigger load by order ID (called from dashboard alerts or cotizaciones)
+    window.ord_verDetalleById = window.ord_verDetalle;
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: COTIZACIONES
+// ════════════════════════════════════════════════════════════════════════════
+Views.cotizaciones = {
+  _timer: null,
+  _state: { orderId:null, equipment:[], technicians:[], selected:null, items:[], finalMsg:'' },
+  render() {
+    return `
+      <div class="two-panel" id="cotPanel">
+        <div class="pnl-left" style="overflow-y:auto;">
+          <div class="search-box">
+            <h2>Buscar orden</h2>
+            <div class="concept-row">
+              <select id="cotConcepto" onchange="cot_placeholder()">
+                <option value="consecutivo">Número de orden</option>
+                <option value="cedula">Cédula / NIT</option>
+                <option value="nombre">Nombre del cliente</option>
+              </select>
+            </div>
+            <div class="input-row">
+              <input id="cotSearch" type="text" placeholder="Ej: 7833" oninput="cot_debounce()">
+              <button onclick="cot_buscar()">🔍</button>
+            </div>
+          </div>
+          <div class="results-list" id="cotResults">
+            <div class="results-empty">Escribe para buscar</div>
+          </div>
+          <div id="cotOrderPanel" style="display:none;padding:12px;border-top:1px solid #eee;"></div>
+        </div>
+        <div class="pnl-right" id="cotRight">
+          <div class="mobile-back" onclick="cot_back()">← Volver a resultados</div>
+          <div class="empty-state">
+            <div class="es-icon">💰</div>
+            <p>Busca y selecciona una orden para cotizar</p>
+          </div>
+        </div>
+      </div>`;
+  },
+  init() {
+    const S = Views.cotizaciones._state;
+    S.orderId=null; S.equipment=[]; S.technicians=[]; S.selected=null; S.items=[]; S.finalMsg='';
+    const PLCH = {consecutivo:'Ej: 7833',cedula:'Ej: 8914110164',nombre:'Ej: Cliente X'};
+    const ESTADOS = [
+      {value:'pendiente_revision',label:'Pendiente de revisión',color:'#888'},
+      {value:'revisada',label:'Revisada',color:'#2196F3'},
+      {value:'cotizada',label:'Cotizada',color:'#FF9800'},
+      {value:'autorizada',label:'Autorizada',color:'#4CAF50'},
+      {value:'no_autorizada',label:'No autorizada',color:'#F44336'},
+      {value:'reparada',label:'Reparada',color:'#9C27B0'},
+      {value:'entregada',label:'Entregada',color:'#009688'},
+    ];
+
+    window.cot_placeholder = () => {
+      const v = document.getElementById('cotConcepto')?.value;
+      const si = document.getElementById('cotSearch');
+      if (si) { si.placeholder=PLCH[v]||''; si.value=''; }
+      const rl = document.getElementById('cotResults');
+      if (rl) rl.innerHTML='<div class="results-empty">Escribe para buscar</div>';
+    };
+    window.cot_debounce = () => {
+      clearTimeout(Views.cotizaciones._timer);
+      Views.cotizaciones._timer = setTimeout(cot_buscar, 350);
+    };
+    window.cot_buscar = async () => {
+      const q = document.getElementById('cotSearch')?.value.trim(); if (!q) return;
+      const rl = document.getElementById('cotResults'); if (!rl) return;
+      rl.innerHTML='<div class="results-empty">Buscando...</div>';
+      const data = await fetch(`${API}/orders/search?q=${encodeURIComponent(q)}`).then(r=>r.json()).catch(()=>[]);
+      if (!data.length) { rl.innerHTML='<div class="results-empty">Sin resultados</div>'; return; }
+      rl.innerHTML = data.map(o=>`
+        <div class="result-card" onclick="cot_loadOrder(${o.uid_orden})">
+          <div class="rc-top">
+            <span class="rc-num">Orden #${o.ord_consecutivo}</span>
+            <span class="rc-fecha">${fmtFecha(o.ord_fecha)}</span>
+          </div>
+          <div class="rc-cliente">${esc(o.cli_razon_social||'')}</div>
+          <div class="rc-maq">${esc(o.maquinas_resumen||(o.maquinas?o.maquinas+' máquina(s)':''))}</div>
+        </div>`).join('');
+    };
+    window.cot_back = () => document.getElementById('cotPanel')?.classList.remove('immersive');
+    window.cot_loadById = (uid) => cot_loadOrder(uid);
+    window.cot_loadOrder = async (uid) => {
+      const data = await fetch(`${API}/orders/${uid}`).then(r=>r.json()).catch(()=>null);
+      if (!data) return;
+      S.orderId = data.order.uid_orden;
+      S.equipment = data.equipment||[];
+      S.technicians = data.technicians||[];
+      S.selected = S.equipment[0]||null;
+      S.items = []; S.finalMsg = '';
+      document.getElementById('cotPanel')?.classList.add('immersive');
+      // Render left panel order info
+      const op = document.getElementById('cotOrderPanel');
+      if (op) {
+        op.style.display='block';
+        op.innerHTML = cot_renderOrderPanel(data);
+      }
+      // Render right panel
+      cot_renderRight();
+      await cot_refreshSavedCount();
+      await cot_loadPartsSelect();
+      if (S.selected) await cot_loadSavedQuote();
+    };
+
+    function cot_renderOrderPanel(data) {
+      const o = data.order;
+      const eqOpts = S.equipment.map((eq,i)=>`<option value="${eq.uid_herramienta_orden}">${i+1}. ${esc(eq.her_nombre||'-')} ${esc(eq.her_marca||'')}</option>`).join('');
+      const techOpts = '<option value="">(Sin asignar)</option>' +
+        S.technicians.map(t=>`<option value="${t.uid_usuario}">${esc(t.usr_nombre||t.uid_usuario)}</option>`).join('');
+      return `
+        <div class="orden-badge">
+          <span class="num">Orden #${o.ord_consecutivo}</span>
+          <button class="back-btn" onclick="cot_back()">← Volver</button>
+        </div>
+        <div class="info-field"><strong>Cliente:</strong> ${esc(o.cli_razon_social||'-')}</div>
+        <div class="info-field"><strong>Fecha:</strong> ${fmtFecha(o.ord_fecha)}</div>
+        <div class="info-field"><strong>Tel:</strong> ${esc(o.cli_telefono||'-')}</div>
+        <div class="info-field" style="color:#666"><span id="cotEqCount">${S.equipment.length}</span> equipo(s) | <span id="cotSavedCount">0</span> cotizado(s)</div>
+        <div class="slabel">Máquina a cotizar</div>
+        <div class="maq-sel"><select id="cotEqSel" onchange="cot_onEqChange()">${eqOpts}</select></div>
+        <div class="eq-info" id="cotEqInfo"></div>
+        <div class="slabel">Notificaciones WhatsApp</div>
+        <div class="wa-buttons">
+          <button class="wa-btn btn-parts" onclick="cot_notifyParts()">📦 Lista repuestos al encargado</button>
+          <button class="wa-btn btn-ready" onclick="cot_notifyReady()">🔧 Cliente — máquinas listas</button>
+          <button class="wa-btn btn-deliv" onclick="cot_notifyDeliv()">✅ Confirmar entrega</button>
+        </div>
+        <div class="slabel">Técnico asignado</div>
+        <div class="tech-row">
+          <select id="cotTechSel" onchange="cot_onTechChange()">${techOpts}</select>
+          <button onclick="cot_assignAll()">A todas</button>
+        </div>`;
+    }
+
+    function cot_renderRight() {
+      const right = document.getElementById('cotRight'); if (!right) return;
+      if (!S.orderId) {
+        right.innerHTML='<div class="mobile-back" onclick="cot_back()">← Volver</div><div class="empty-state"><div class="es-icon">💰</div><p>Selecciona una orden</p></div>';
+        return;
+      }
+      right.innerHTML = `
+        <div class="mobile-back" onclick="cot_back()">← Volver a resultados</div>
+        <div style="padding:18px;">
+          <div class="card">
+            <div class="card-title">💰 Cotizar máquina seleccionada</div>
+            <div style="margin-bottom:12px;">
+              <label style="font-size:13px;font-weight:600;color:#555;display:block;margin-bottom:4px;">Mano de obra ($)</label>
+              <input type="number" id="cotLabor" placeholder="Ej: 50000" min="0" style="width:100%;padding:9px 11px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none;" onchange="cot_updateSummary()">
+            </div>
+            <div>
+              <label style="font-size:13px;font-weight:600;color:#555;display:block;margin-bottom:4px;">Descripción del trabajo</label>
+              <textarea id="cotDesc" rows="3" style="width:100%;padding:9px 11px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:inherit;outline:none;" placeholder="Describe el trabajo..."></textarea>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">⚙️ Repuestos</div>
+            <div class="items-container" id="cotItemsContainer"><p style="color:#999;text-align:center;padding:16px;">(Sin repuestos aún)</p></div>
+            <div class="add-item-group">
+              <select id="cotPartSel"><option value="">-- Catálogo --</option></select>
+              <input type="number" id="cotPartQty" value="1" min="1" placeholder="Cant.">
+              <input type="text" id="cotCustomPart" placeholder="O escribir repuesto">
+              <button onclick="cot_addItem()">+ Agregar</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">📊 Resumen</div>
+            <div class="summary-box">
+              <div class="summary-row"><span>Subtotal máquina:</span><strong id="cotSubtotal">$0</strong></div>
+              <div class="summary-row"><span>IVA:</span><strong id="cotIva">$0</strong></div>
+              <div class="summary-total"><span>TOTAL:</span><span id="cotTotal">$0</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">⚡ Acciones</div>
+            <div class="btn-group">
+              <button class="btn btn-dark" id="cotSaveBtn" onclick="cot_save()">💾 Guardar máquina</button>
+              <button class="btn btn-purple" id="cotGenBtn" onclick="cot_genMsg()">🤖 Mensaje final</button>
+              <button class="btn btn-green" id="cotSendBtn" onclick="cot_sendWA()" disabled>📱 Enviar WA</button>
+              <button class="btn btn-grey" onclick="cot_reset()">🔄 Limpiar</button>
+            </div>
+            <div style="margin-top:12px;font-size:11px;color:#888;">📄 PDF cotización</div>
+            <div class="btn-group" style="margin-top:4px;">
+              <button class="btn btn-mid" onclick="cot_dlPDF()">📄 Descargar PDF</button>
+              <button class="btn btn-mid" id="cotSendPdfBtn" onclick="cot_sendPDF()">📤 Enviar WA PDF</button>
+            </div>
+            <div style="margin-top:10px;font-size:11px;color:#888;">🔧 Informe de mantenimiento</div>
+            <div class="btn-group" style="margin-top:4px;">
+              <button class="btn btn-teal" onclick="cot_dlMaint()">📄 Descargar Informe</button>
+              <button class="btn btn-teal" id="cotSendMaintBtn" onclick="cot_sendMaint()">📤 Enviar Informe WA</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">👀 Vista previa WhatsApp</div>
+            <div class="preview-box"><div class="preview-content" id="cotPreview">Aquí aparecerá el mensaje final...</div></div>
+          </div>
+        </div>`;
+      cot_syncEqInfo();
+    }
+
+    window.cot_onEqChange = async () => {
+      const id = document.getElementById('cotEqSel')?.value;
+      S.selected = S.equipment.find(e=>String(e.uid_herramienta_orden)===String(id))||null;
+      cot_syncEqInfo();
+      cot_syncTech();
+      await cot_loadSavedQuote();
+    };
+    function cot_syncEqInfo() {
+      const el = document.getElementById('cotEqInfo'); if (!el) return;
+      el.textContent = S.selected ? `${S.selected.her_nombre||''} ${S.selected.her_marca||''}` : '';
+    }
+    function cot_syncTech() {
+      const sel = document.getElementById('cotTechSel'); if (!sel) return;
+      sel.value = S.selected?.tecnico_id ? String(S.selected.tecnico_id) : '';
+    }
+    window.cot_onTechChange = async () => {
+      if (!S.orderId||!S.selected) return;
+      const tid = document.getElementById('cotTechSel')?.value||null;
+      await fetch(`${API}/equipment-order/${S.selected.uid_herramienta_orden}/assign-technician`,
+        {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({technicianId:tid})});
+    };
+    window.cot_assignAll = async () => {
+      if (!S.orderId) return;
+      const tid = document.getElementById('cotTechSel')?.value||null;
+      await fetch(`${API}/orders/${S.orderId}/assign-technician`,
+        {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({technicianId:tid})});
+      showToast('Técnico asignado a todas las máquinas');
+    };
+    window.cot_addItem = () => {
+      const psel = document.getElementById('cotPartSel');
+      const qty  = parseInt(document.getElementById('cotPartQty')?.value||'1',10)||1;
+      const cust = document.getElementById('cotCustomPart')?.value.trim();
+      let name, price;
+      if (psel?.value) {
+        const opt = psel.options[psel.selectedIndex];
+        name=opt.textContent.split(' ($')[0]; price=Number(opt.dataset.price||0);
+      } else if (cust) { name=cust; price=0; }
+      else { alert('Selecciona o escribe un repuesto'); return; }
+      S.items.push({id:Date.now(),name,quantity:qty,price});
+      cot_renderItems(); cot_updateSummary();
+      if (psel) psel.value='';
+      const qEl = document.getElementById('cotPartQty'); if (qEl) qEl.value='1';
+      const cEl = document.getElementById('cotCustomPart'); if (cEl) cEl.value='';
+    };
+    function cot_renderItems() {
+      const c = document.getElementById('cotItemsContainer'); if (!c) return;
+      if (!S.items.length) { c.innerHTML='<p style="color:#999;text-align:center;padding:16px;">(Sin repuestos aún)</p>'; return; }
+      c.innerHTML = S.items.map(it=>`
+        <div class="item-row">
+          <div><input type="text" value="${esc(it.name)}" readonly style="background:#fff;border:none;font-weight:500;padding:5px;width:100%;"></div>
+          <div><input type="number" value="${it.quantity}" min="1" style="width:100%;" onchange="cot_updQty(${it.id},this.value)"></div>
+          <div><input type="number" value="${it.price}" min="0" style="width:100%;" onchange="cot_updPrice(${it.id},this.value)"></div>
+          <button class="del-item" onclick="cot_delItem(${it.id})">❌</button>
+        </div>`).join('');
+    }
+    window.cot_updQty   = (id,v) => { const it=S.items.find(x=>x.id===id); if(it){it.quantity=parseInt(v)||1;cot_updateSummary();} };
+    window.cot_updPrice = (id,v) => { const it=S.items.find(x=>x.id===id); if(it){it.price=Number(v)||0;cot_updateSummary();} };
+    window.cot_delItem  = (id)   => { S.items=S.items.filter(x=>x.id!==id); cot_renderItems(); cot_updateSummary(); };
+    window.cot_updateSummary = () => {
+      const labor = Number(document.getElementById('cotLabor')?.value)||0;
+      const sub = labor + S.items.reduce((s,it)=>s+(it.quantity||0)*(it.price||0),0);
+      const el = (id,v) => { const e=document.getElementById(id); if(e) e.textContent=v; };
+      el('cotSubtotal',money(sub)); el('cotIva',money(0)); el('cotTotal',money(sub));
+    };
+    window.cot_reset = () => {
+      S.items=[];
+      ['cotLabor','cotDesc'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+      cot_renderItems(); cot_updateSummary();
+    };
+    async function cot_loadSavedQuote() {
+      cot_reset();
+      if (!S.orderId||!S.selected) return;
+      const r = await fetch(`${API}/quotes/machine?orderId=${S.orderId}&equipmentOrderId=${S.selected.uid_herramienta_orden}`).then(r=>r.json()).catch(()=>null);
+      if (!r?.exists) return;
+      const mq = r.machineQuote;
+      const lEl = document.getElementById('cotLabor'); if(lEl) lEl.value=mq?.mano_obra??'';
+      const dEl = document.getElementById('cotDesc');  if(dEl) dEl.value=mq?.descripcion_trabajo??'';
+      S.items = (r.items||[]).map(it=>({id:it.id||Date.now()+Math.random(),name:it.nombre,quantity:Number(it.cantidad||1),price:Number(it.precio||0)}));
+      cot_renderItems(); cot_updateSummary();
+    }
+    async function cot_loadPartsSelect() {
+      const parts = await fetch(`${API}/quote/catalog?type=R`).then(r=>r.json()).catch(()=>[]);
+      const sel = document.getElementById('cotPartSel'); if (!sel) return;
+      sel.innerHTML='<option value="">-- Catálogo --</option>'+
+        parts.map(p=>`<option value="${p.uid_concepto_costo}" data-price="${p.cco_valor}">${esc(p.cco_descripcion)} ($${Number(p.cco_valor||0).toLocaleString('es-CO')})</option>`).join('');
+    }
+    async function cot_refreshSavedCount() {
+      if (!S.orderId) return;
+      const r = await fetch(`${API}/quotes/order/${S.orderId}`).then(r=>r.json()).catch(()=>null);
+      const el = document.getElementById('cotSavedCount'); if(el&&r?.success) el.textContent=String(r.savedCount||0);
+    }
+    window.cot_save = async () => {
+      if (!S.orderId||!S.selected) return;
+      const btn = document.getElementById('cotSaveBtn'); if(btn){btn.disabled=true;btn.textContent='💾 Guardando...';}
+      try {
+        const r = await fetch(`${API}/quotes/machine`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+          orderId:S.orderId, equipmentOrderId:String(S.selected.uid_herramienta_orden),
+          technicianId:document.getElementById('cotTechSel')?.value||null,
+          laborCost:Number(document.getElementById('cotLabor')?.value)||0,
+          workDescription:document.getElementById('cotDesc')?.value||'',
+          items:S.items
+        })});
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error||'Error');
+        showToast('✅ Cotización guardada'); await cot_refreshSavedCount();
+      } catch(e) { alert('⚠️ '+e.message); }
+      if(btn){btn.disabled=false;btn.textContent='💾 Guardar máquina';}
+    };
+    window.cot_genMsg = async () => {
+      if (!S.orderId) return;
+      const btn = document.getElementById('cotGenBtn'); if(btn){btn.disabled=true;btn.textContent='⏳ Generando...';}
+      const prev = document.getElementById('cotPreview'); if(prev) prev.textContent='Generando mensaje...';
+      try {
+        const r = await fetch(`${API}/quotes/order/${S.orderId}/generate-message`,{method:'POST'});
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error||'Error');
+        S.finalMsg = d.message;
+        if(prev) prev.textContent=S.finalMsg;
+        const sb = document.getElementById('cotSendBtn'); if(sb) sb.disabled=false;
+      } catch(e) { if(prev) prev.textContent='⚠️ '+e.message; }
+      if(btn){btn.disabled=false;btn.textContent='🤖 Mensaje final';}
+    };
+    window.cot_sendWA = async () => {
+      if (!S.orderId) return;
+      const btn = document.getElementById('cotSendBtn'); if(btn){btn.disabled=true;btn.textContent='📤 Enviando...';}
+      try {
+        const r = await fetch(`${API}/quotes/order/${S.orderId}/send-whatsapp`,{method:'POST'});
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error||'Error');
+        alert('✅ Mensaje enviado a '+d.cliente);
+      } catch(e) { alert('⚠️ '+e.message); }
+      if(btn){btn.disabled=false;btn.textContent='📱 Enviar WA';}
+    };
+    window.cot_dlPDF    = () => { if(!S.orderId)return; window.open(`${API}/orders/${S.orderId}/pdf/quote`,'_blank'); };
+    window.cot_dlMaint  = () => { if(!S.orderId||!S.selected)return; window.open(`${API}/orders/${S.orderId}/pdf/maintenance/${S.selected.uid_herramienta_orden}`,'_blank'); };
+    window.cot_sendPDF  = async () => {
+      if (!S.orderId) return;
+      const btn=document.getElementById('cotSendPdfBtn'); if(btn){btn.disabled=true;btn.textContent='⏳...';}
+      try { const r=await fetch(`${API}/orders/${S.orderId}/send-pdf/quote`,{method:'POST'}); const d=await r.json(); if(!d.success)throw new Error(d.error); showToast('✅ PDF enviado'); } catch(e){alert('⚠️ '+e.message);}
+      if(btn){btn.disabled=false;btn.textContent='📤 Enviar WA PDF';}
+    };
+    window.cot_sendMaint = async () => {
+      if (!S.orderId||!S.selected) return;
+      const btn=document.getElementById('cotSendMaintBtn'); if(btn){btn.disabled=true;btn.textContent='⏳...';}
+      try { const r=await fetch(`${API}/orders/${S.orderId}/send-pdf/maintenance/${S.selected.uid_herramienta_orden}`,{method:'POST'}); const d=await r.json(); if(!d.success)throw new Error(d.error); showToast('✅ Informe enviado'); } catch(e){alert('⚠️ '+e.message);}
+      if(btn){btn.disabled=false;btn.textContent='📤 Enviar Informe WA';}
+    };
+    window.cot_notifyParts = async () => {
+      if(!S.orderId)return;
+      const r=await fetch(`${API}/orders/${S.orderId}/notify-parts`,{method:'POST'}).then(r=>r.json()).catch(()=>({success:false}));
+      if(r.success)showToast(`📦 Lista enviada al encargado (${r.maquinas} máquina${r.maquinas!==1?'s':''})`);
+      else alert('Error: '+(r.error||''));
+    };
+    window.cot_notifyReady = async () => {
+      if(!S.orderId)return;
+      const r=await fetch(`${API}/orders/${S.orderId}/notify-ready`,{method:'POST'}).then(r=>r.json()).catch(()=>({success:false}));
+      if(r.success)showToast(`🔧 Cliente notificado (${r.maquinas} reparada${r.maquinas!==1?'s':''})`);
+      else alert('Error: '+(r.error||''));
+    };
+    window.cot_notifyDeliv = async () => {
+      if(!S.orderId)return;
+      const r=await fetch(`${API}/orders/${S.orderId}/notify-delivered`,{method:'POST'}).then(r=>r.json()).catch(()=>({success:false}));
+      if(r.success)showToast(`✅ Entrega confirmada`);
+      else alert('Error: '+(r.error||''));
+    };
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: CLIENTES
+// ════════════════════════════════════════════════════════════════════════════
+Views.clientes = {
+  _timer: null,
+  render() {
+    return `
+      <div class="two-panel" id="cliPanel">
+        <div class="pnl-left">
+          <div class="search-box">
+            <h2>Buscar cliente</h2>
+            <div class="input-row" style="margin-top:0;">
+              <input id="cliSearch" type="text" placeholder="Nombre, NIT o teléfono" oninput="cli_debounce()">
+              <button onclick="cli_buscar()">🔍</button>
+            </div>
+          </div>
+          <div class="results-list" id="cliResults">
+            <div class="results-empty">Escribe para buscar</div>
+          </div>
+        </div>
+        <div class="pnl-right" id="cliRight">
+          <div class="mobile-back" onclick="cli_back()">← Volver a resultados</div>
+          <div class="empty-state">
+            <div class="es-icon">👥</div>
+            <p>Selecciona un cliente para ver su detalle</p>
+          </div>
+        </div>
+      </div>`;
+  },
+  init() {
+    window.cli_debounce = () => {
+      clearTimeout(Views.clientes._timer);
+      Views.clientes._timer = setTimeout(cli_buscar, 350);
+    };
+    window.cli_back = () => document.getElementById('cliPanel')?.classList.remove('immersive');
+    window.cli_buscar = async () => {
+      const q = document.getElementById('cliSearch')?.value.trim(); if (!q) return;
+      const rl = document.getElementById('cliResults'); if (!rl) return;
+      rl.innerHTML='<div class="results-empty">Buscando...</div>';
+      const data = await fetch(`${API}/clientes/search?q=${encodeURIComponent(q)}`).then(r=>r.json()).catch(()=>[]);
+      if (!data.length) { rl.innerHTML='<div class="results-empty">Sin resultados</div>'; return; }
+      rl.innerHTML = data.map(c=>`
+        <div class="result-card" onclick="cli_verDetalle(${c.uid_cliente})">
+          <div class="rc-top">
+            <span class="rc-num">${esc(c.cli_razon_social||c.cli_contacto||'-')}</span>
+            <span style="font-size:11px;color:${c.cli_estado==='A'?'#27ae60':'#e74c3c'}">${c.cli_estado==='A'?'Activo':'Inactivo'}</span>
+          </div>
+          <div class="rc-cliente">${esc(c.cli_identificacion||'')}</div>
+          <div class="rc-maq">${c.total_ordenes||0} orden(es) | ${esc(c.cli_telefono||'')}</div>
+        </div>`).join('');
+    };
+    window.cli_verDetalle = async (uid) => {
+      const right = document.getElementById('cliRight'); if (!right) return;
+      document.getElementById('cliPanel')?.classList.add('immersive');
+      right.innerHTML='<div class="mobile-back" onclick="cli_back()">← Volver</div><div style="padding:20px;color:#888;text-align:center;">Cargando...</div>';
+      const data = await fetch(`${API}/clientes/${uid}`).then(r=>r.json()).catch(()=>null);
+      if (!data) { right.innerHTML='<div class="mobile-back" onclick="cli_back()">← Volver</div><div style="padding:20px;color:#e74c3c;">Error cargando cliente</div>'; return; }
+      const c = data.cliente;
+      const ordsHtml = data.ordenes.length
+        ? `<table class="ordenes-list-table">
+            <thead><tr><th>Orden</th><th>Fecha</th><th>Estado</th><th></th></tr></thead>
+            <tbody>${data.ordenes.map(o=>`
+              <tr>
+                <td><strong>#${o.ord_consecutivo}</strong></td>
+                <td>${fmtFecha(o.ord_fecha)}</td>
+                <td><span class="badge b-${o.ord_estado||'pendiente_revision'}" style="font-size:10px;">${o.ord_estado||'-'}</span></td>
+                <td><span class="ord-link" onclick="navigate('ordenes');setTimeout(()=>ord_verDetalle(${o.uid_orden}),80)">Ver →</span></td>
+              </tr>`).join('')}
+            </tbody>
+           </table>`
+        : '<div style="color:#aaa;font-size:13px;padding:8px 0;">Sin órdenes registradas</div>';
+      right.innerHTML = `
+        <div class="mobile-back" onclick="cli_back()">← Volver a resultados</div>
+        <div style="padding:22px;">
+          <div class="cli-name">${esc(c.cli_razon_social||c.cli_contacto||'-')}</div>
+          <div class="cli-sub">NIT / CC: ${esc(c.cli_identificacion||'-')}</div>
+          <div class="card">
+            <div class="card-title">Información de contacto</div>
+            <div class="client-grid">
+              <div class="field"><span class="lbl">Teléfono</span><span class="val">${esc(c.cli_telefono||'-')}</span></div>
+              <div class="field"><span class="lbl">Contacto</span><span class="val">${esc(c.cli_contacto||'-')}</span></div>
+              <div class="field"><span class="lbl">Tel. contacto</span><span class="val">${esc(c.cli_tel_contacto||'-')}</span></div>
+              <div class="field"><span class="lbl">Dirección</span><span class="val">${esc(c.cli_direccion||'-')}</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Historial de órdenes (${data.ordenes.length})</div>
+            ${ordsHtml}
+          </div>
+        </div>`;
+    };
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: FUNCIONARIOS
+// ════════════════════════════════════════════════════════════════════════════
+Views.funcionarios = {
+  render() {
+    return `<div style="padding:22px;" id="funcWrap">
+      <div class="func-header">
+        <h2>Funcionarios</h2>
+        ${isAdmin()?`<button class="btn btn-dark" onclick="fun_openCreate()">+ Nuevo funcionario</button>`:''}
+      </div>
+      <div class="card" style="overflow-x:auto;">
+        <table class="func-table" id="funcTable">
+          <thead><tr><th>Nombre</th><th>Login</th><th>Rol</th><th>Estado</th>${isAdmin()?'<th>Acciones</th>':''}</tr></thead>
+          <tbody><tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px;">Cargando...</td></tr></tbody>
+        </table>
+      </div>
+    </div>`;
+  },
+  async init() {
+    const TIPOS = {A:'Administrador',F:'Funcionario',T:'Técnico'};
+    async function fun_reload() {
+      const rows = await fetch(`${API}/funcionarios`).then(r=>r.json()).catch(()=>[]);
+      const tb = document.querySelector('#funcTable tbody'); if (!tb) return;
+      if (!rows.length) { tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px;">Sin funcionarios</td></tr>'; return; }
+      tb.innerHTML = rows.map(u=>`
+        <tr>
+          <td style="font-weight:600">${esc(u.usu_nombre||'-')}</td>
+          <td style="color:#666">${esc(u.usu_login||'-')}</td>
+          <td><span class="tipo-badge tipo-${u.usu_tipo}">${TIPOS[u.usu_tipo]||u.usu_tipo}</span></td>
+          <td><span class="estado-pill est-${u.usu_estado}">${u.usu_estado==='A'?'Activo':'Inactivo'}</span></td>
+          ${isAdmin()?`<td>
+            <button class="btn btn-sm btn-grey" onclick="fun_toggleEstado(${u.uid_usuario},'${u.usu_estado==='A'?'I':'A'}')">${u.usu_estado==='A'?'Desactivar':'Activar'}</button>
+          </td>`:''}
+        </tr>`).join('');
+    }
+    window.fun_openCreate = () => {
+      const bg = document.createElement('div'); bg.className='modal-bg'; bg.id='funModal';
+      bg.innerHTML=`<div class="modal">
+        <h3>Nuevo Funcionario</h3>
+        <label>Nombre completo</label><input id="funNombre" type="text" placeholder="Ej: Juan Pérez">
+        <label>Login</label><input id="funLogin" type="text" placeholder="Ej: jperez">
+        <label>Contraseña inicial</label><input id="funClave" type="password" placeholder="Mínimo 6 caracteres">
+        <label>Rol</label>
+        <select id="funTipo"><option value="T">Técnico</option><option value="F">Funcionario</option><option value="A">Administrador</option></select>
+        <div class="modal-actions">
+          <button class="btn btn-grey" onclick="document.getElementById('funModal').remove()">Cancelar</button>
+          <button class="btn btn-dark" onclick="fun_create()">Crear</button>
+        </div>
+      </div>`;
+      document.body.appendChild(bg);
+    };
+    window.fun_create = async () => {
+      const nombre=document.getElementById('funNombre')?.value.trim();
+      const login =document.getElementById('funLogin')?.value.trim();
+      const clave =document.getElementById('funClave')?.value;
+      const tipo  =document.getElementById('funTipo')?.value;
+      if (!nombre||!login||!clave) { alert('Completa todos los campos'); return; }
+      if (clave.length<6) { alert('La contraseña debe tener al menos 6 caracteres'); return; }
+      const r = await fetch(`${API}/funcionarios`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,login,clave,tipo})}).then(r=>r.json()).catch(()=>({success:false}));
+      if (r.success) { document.getElementById('funModal')?.remove(); showToast('✅ Funcionario creado'); await fun_reload(); }
+      else alert('Error: '+(r.error||'Error desconocido'));
+    };
+    window.fun_toggleEstado = async (uid, nuevoEstado) => {
+      const r = await fetch(`${API}/funcionarios/${uid}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({estado:nuevoEstado})}).then(r=>r.json()).catch(()=>({success:false}));
+      if (r.success) { showToast('✅ Estado actualizado'); await fun_reload(); }
+      else alert('Error: '+(r.error||''));
+    };
+    await fun_reload();
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: INVENTARIO
+// ════════════════════════════════════════════════════════════════════════════
+Views.inventario = {
+  render() {
+    return `<div style="padding:22px;">
+      <div class="inv-header">
+        <h2>Inventario de repuestos</h2>
+        ${isAdmin()?`<button class="btn btn-dark" onclick="inv_openCreate()">+ Nuevo repuesto</button>`:''}
+      </div>
+      <div class="card" style="overflow-x:auto;">
+        <table class="inv-table" id="invTable">
+          <thead><tr><th>Descripción</th><th>Tipo</th><th>Precio</th><th>Estado</th>${isAdmin()?'<th>Acciones</th>':''}</tr></thead>
+          <tbody><tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px;">Cargando...</td></tr></tbody>
+        </table>
+      </div>
+    </div>`;
+  },
+  async init() {
+    const TIPOS = {R:'Repuesto',S:'Servicio',M:'Mano de obra'};
+    async function inv_reload() {
+      const rows = await fetch(`${API}/inventario`).then(r=>r.json()).catch(()=>[]);
+      const tb = document.querySelector('#invTable tbody'); if (!tb) return;
+      if (!rows.length) { tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px;">Sin ítems</td></tr>'; return; }
+      tb.innerHTML = rows.map(p=>`
+        <tr>
+          <td style="font-weight:500">${esc(p.cco_descripcion||'-')}</td>
+          <td style="color:#666">${TIPOS[p.cco_tipo]||p.cco_tipo||'-'}</td>
+          <td class="inv-precio">${money(p.cco_valor)}</td>
+          <td><span class="estado-pill est-${p.cco_estado}">${p.cco_estado==='A'?'Activo':'Inactivo'}</span></td>
+          ${isAdmin()?`<td style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-mid" onclick="inv_edit(${p.uid_concepto_costo},'${esc(p.cco_descripcion)}',${p.cco_valor},'${p.cco_tipo}')">Editar</button>
+            <button class="btn btn-sm btn-grey" onclick="inv_toggle(${p.uid_concepto_costo},'${p.cco_estado==='A'?'I':'A'}')">${p.cco_estado==='A'?'Desactivar':'Activar'}</button>
+          </td>`:''}
+        </tr>`).join('');
+    }
+    window.inv_openCreate = () => inv_openModal();
+    window.inv_edit = (id, desc, val, tipo) => inv_openModal(id, desc, val, tipo);
+    function inv_openModal(id=null, desc='', val=0, tipo='R') {
+      document.getElementById('invModal')?.remove();
+      const bg = document.createElement('div'); bg.className='modal-bg'; bg.id='invModal';
+      bg.innerHTML=`<div class="modal">
+        <h3>${id?'Editar repuesto':'Nuevo repuesto'}</h3>
+        <label>Descripción</label><input id="invDesc" type="text" value="${esc(desc)}" placeholder="Ej: Carbones de motor">
+        <label>Precio ($)</label><input id="invVal" type="number" value="${val}" min="0" placeholder="0">
+        <label>Tipo</label>
+        <select id="invTipo">
+          <option value="R"${tipo==='R'?' selected':''}>Repuesto</option>
+          <option value="S"${tipo==='S'?' selected':''}>Servicio</option>
+          <option value="M"${tipo==='M'?' selected':''}>Mano de obra</option>
+        </select>
+        <div class="modal-actions">
+          <button class="btn btn-grey" onclick="document.getElementById('invModal').remove()">Cancelar</button>
+          <button class="btn btn-dark" onclick="inv_save(${id||'null'})">${id?'Guardar':'Crear'}</button>
+        </div>
+      </div>`;
+      document.body.appendChild(bg);
+    }
+    window.inv_save = async (id) => {
+      const desc=document.getElementById('invDesc')?.value.trim();
+      const val =document.getElementById('invVal')?.value;
+      const tipo=document.getElementById('invTipo')?.value;
+      if (!desc) { alert('Escribe una descripción'); return; }
+      let r;
+      if (id) {
+        r = await fetch(`${API}/inventario/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({descripcion:desc,valor:Number(val)||0})}).then(r=>r.json()).catch(()=>({success:false}));
+      } else {
+        r = await fetch(`${API}/inventario`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({descripcion:desc,valor:Number(val)||0,tipo})}).then(r=>r.json()).catch(()=>({success:false}));
+      }
+      if (r.success) { document.getElementById('invModal')?.remove(); showToast('✅ Guardado'); await inv_reload(); }
+      else alert('Error: '+(r.error||''));
+    };
+    window.inv_toggle = async (id, estado) => {
+      const r = await fetch(`${API}/inventario/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({estado})}).then(r=>r.json()).catch(()=>({success:false}));
+      if (r.success) { showToast('✅ Actualizado'); await inv_reload(); }
+      else alert('Error: '+(r.error||''));
+    };
+    await inv_reload();
+  }
+};
+
+// ── Session init ──────────────────────────────────────────────────────────────
+(async function() {
+  const me = await fetch('/me').then(r=>r.json()).catch(()=>({}));
+  if (!me.authenticated) { location.href='/login'; return; }
+  _currentUser = me.user;
+  document.getElementById('sidebarUser').textContent = me.user.nombre;
+  document.getElementById('topbarUser').textContent  = me.user.nombre;
+  // Hash-based routing
+  const hash = location.hash.slice(1);
+  navigate(Views[hash] ? hash : 'inicio');
+})();
+</script>
+</body>
+</html>
