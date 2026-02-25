@@ -319,6 +319,61 @@
     @media (min-width:769px) and (max-width:1024px) {
       :root{--sidebar-w:200px;}
     }
+
+    /* ══════════════════════════════════════════════════════════
+       VISTA: NUEVA ORDEN (wizard)
+    ══════════════════════════════════════════════════════════ */
+    .no-wrap{max-width:860px;margin:0 auto;padding:22px;}
+    .no-steps{display:flex;margin-bottom:24px;}
+    .no-step{flex:1;text-align:center;padding:11px 8px;font-size:13px;font-weight:600;
+      color:#aaa;border-bottom:3px solid #ddd;cursor:default;}
+    .no-step.active{color:var(--dark);border-color:var(--dark);}
+    .no-step.done{color:#27ae60;border-color:#27ae60;}
+    .no-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+    .no-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+    .no-fgroup{margin-bottom:12px;}
+    .no-fgroup label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px;}
+    .no-fgroup input,.no-fgroup select,.no-fgroup textarea{
+      width:100%;padding:9px 11px;border:1px solid #ddd;border-radius:6px;
+      font-size:13px;outline:none;font-family:inherit;}
+    .no-fgroup input:focus,.no-fgroup select:focus,.no-fgroup textarea:focus{border-color:var(--mid);}
+    .no-fgroup textarea{resize:vertical;min-height:70px;}
+    .no-req{color:#e74c3c;}
+    .no-muted{font-size:12px;color:#888;}
+    .no-alert-err{padding:10px 14px;border-radius:6px;font-size:13px;
+      background:#fdecea;color:#c0392b;margin-bottom:12px;}
+    .no-divider{border:none;border-top:1px solid #eee;margin:16px 0;}
+    .no-toggle-link{background:none;border:none;color:var(--dark);font-size:13px;
+      font-weight:600;cursor:pointer;padding:0;text-decoration:underline;}
+    .no-result-item{padding:10px 14px;border:1px solid #e8e8e8;border-radius:6px;
+      margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;
+      cursor:pointer;transition:background .15s;}
+    .no-result-item:hover{background:var(--bg);}
+    .no-result-name{font-weight:600;font-size:13px;color:var(--dark);}
+    .no-result-sub{font-size:11px;color:#888;margin-top:2px;}
+    .no-cli-card{background:#e8f4fd;border:1px solid var(--mid);border-radius:8px;
+      padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;
+      align-items:center;}
+    .no-cli-card .no-cli-name{font-weight:700;color:var(--dark);font-size:14px;}
+    .no-cli-card .no-cli-sub{font-size:12px;color:#555;margin-top:2px;}
+    .no-maq-item{border:1px solid #e8e8e8;border-radius:8px;padding:14px;
+      margin-bottom:10px;background:#fafafa;}
+    .no-maq-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+    .no-maq-title{font-weight:700;font-size:13px;color:var(--dark);}
+    .no-maq-sub{font-size:11px;color:#888;}
+    .no-foto-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+    .no-foto-thumb{position:relative;width:80px;height:80px;border-radius:6px;
+      overflow:hidden;border:1px solid #ddd;}
+    .no-foto-thumb img{width:100%;height:100%;object-fit:cover;}
+    .no-foto-thumb .no-del{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);
+      color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:12px;
+      cursor:pointer;display:flex;align-items:center;justify-content:center;}
+    .no-success{text-align:center;padding:32px;}
+    .no-success .no-snum{font-size:48px;font-weight:800;color:var(--dark);}
+    .no-success .no-slbl{font-size:15px;color:#666;margin-bottom:20px;}
+    .no-success .no-slist{text-align:left;max-width:400px;margin:0 auto 24px;}
+    .no-nav-row{display:flex;justify-content:space-between;margin-top:8px;}
+    @media(max-width:600px){.no-grid2,.no-grid3{grid-template-columns:1fr;}}
   </style>
 </head>
 <body>
@@ -348,6 +403,12 @@
     <div class="nav-item" data-view="inventario" onclick="navigate('inventario')">
       <span class="ni">📦</span><span>Inventario</span>
     </div>
+    <div class="nav-item" data-view="misOrdenes" onclick="navigate('misOrdenes')" style="display:none;">
+      <span class="ni">🔧</span><span>Mis Órdenes</span>
+    </div>
+    <div class="nav-item" data-view="buscarOrden" onclick="navigate('buscarOrden')" style="display:none;">
+      <span class="ni">🔍</span><span>Buscar Orden</span>
+    </div>
   </nav>
   <div class="sb-footer">
     <div class="sb-user" id="sidebarUser"></div>
@@ -365,7 +426,7 @@
     <span class="topbar-title" id="topbarTitle">Inicio</span>
     <div class="topbar-right">
       <span class="topbar-user" id="topbarUser"></span>
-      <a class="btn-nueva-orden" href="/crear-orden.html">+ Nueva Orden</a>
+      <button class="btn-nueva-orden" onclick="navigate('nuevaOrden')">+ Nueva Orden</button>
     </div>
   </div>
   <div id="viewContainer"></div>
@@ -392,7 +453,8 @@ function showToast(msg, ms=3000) {
   t.textContent = msg; t.style.opacity = '1';
   clearTimeout(t._t); t._t = setTimeout(() => t.style.opacity='0', ms);
 }
-function isAdmin() { return _currentUser?.tipo === 'A'; }
+function isAdmin()   { return _currentUser?.tipo === 'A'; }
+function isTecnico() { return _currentUser?.tipo === 'T'; }
 
 // ── Sidebar / navigation shell ────────────────────────────────────────────────
 function toggleSidebar() {
@@ -406,11 +468,17 @@ function closeSidebar() {
 
 const VIEW_LABELS = {
   inicio:'Inicio', ordenes:'Órdenes', cotizaciones:'Cotizaciones',
-  clientes:'Clientes', funcionarios:'Funcionarios', inventario:'Inventario'
+  clientes:'Clientes', funcionarios:'Funcionarios', inventario:'Inventario',
+  nuevaOrden:'Nueva Orden',
+  misOrdenes:'Mis Órdenes', buscarOrden:'Buscar Orden'
 };
+
+const TEC_VIEWS = ['misOrdenes', 'buscarOrden'];
 
 function navigate(viewName) {
   if (!Views[viewName]) return;
+  // Técnicos solo pueden ver sus vistas
+  if (isTecnico() && !TEC_VIEWS.includes(viewName)) return;
   closeSidebar();
   document.querySelectorAll('.nav-item').forEach(el =>
     el.classList.toggle('active', el.dataset.view === viewName));
@@ -459,6 +527,12 @@ Views.inicio = {
             </div>
           </div>
           <div id="alertasList"></div>
+        </div>
+        <div class="alertas-section" id="revSinCotSection" style="display:none">
+          <div class="alertas-header">
+            <h3>📝 Equipos revisados pendientes de cotizar</h3>
+          </div>
+          <div id="revSinCotList"></div>
         </div>
       </div>`;
   },
@@ -521,6 +595,26 @@ Views.inicio = {
             </div>
             <div class="dias-badge dias-${a.rango}">${a.dias} día${a.dias!==1?'s':''}</div>
           </div>`).join('');
+      }
+
+      const rsc = data.revisadasSinCotizar || [];
+      const rscSec = document.getElementById('revSinCotSection');
+      const rscLst = document.getElementById('revSinCotList');
+      if (rscSec && rscLst) {
+        rscSec.style.display = 'block';
+        if (!rsc.length) {
+          rscLst.innerHTML = '<div class="alertas-empty">✅ Todas las máquinas revisadas ya tienen cotización</div>';
+        } else {
+          rscLst.innerHTML = rsc.map(r => `
+            <div class="alerta-row alerta-amarillo" onclick="navigate('cotizaciones');setTimeout(()=>cot_loadById(${r.uid_orden}),80)" style="cursor:pointer">
+              <div class="alerta-info">
+                <div class="alerta-maq">${esc(r.her_nombre||'')} ${esc(r.her_marca||'')}</div>
+                <div class="alerta-cli">${esc(r.cliente)}</div>
+                <div class="alerta-orden">Orden #${r.ord_consecutivo}</div>
+              </div>
+              <div class="dias-badge dias-amarillo">Cotizar</div>
+            </div>`).join('');
+        }
       }
     };
     await window.ini_load();
@@ -1398,6 +1492,831 @@ Views.inventario = {
   }
 };
 
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: NUEVA ORDEN (wizard)
+// ════════════════════════════════════════════════════════════════════════════
+Views.nuevaOrden = {
+  render() {
+    return `
+    <div class="no-wrap">
+      <div class="no-steps">
+        <div class="no-step active" id="no_step1_tab">1. Cliente</div>
+        <div class="no-step" id="no_step2_tab">2. Máquinas</div>
+        <div class="no-step" id="no_step3_tab">3. Confirmar</div>
+      </div>
+
+      <!-- STEP 1: CLIENTE -->
+      <div id="no_step1">
+        <div class="card">
+          <h2 style="font-size:16px;color:var(--dark);margin-bottom:16px;">Buscar cliente</h2>
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <input id="no_clientSearch" type="text"
+              style="flex:1;padding:9px 11px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none;"
+              placeholder="Cédula, NIT, nombre o teléfono..." oninput="no_buscarCliente()">
+          </div>
+          <div id="no_clientResults"></div>
+          <div id="no_selectedClientCard" style="display:none;"></div>
+          <hr class="no-divider">
+          <button class="no-toggle-link" onclick="no_toggleNewClient()">+ Crear nuevo cliente</button>
+          <div id="no_newClientForm" style="display:none;margin-top:16px;">
+            <h3 style="font-size:14px;color:#333;margin-bottom:12px;">Nuevo cliente</h3>
+            <div class="no-grid2">
+              <div class="no-fgroup">
+                <label>Identificación <span class="no-req">*</span></label>
+                <input id="no_nc_id" type="text" placeholder="Cédula o NIT" inputmode="numeric"
+                  oninput="this.value=this.value.replace(/[^0-9]/g,'')" onblur="no_sugerirClave()">
+              </div>
+              <div class="no-fgroup">
+                <label>Razón Social <span class="no-req">*</span></label>
+                <input id="no_nc_nombre" type="text" placeholder="Nombre o empresa">
+              </div>
+            </div>
+            <div class="no-grid2">
+              <div class="no-fgroup">
+                <label>Teléfono <span class="no-req">*</span></label>
+                <input id="no_nc_tel" type="text" inputmode="numeric" placeholder="Teléfono"
+                  oninput="this.value=this.value.replace(/[^0-9\\s\\/\\-]/g,'')">
+              </div>
+              <div class="no-fgroup">
+                <label>Dirección</label>
+                <input id="no_nc_dir" type="text" placeholder="Dirección">
+              </div>
+            </div>
+            <div class="no-grid2">
+              <div class="no-fgroup">
+                <label>Contacto</label>
+                <input id="no_nc_contacto" type="text" placeholder="Nombre del contacto">
+              </div>
+              <div class="no-fgroup">
+                <label>Teléfono Contacto</label>
+                <input id="no_nc_tel_contacto" type="text" inputmode="numeric" placeholder="Teléfono contacto"
+                  oninput="this.value=this.value.replace(/[^0-9\\s\\/\\-]/g,'')">
+              </div>
+            </div>
+            <div class="no-fgroup" style="max-width:220px;">
+              <label>Clave asignada <span class="no-req">*</span></label>
+              <input id="no_nc_clave" type="text" placeholder="Últimos 4 dígitos">
+              <div class="no-muted" style="margin-top:4px;">Por defecto: últimos 4 dígitos de la identificación</div>
+            </div>
+            <div id="no_newClientError" class="no-alert-err" style="display:none;"></div>
+            <button class="btn btn-dark" onclick="no_crearCliente()">Crear cliente</button>
+          </div>
+        </div>
+        <div class="no-nav-row">
+          <span></span>
+          <button class="btn btn-dark" id="no_btnStep1Next" onclick="no_goStep2()" disabled>Siguiente →</button>
+        </div>
+      </div>
+
+      <!-- STEP 2: MÁQUINAS -->
+      <div id="no_step2" style="display:none;">
+        <div class="card">
+          <div id="no_step2ClientCard"></div>
+          <h2 style="font-size:16px;color:var(--dark);margin-bottom:12px;">Máquinas en esta orden</h2>
+          <h3 style="font-size:14px;color:#333;margin-bottom:8px;">Historial del cliente</h3>
+          <div id="no_herramientasHistorial" class="no-muted">Cargando...</div>
+          <hr class="no-divider">
+          <button class="no-toggle-link" onclick="no_toggleNewMaq()">+ Agregar máquina nueva</button>
+          <div id="no_newMaqForm" style="display:none;margin-top:14px;">
+            <div class="no-grid2">
+              <div class="no-fgroup">
+                <label>Nombre <span class="no-req">*</span></label>
+                <input id="no_nm_nombre" type="text" placeholder="Ej: Taladro, Esmeril...">
+              </div>
+              <div class="no-fgroup">
+                <label>Marca</label>
+                <input id="no_nm_marca" type="text" placeholder="Ej: Bosch, DeWalt...">
+              </div>
+            </div>
+            <div class="no-grid2">
+              <div class="no-fgroup">
+                <label>Serial</label>
+                <input id="no_nm_serial" type="text" placeholder="Número de serie">
+              </div>
+              <div class="no-fgroup">
+                <label>Referencia</label>
+                <input id="no_nm_ref" type="text" placeholder="Referencia del modelo">
+              </div>
+            </div>
+            <div id="no_newMaqError" class="no-alert-err" style="display:none;"></div>
+            <button class="btn btn-dark" onclick="no_crearMaquina()">Agregar a la orden</button>
+          </div>
+        </div>
+        <div id="no_maquinasEnOrden"></div>
+        <div class="no-nav-row">
+          <button class="btn btn-grey" onclick="no_goStep1()">← Atrás</button>
+          <button class="btn btn-dark" id="no_btnStep2Next" onclick="no_goStep3()" disabled>Siguiente →</button>
+        </div>
+      </div>
+
+      <!-- STEP 3: CONFIRMAR -->
+      <div id="no_step3" style="display:none;">
+        <div class="card">
+          <h2 style="font-size:16px;color:var(--dark);margin-bottom:12px;">Confirmar orden</h2>
+          <div id="no_resumenOrden"></div>
+          <div id="no_step3Error" class="no-alert-err" style="display:none;"></div>
+        </div>
+        <div class="no-nav-row">
+          <button class="btn btn-grey" onclick="no_goStep2()">← Atrás</button>
+          <button class="btn btn-green" id="no_btnCrear" onclick="no_crearOrden()">✓ Crear Orden</button>
+        </div>
+      </div>
+
+      <!-- ÉXITO -->
+      <div id="no_stepSuccess" style="display:none;">
+        <div class="card no-success">
+          <div style="font-size:40px;">✅</div>
+          <div class="no-snum" id="no_successConsecutivo"></div>
+          <div class="no-slbl">Orden creada exitosamente</div>
+          <div class="no-slist" id="no_successMaqList"></div>
+          <div id="no_ordenAcciones"></div>
+          <hr class="no-divider">
+          <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+            <button class="btn btn-dark" onclick="navigate('cotizaciones')">Ir a Cotizaciones</button>
+            <button class="btn btn-grey" onclick="no_nuevaOrden()">Nueva Orden</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  },
+  init() {
+    // Revoke any blob URLs from a previous session
+    if (typeof window.no_nuevaOrden === 'function') window.no_nuevaOrden();
+
+    let no_cliente       = null;
+    let no_maquinas      = [];
+    let no_ordenCreada   = null;
+    let no_clientMap     = {};
+    let no_herramientaMap= {};
+    let no_buscarTimer   = null;
+
+    function no_setStep(n) {
+      ['no_step1','no_step2','no_step3','no_stepSuccess'].forEach((id,i) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = (i === n-1 || (n===4 && i===3)) ? 'block' : 'none';
+      });
+      [1,2,3].forEach(i => {
+        const t = document.getElementById(`no_step${i}_tab`);
+        if (!t) return;
+        t.className = 'no-step' + (i < n ? ' done' : i === n ? ' active' : '');
+      });
+    }
+
+    window.no_goStep1 = () => no_setStep(1);
+
+    window.no_goStep2 = async () => {
+      if (!no_cliente) return;
+      no_setStep(2);
+      const c = no_cliente;
+      const cc = document.getElementById('no_step2ClientCard');
+      if (cc) cc.innerHTML = `
+        <div class="no-cli-card" style="margin-bottom:16px;">
+          <div>
+            <div class="no-cli-name">${esc(c.cli_razon_social)}</div>
+            <div class="no-cli-sub">NIT/CC: ${esc(c.cli_identificacion)} | Tel: ${esc(c.cli_telefono||'-')}</div>
+          </div>
+        </div>`;
+      await no_cargarHistorial();
+      no_renderMaquinasEnOrden();
+    };
+
+    window.no_goStep3 = () => {
+      if (!no_maquinas.length) return;
+      no_setStep(3);
+      no_renderResumen();
+    };
+
+    window.no_buscarCliente = () => {
+      clearTimeout(no_buscarTimer);
+      no_buscarTimer = setTimeout(async () => {
+        const q = document.getElementById('no_clientSearch')?.value.trim() || '';
+        const resEl = document.getElementById('no_clientResults');
+        if (!resEl) return;
+        if (q.length < 2) { resEl.innerHTML = ''; return; }
+        const data = await fetch(`${API}/crear-orden/cliente/buscar?q=${encodeURIComponent(q)}`)
+          .then(r=>r.json()).catch(()=>[]);
+        if (!data.length) { resEl.innerHTML = '<div class="no-muted">No se encontraron clientes.</div>'; return; }
+        data.forEach(c => { no_clientMap[c.uid_cliente] = c; });
+        resEl.innerHTML = data.map(c => `
+          <div class="no-result-item" onclick="no_seleccionarCliente(${c.uid_cliente})">
+            <div>
+              <div class="no-result-name">${esc(c.cli_razon_social)}</div>
+              <div class="no-result-sub">CC/NIT: ${esc(c.cli_identificacion)} | Tel: ${esc(c.cli_telefono||'-')}</div>
+            </div>
+            <button class="btn btn-dark btn-sm">Seleccionar</button>
+          </div>`).join('');
+      }, 300);
+    };
+
+    window.no_seleccionarCliente = (uid) => {
+      const c = no_clientMap[uid];
+      if (!c) return;
+      no_cliente = c;
+      const resEl   = document.getElementById('no_clientResults');
+      const searchEl= document.getElementById('no_clientSearch');
+      const formEl  = document.getElementById('no_newClientForm');
+      const cardEl  = document.getElementById('no_selectedClientCard');
+      const btnEl   = document.getElementById('no_btnStep1Next');
+      if (resEl)    resEl.innerHTML = '';
+      if (searchEl) searchEl.value = '';
+      if (formEl)   formEl.style.display = 'none';
+      if (cardEl) {
+        cardEl.style.display = 'block';
+        cardEl.innerHTML = `
+          <div class="no-cli-card">
+            <div>
+              <div class="no-cli-name">${esc(c.cli_razon_social)}</div>
+              <div class="no-cli-sub">CC/NIT: ${esc(c.cli_identificacion)} | Tel: ${esc(c.cli_telefono||'-')} | ${esc(c.cli_direccion||'')}</div>
+            </div>
+            <button class="btn btn-grey btn-sm" onclick="no_deseleccionarCliente()">Cambiar</button>
+          </div>`;
+      }
+      if (btnEl) btnEl.disabled = false;
+    };
+
+    window.no_deseleccionarCliente = () => {
+      no_cliente = null;
+      const cardEl = document.getElementById('no_selectedClientCard');
+      const btnEl  = document.getElementById('no_btnStep1Next');
+      if (cardEl) { cardEl.style.display = 'none'; cardEl.innerHTML = ''; }
+      if (btnEl)  btnEl.disabled = true;
+    };
+
+    window.no_toggleNewClient = () => {
+      const f = document.getElementById('no_newClientForm');
+      if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    };
+
+    window.no_sugerirClave = () => {
+      const idEl = document.getElementById('no_nc_id');
+      const clEl = document.getElementById('no_nc_clave');
+      if (idEl && clEl && idEl.value.length >= 4) clEl.value = idEl.value.slice(-4);
+    };
+
+    window.no_crearCliente = async () => {
+      const errEl = document.getElementById('no_newClientError');
+      if (errEl) errEl.style.display = 'none';
+      const body = {
+        cli_identificacion: document.getElementById('no_nc_id')?.value.trim() || '',
+        cli_razon_social:   document.getElementById('no_nc_nombre')?.value.trim() || '',
+        cli_telefono:       document.getElementById('no_nc_tel')?.value.trim() || '',
+        cli_direccion:      document.getElementById('no_nc_dir')?.value.trim() || '',
+        cli_contacto:       document.getElementById('no_nc_contacto')?.value.trim() || '',
+        cli_tel_contacto:   document.getElementById('no_nc_tel_contacto')?.value.trim() || '',
+        clave:              document.getElementById('no_nc_clave')?.value.trim() || '',
+      };
+      const res = await fetch(`${API}/crear-orden/cliente`, {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+      }).then(r=>r.json()).catch(()=>({success:false,error:'Error de red'}));
+      if (!res.success) {
+        if (errEl) { errEl.textContent = res.error||'Error'; errEl.style.display = 'block'; }
+        return;
+      }
+      no_clientMap[res.cliente.uid_cliente] = res.cliente;
+      window.no_seleccionarCliente(res.cliente.uid_cliente);
+      const f = document.getElementById('no_newClientForm');
+      if (f) f.style.display = 'none';
+    };
+
+    async function no_cargarHistorial() {
+      const el = document.getElementById('no_herramientasHistorial');
+      if (!el) return;
+      el.innerHTML = 'Cargando...';
+      const data = await fetch(`${API}/crear-orden/herramientas/${no_cliente.uid_cliente}`)
+        .then(r=>r.json()).catch(()=>[]);
+      if (!data.length) { el.innerHTML = '<div class="no-muted">Este cliente no tiene máquinas previas.</div>'; return; }
+      data.forEach(h => { no_herramientaMap[h.uid_herramienta] = h; });
+      el.innerHTML = data.map(h => `
+        <div class="no-result-item" onclick="no_agregarMaquina(${h.uid_herramienta})">
+          <div>
+            <div class="no-result-name">${esc(h.her_nombre)} ${esc(h.her_marca||'')}</div>
+            <div class="no-result-sub">${h.her_serial ? 'S/N: '+esc(h.her_serial) : ''}${h.her_referencia ? ' | Ref: '+esc(h.her_referencia) : ''}</div>
+          </div>
+          <button class="btn btn-dark btn-sm">Agregar</button>
+        </div>`).join('');
+    }
+
+    window.no_agregarMaquina = (uid) => {
+      const h = no_herramientaMap[uid];
+      if (!h) return;
+      if (no_maquinas.find(m => m.uid_herramienta === h.uid_herramienta)) {
+        alert('Esta máquina ya está en la orden.'); return;
+      }
+      no_maquinas.push({ ...h, observaciones: '', fotos: [] });
+      no_renderMaquinasEnOrden();
+    };
+
+    window.no_toggleNewMaq = () => {
+      const f = document.getElementById('no_newMaqForm');
+      if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    };
+
+    window.no_crearMaquina = async () => {
+      const errEl = document.getElementById('no_newMaqError');
+      if (errEl) errEl.style.display = 'none';
+      const body = {
+        uid_cliente:    no_cliente.uid_cliente,
+        her_nombre:     document.getElementById('no_nm_nombre')?.value.trim() || '',
+        her_marca:      document.getElementById('no_nm_marca')?.value.trim() || '',
+        her_serial:     document.getElementById('no_nm_serial')?.value.trim() || '',
+        her_referencia: document.getElementById('no_nm_ref')?.value.trim() || '',
+      };
+      if (!body.her_nombre) {
+        if (errEl) { errEl.textContent = 'El nombre es obligatorio'; errEl.style.display = 'block'; }
+        return;
+      }
+      const res = await fetch(`${API}/crear-orden/herramienta`, {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+      }).then(r=>r.json()).catch(()=>({success:false,error:'Error de red'}));
+      if (!res.success) {
+        if (errEl) { errEl.textContent = res.error||'Error'; errEl.style.display = 'block'; }
+        return;
+      }
+      no_maquinas.push({ ...res.herramienta, observaciones: '', fotos: [] });
+      no_renderMaquinasEnOrden();
+      ['no_nm_nombre','no_nm_marca','no_nm_serial','no_nm_ref'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = '';
+      });
+      const f = document.getElementById('no_newMaqForm');
+      if (f) f.style.display = 'none';
+      await no_cargarHistorial();
+    };
+
+    window.no_quitarMaquina = (uid) => {
+      no_maquinas = no_maquinas.filter(m => m.uid_herramienta !== uid);
+      no_renderMaquinasEnOrden();
+    };
+
+    window.no_setObservacion = (uid, val) => {
+      const m = no_maquinas.find(m => m.uid_herramienta === uid);
+      if (m) m.observaciones = val;
+    };
+
+    function no_renderMaquinasEnOrden() {
+      const el  = document.getElementById('no_maquinasEnOrden');
+      const btn = document.getElementById('no_btnStep2Next');
+      if (btn) btn.disabled = no_maquinas.length === 0;
+      if (!el) return;
+      if (!no_maquinas.length) {
+        el.innerHTML = '<div class="no-muted" style="margin-bottom:12px;">Ninguna máquina agregada aún.</div>';
+        return;
+      }
+      el.innerHTML = no_maquinas.map((m,i) => `
+        <div class="card no-maq-item">
+          <div class="no-maq-hdr">
+            <div>
+              <div class="no-maq-title">${i+1}. ${esc(m.her_nombre)} ${esc(m.her_marca||'')}</div>
+              <div class="no-maq-sub">${m.her_serial ? 'S/N: '+esc(m.her_serial) : 'Sin serial'}${m.her_referencia ? ' | Ref: '+esc(m.her_referencia) : ''}</div>
+            </div>
+            <button class="btn btn-red btn-sm" onclick="no_quitarMaquina(${m.uid_herramienta})">Quitar</button>
+          </div>
+          <div class="no-fgroup">
+            <label>Observaciones de recepción</label>
+            <textarea placeholder="Estado visible, accesorios entregados, falla reportada..."
+              onchange="no_setObservacion(${m.uid_herramienta}, this.value)">${esc(m.observaciones||'')}</textarea>
+          </div>
+          <div class="no-fgroup" style="margin-top:8px;">
+            <label>Fotos de recepción</label>
+            <div class="no-foto-row" id="no_fotoPreview_${m.uid_herramienta}"></div>
+            <label style="display:inline-block;margin-top:6px;padding:6px 12px;background:#f0f4f8;border:1px solid #ddd;border-radius:6px;cursor:pointer;font-size:12px;">
+              📷 Agregar fotos
+              <input type="file" accept="image/*" multiple style="display:none;"
+                onchange="no_agregarFotosPreview(${m.uid_herramienta}, this.files)">
+            </label>
+            <span class="no-muted" style="margin-left:8px;" id="no_fotoCount_${m.uid_herramienta}"></span>
+          </div>
+        </div>`).join('');
+      no_maquinas.forEach(m => no_renderFotoPreviews(m.uid_herramienta));
+    }
+
+    window.no_agregarFotosPreview = (uid, files) => {
+      const m = no_maquinas.find(m => m.uid_herramienta === uid);
+      if (!m) return;
+      Array.from(files).forEach(f => { m.fotos.push({ file: f, url: URL.createObjectURL(f) }); });
+      no_renderFotoPreviews(uid);
+    };
+
+    window.no_quitarFotoPreview = (uid, idx) => {
+      const m = no_maquinas.find(m => m.uid_herramienta === uid);
+      if (!m) return;
+      URL.revokeObjectURL(m.fotos[idx].url);
+      m.fotos.splice(idx, 1);
+      no_renderFotoPreviews(uid);
+    };
+
+    function no_renderFotoPreviews(uid) {
+      const m         = no_maquinas.find(m => m.uid_herramienta === uid);
+      const previewEl = document.getElementById('no_fotoPreview_' + uid);
+      const countEl   = document.getElementById('no_fotoCount_'   + uid);
+      if (!m || !previewEl) return;
+      previewEl.innerHTML = m.fotos.map((f,i) => `
+        <div class="no-foto-thumb">
+          <img src="${f.url}" alt="foto">
+          <button class="no-del" onclick="no_quitarFotoPreview(${uid},${i})" title="Quitar">×</button>
+        </div>`).join('');
+      if (countEl) countEl.textContent = m.fotos.length ? m.fotos.length + ' foto(s)' : '';
+    }
+
+    function no_renderResumen() {
+      const c  = no_cliente;
+      const el = document.getElementById('no_resumenOrden');
+      if (!el) return;
+      el.innerHTML = `
+        <div class="no-cli-card" style="margin-bottom:16px;">
+          <div>
+            <div class="no-cli-name">${esc(c.cli_razon_social)}</div>
+            <div class="no-cli-sub">CC/NIT: ${esc(c.cli_identificacion)} | Tel: ${esc(c.cli_telefono||'-')}</div>
+          </div>
+        </div>
+        <h3 style="font-size:14px;color:#333;margin-bottom:10px;">Máquinas (${no_maquinas.length})</h3>
+        ${no_maquinas.map((m,i) => `
+          <div style="padding:8px 12px;border:1px solid #eee;border-radius:6px;margin-bottom:6px;">
+            <div style="font-weight:600;font-size:13px;">${i+1}. ${esc(m.her_nombre)} ${esc(m.her_marca||'')}</div>
+            ${m.her_serial ? `<div class="no-muted">S/N: ${esc(m.her_serial)}</div>` : ''}
+            ${m.observaciones ? `<div class="no-muted" style="margin-top:4px;">${esc(m.observaciones)}</div>` : ''}
+            ${m.fotos.length ? `<div class="no-muted" style="margin-top:2px;">📷 ${m.fotos.length} foto(s) adjunta(s)</div>` : ''}
+          </div>`).join('')}`;
+    }
+
+    window.no_crearOrden = async () => {
+      const btn   = document.getElementById('no_btnCrear');
+      const errEl = document.getElementById('no_step3Error');
+      if (errEl) errEl.style.display = 'none';
+      if (btn) { btn.disabled = true; btn.textContent = 'Creando...'; }
+
+      const res = await fetch(`${API}/crear-orden/orden`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          uid_cliente: no_cliente.uid_cliente,
+          maquinas: no_maquinas.map(m => ({ uid_herramienta: m.uid_herramienta, observaciones: m.observaciones })),
+        }),
+      }).then(r=>r.json()).catch(()=>({success:false,error:'Error de red'}));
+
+      if (btn) { btn.disabled = false; btn.textContent = '✓ Crear Orden'; }
+      if (!res.success) {
+        if (errEl) { errEl.textContent = res.error||'Error al crear la orden'; errEl.style.display = 'block'; }
+        return;
+      }
+      no_ordenCreada = res;
+
+      // Upload reception photos
+      if (btn) { btn.disabled = true; btn.textContent = 'Subiendo fotos...'; }
+      for (let i = 0; i < res.herramientas.length; i++) {
+        const fotos = no_maquinas[i]?.fotos || [];
+        for (const f of fotos) {
+          const fd = new FormData();
+          fd.append('foto', f.file);
+          await fetch(`${API}/crear-orden/foto/${res.herramientas[i].uid_herramienta_orden}`, { method:'POST', body:fd });
+        }
+      }
+      if (btn) { btn.disabled = false; btn.textContent = '✓ Crear Orden'; }
+
+      no_mostrarExito();
+    };
+
+    function no_mostrarExito() {
+      no_setStep(4);
+      const consEl    = document.getElementById('no_successConsecutivo');
+      const listEl    = document.getElementById('no_successMaqList');
+      const accionesEl= document.getElementById('no_ordenAcciones');
+      if (consEl) consEl.textContent = `Orden #${no_ordenCreada.ord_consecutivo}`;
+      if (listEl) listEl.innerHTML = no_maquinas.map((m,i) => `
+        <div style="padding:6px 0;border-bottom:1px solid #eee;font-size:13px;">
+          ${i+1}. ${esc(m.her_nombre)} ${esc(m.her_marca||'')}${m.her_serial ? ' / S/N: '+esc(m.her_serial) : ''}
+        </div>`).join('');
+      if (accionesEl) {
+        const uid_orden = no_ordenCreada.uid_orden;
+        accionesEl.innerHTML = `
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
+            <a href="${API}/orders/${uid_orden}/print/orden" target="_blank" class="btn btn-dark">
+              🖨️ Imprimir orden
+            </a>
+            <button onclick="no_enviarOrdenWA(${uid_orden}, this)" class="btn btn-green">
+              📱 Enviar por WhatsApp
+            </button>
+          </div>`;
+      }
+    }
+
+    window.no_enviarOrdenWA = async (uid_orden, btn) => {
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Enviando...';
+      try {
+        const res = await fetch(`${API}/orders/${uid_orden}/send-pdf/orden`, { method:'POST' }).then(r=>r.json());
+        btn.textContent = res.success ? '✓ Enviado' : '✗ Error';
+        if (!res.success) setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+      } catch {
+        btn.textContent = '✗ Error';
+        setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+      }
+    };
+
+    window.no_nuevaOrden = () => {
+      no_maquinas.forEach(m => m.fotos.forEach(f => URL.revokeObjectURL(f.url)));
+      no_cliente     = null;
+      no_maquinas    = [];
+      no_ordenCreada = null;
+      const searchEl = document.getElementById('no_clientSearch');
+      const resEl    = document.getElementById('no_clientResults');
+      const cardEl   = document.getElementById('no_selectedClientCard');
+      const btnEl    = document.getElementById('no_btnStep1Next');
+      if (searchEl) searchEl.value = '';
+      if (resEl)    resEl.innerHTML = '';
+      if (cardEl)   cardEl.style.display = 'none';
+      if (btnEl)    btnEl.disabled = true;
+      no_setStep(1);
+    };
+
+    no_setStep(1);
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// HELPER: Detalle de orden para técnico (compartido por misOrdenes y buscarOrden)
+// ════════════════════════════════════════════════════════════════════════════
+const TEC_ELBL = {
+  pendiente_revision:'Pendiente revisión', revisada:'Revisada', cotizada:'Cotizada',
+  autorizada:'Autorizada', no_autorizada:'No autorizada', reparada:'Reparada', entregada:'Entregada'
+};
+
+async function tec_verDetalle(uid, rightId, panelId) {
+  document.getElementById(panelId)?.classList.add('immersive');
+  const right = document.getElementById(rightId);
+  if (!right) return;
+  const backHtml = `<div class="mobile-back" onclick="document.getElementById('${panelId}')?.classList.remove('immersive')">← Volver</div>`;
+  right.innerHTML = backHtml + `<div style="padding:20px;color:#888;text-align:center;">Cargando...</div>`;
+
+  let det;
+  try {
+    const res = await fetch(`${API}/orders/${uid}/detalle`);
+    det = await res.json();
+  } catch(e) {
+    right.innerHTML = backHtml + `<div style="padding:20px;color:#e74c3c;">Error de red: ${esc(e.message)}</div>`;
+    return;
+  }
+
+  // Verificar error o respuesta inesperada del servidor
+  if (det.error || !det.orden) {
+    right.innerHTML = backHtml + `<div style="padding:20px;color:#e74c3c;">${esc(det.error || 'Error al cargar la orden')}</div>`;
+    return;
+  }
+
+  const { orden, maquinas } = det;
+
+  // Auto-asignar técnico en máquinas sin asignación (fire & forget)
+  for (const m of maquinas) {
+    fetch(`${API}/equipment-order/${m.uid_herramienta_orden}/assign-technician`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ technicianId: _currentUser.id })
+    }).catch(() => {});
+  }
+
+  const maqHtml = maquinas.map(m => {
+    const lbl = TEC_ELBL[m.her_estado] || m.her_estado || '-';
+    const bc  = 'badge b-' + (m.her_estado || 'pendiente_revision');
+    const sub = [m.her_marca, m.her_serial ? 'S/N: '+m.her_serial : null, m.her_referencia ? 'Ref: '+m.her_referencia : null].filter(Boolean).join(' | ');
+
+    const fotosRec = m.fotos?.length
+      ? `<div class="foto-row">${m.fotos.map(f => `
+          <div class="foto-thumb" onclick="window.open('/uploads/fotos-recepcion/${f.fho_archivo}','_blank')">
+            <img src="/uploads/fotos-recepcion/${f.fho_archivo}" alt="">
+          </div>`).join('')}</div>`
+      : `<div class="sin-fotos">Sin fotos de recepción</div>`;
+
+    const fotosTrab = (m.fotos_trabajo || []).map(f => `
+      <div class="foto-thumb" id="tft-${f.uid_foto_herramienta_orden}">
+        <img src="/uploads/fotos-recepcion/${f.fho_archivo}" onclick="window.open(this.src,'_blank')" alt="">
+        <button class="del-btn" onclick="tec_delFoto(${f.uid_foto_herramienta_orden},event)">✕</button>
+      </div>`).join('');
+
+    return `
+      <div class="maq-card">
+        <div class="maq-top">
+          <div>
+            <div class="maq-nombre">${esc(m.her_nombre||'-')}</div>
+            ${sub ? `<div class="maq-sub">${esc(sub)}</div>` : ''}
+          </div>
+          <span id="tec-badge-${m.uid_herramienta_orden}" class="${bc}">${lbl}</span>
+        </div>
+        <div class="maq-actions">
+          ${m.her_estado === 'revisada'
+            ? `<span class="badge b-revisada">✓ Revisada</span>`
+            : `<button class="btn btn-sm btn-mid" id="tec-btn-${m.uid_herramienta_orden}"
+                 onclick="tec_marcarRevisada(${m.uid_herramienta_orden})">Marcar revisada</button>`}
+          <a class="btn btn-sm btn-teal" href="${API}/orders/${orden.uid_orden}/pdf/maintenance/${m.uid_herramienta_orden}" target="_blank">📋 Informe</a>
+        </div>
+        <div style="margin-top:8px;">
+          <div class="maq-obs-lbl">Observaciones del técnico</div>
+          <textarea id="tec-obs-${m.uid_herramienta_orden}" rows="3"
+            style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical;margin-top:4px;"
+            placeholder="Describe el trabajo realizado...">${esc(m.hor_observaciones||'')}</textarea>
+          <button class="btn btn-sm btn-mid" style="margin-top:4px;"
+            onclick="tec_guardarObs(${m.uid_herramienta_orden})">💾 Guardar observaciones</button>
+        </div>
+        <div class="fotos-seccion">
+          <div class="fotos-lbl">Recepción</div>${fotosRec}
+        </div>
+        <div class="fotos-seccion">
+          <div class="fotos-lbl fotos-trabajo-lbl">Del trabajo</div>
+          <div class="foto-row" id="tft-row-${m.uid_herramienta_orden}">${fotosTrab}</div>
+          <label class="upload-foto-btn">+ Agregar foto
+            <input type="file" accept="image/*" style="display:none"
+              onchange="tec_uploadFoto(${orden.uid_orden},${m.uid_herramienta_orden},this)">
+          </label>
+        </div>
+      </div>`;
+  }).join('');
+
+  right.innerHTML = backHtml + `
+    <div style="padding:22px;">
+      <div class="ord-detail-header">
+        <span class="ord-num">Orden #${orden.ord_consecutivo}</span>
+        <span class="ord-fecha">${fmtFecha(orden.ord_fecha)}</span>
+      </div>
+      <div class="card">
+        <div class="card-title">Cliente</div>
+        <div class="client-grid">
+          <div class="field"><span class="lbl">Nombre / Razón social</span><span class="val">${esc(orden.cli_razon_social||'-')}</span></div>
+          <div class="field"><span class="lbl">Teléfono</span><span class="val">${esc(orden.cli_telefono||'-')}</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Equipos (${maquinas.length})</div>
+        ${maqHtml}
+      </div>
+    </div>`;
+}
+
+window.tec_marcarRevisada = async (uid) => {
+  const btn = document.getElementById(`tec-btn-${uid}`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+  try {
+    const r = await fetch(`${API}/equipment-order/${uid}/status`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status:'revisada'})
+    });
+    const d = await r.json();
+    if (d.success) {
+      const b = document.getElementById(`tec-badge-${uid}`);
+      if (b) { b.className='badge b-revisada'; b.textContent='Revisada'; }
+      // Reemplazar botón por badge permanente
+      if (btn) btn.outerHTML = `<span class="badge b-revisada">✓ Revisada</span>`;
+    } else {
+      alert('Error: ' + (d.error||'desconocido'));
+      if (btn) { btn.disabled = false; btn.textContent = 'Marcar revisada'; }
+    }
+  } catch(e) {
+    alert(e.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Marcar revisada'; }
+  }
+};
+
+window.tec_guardarObs = async (uid) => {
+  const obs = document.getElementById(`tec-obs-${uid}`)?.value || '';
+  const r = await fetch(`${API}/equipment-order/${uid}/observaciones`, {
+    method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({observaciones:obs})
+  }).then(r=>r.json()).catch(()=>({success:false}));
+  if (r.success) showToast('✅ Observaciones guardadas');
+  else alert('Error al guardar: ' + (r.error||''));
+};
+
+window.tec_uploadFoto = async (uidOrden, uidHo, input) => {
+  if (!input.files[0]) return;
+  const fd = new FormData(); fd.append('foto', input.files[0]);
+  input.value = '';
+  try {
+    const r = await fetch(`${API}/orders/${uidOrden}/fotos-trabajo/${uidHo}`, {method:'POST',body:fd});
+    const d = await r.json();
+    if (d.success) {
+      const row = document.getElementById(`tft-row-${uidHo}`);
+      const div = document.createElement('div');
+      div.className = 'foto-thumb'; div.id = `tft-${d.uid_foto}`;
+      div.innerHTML = `<img src="${d.url}" onclick="window.open(this.src,'_blank')" alt=""><button class="del-btn" onclick="tec_delFoto(${d.uid_foto},event)">✕</button>`;
+      row?.appendChild(div);
+    } else alert('Error al subir foto: '+(d.error||''));
+  } catch(e) { alert(e.message); }
+};
+
+window.tec_delFoto = async (uid, e) => {
+  e?.stopPropagation();
+  if (!confirm('¿Eliminar esta foto?')) return;
+  const r = await fetch(`${API}/orders/fotos-trabajo/${uid}`, {method:'DELETE'}).then(r=>r.json()).catch(()=>({success:false}));
+  if (r.success) document.getElementById(`tft-${uid}`)?.remove();
+  else alert('Error al eliminar foto');
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: MIS ÓRDENES (técnico)
+// ════════════════════════════════════════════════════════════════════════════
+Views.misOrdenes = {
+  render() {
+    return `
+      <div class="two-panel" id="misPanel">
+        <div class="pnl-left">
+          <div class="search-box">
+            <h2>Mis órdenes asignadas</h2>
+            <div style="margin-top:8px;">
+              <button class="btn btn-dark" style="width:100%;padding:8px;" onclick="mis_load()">🔄 Actualizar</button>
+            </div>
+          </div>
+          <div class="results-list" id="misResults">
+            <div class="results-empty">Cargando...</div>
+          </div>
+        </div>
+        <div class="pnl-right" id="misRight">
+          <div class="mobile-back" onclick="mis_back()">← Volver a mis órdenes</div>
+          <div class="empty-state">
+            <div class="es-icon">🔧</div>
+            <p>Selecciona una orden para ver el detalle</p>
+          </div>
+        </div>
+      </div>`;
+  },
+  async init() {
+    window.mis_back = () => { document.getElementById('misPanel')?.classList.remove('immersive'); };
+    window.mis_verDetalle = (uid) => tec_verDetalle(uid, 'misRight', 'misPanel');
+    window.mis_load = async () => {
+      const rl = document.getElementById('misResults');
+      if (!rl) return;
+      rl.innerHTML = '<div class="results-empty">Cargando...</div>';
+      const data = await fetch(`${API}/orders/mis-ordenes-tecnico`).then(r=>r.json()).catch(()=>[]);
+      if (!data.length) {
+        rl.innerHTML = '<div class="results-empty">No tienes órdenes asignadas</div>';
+        return;
+      }
+      rl.innerHTML = data.map(o => `
+        <div class="result-card" onclick="mis_verDetalle(${o.uid_orden})">
+          <div class="rc-top">
+            <span class="rc-num">Orden #${o.ord_consecutivo}</span>
+            <span class="rc-fecha">${fmtFecha(o.ord_fecha)}</span>
+          </div>
+          <div class="rc-cliente">${esc(o.cli_razon_social||'')}</div>
+          <div class="rc-maq">${esc(o.maquinas_resumen||'')}</div>
+        </div>`).join('');
+    };
+    await window.mis_load();
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: BUSCAR ORDEN (técnico)
+// ════════════════════════════════════════════════════════════════════════════
+Views.buscarOrden = {
+  _timer: null,
+  render() {
+    return `
+      <div class="two-panel" id="busPanel">
+        <div class="pnl-left">
+          <div class="search-box">
+            <h2>Buscar orden</h2>
+            <div class="input-row">
+              <input id="busSearch" type="text" placeholder="Número o nombre del cliente"
+                     oninput="bus_debounce()">
+              <button onclick="bus_buscar()">🔍</button>
+            </div>
+          </div>
+          <div class="results-list" id="busResults">
+            <div class="results-empty">Escribe para buscar</div>
+          </div>
+        </div>
+        <div class="pnl-right" id="busRight">
+          <div class="mobile-back" onclick="bus_back()">← Volver a resultados</div>
+          <div class="empty-state">
+            <div class="es-icon">🔍</div>
+            <p>Busca y selecciona una orden</p>
+          </div>
+        </div>
+      </div>`;
+  },
+  init() {
+    window.bus_back = () => { document.getElementById('busPanel')?.classList.remove('immersive'); };
+    window.bus_debounce = () => {
+      clearTimeout(Views.buscarOrden._timer);
+      Views.buscarOrden._timer = setTimeout(bus_buscar, 350);
+    };
+    window.bus_buscar = async () => {
+      const q = document.getElementById('busSearch')?.value.trim();
+      if (!q) return;
+      const rl = document.getElementById('busResults');
+      if (!rl) return;
+      rl.innerHTML = '<div class="results-empty">Buscando...</div>';
+      const data = await fetch(`${API}/orders/search?q=${encodeURIComponent(q)}`).then(r=>r.json()).catch(()=>[]);
+      if (!data.length) { rl.innerHTML='<div class="results-empty">Sin resultados</div>'; return; }
+      rl.innerHTML = data.map(o => `
+        <div class="result-card" onclick="bus_verDetalle(${o.uid_orden})">
+          <div class="rc-top">
+            <span class="rc-num">Orden #${o.ord_consecutivo}</span>
+            <span class="rc-fecha">${fmtFecha(o.ord_fecha)}</span>
+          </div>
+          <div class="rc-cliente">${esc(o.cli_razon_social||'')}</div>
+          <div class="rc-maq">${esc(o.maquinas_resumen||(o.maquinas?o.maquinas+' máquina(s)':''))}</div>
+        </div>`).join('');
+    };
+    window.bus_verDetalle = (uid) => tec_verDetalle(uid, 'busRight', 'busPanel');
+  }
+};
+
 // ── Session init ──────────────────────────────────────────────────────────────
 (async function() {
   const me = await fetch('/me').then(r=>r.json()).catch(()=>({}));
@@ -1405,9 +2324,28 @@ Views.inventario = {
   _currentUser = me.user;
   document.getElementById('sidebarUser').textContent = me.user.nombre;
   document.getElementById('topbarUser').textContent  = me.user.nombre;
+
+  // Adaptar sidebar según rol
+  if (isTecnico()) {
+    // Mostrar solo los nav-items del técnico
+    document.querySelectorAll('.nav-item').forEach(el => {
+      el.style.display = TEC_VIEWS.includes(el.dataset.view) ? '' : 'none';
+    });
+    // Ocultar botón "Nueva Orden"
+    const btnNO = document.querySelector('.btn-nueva-orden');
+    if (btnNO) btnNO.style.display = 'none';
+  } else {
+    // Para otros roles, ocultar los nav-items exclusivos del técnico
+    document.querySelectorAll('.nav-item').forEach(el => {
+      if (TEC_VIEWS.includes(el.dataset.view)) el.style.display = 'none';
+    });
+  }
+
   // Hash-based routing
   const hash = location.hash.slice(1);
-  navigate(Views[hash] ? hash : 'inicio');
+  const defaultView = isTecnico() ? 'misOrdenes' : 'inicio';
+  const allowedHash = isTecnico() ? (TEC_VIEWS.includes(hash) ? hash : null) : hash;
+  navigate(Views[allowedHash] ? allowedHash : defaultView);
 })();
 </script>
 </body>

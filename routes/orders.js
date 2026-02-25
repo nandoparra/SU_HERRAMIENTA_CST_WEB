@@ -149,6 +149,61 @@ router.get('/orders/search', async (req, res) => {
   }
 });
 
+// Órdenes asignadas al técnico logueado
+router.get('/orders/mis-ordenes-tecnico', async (req, res) => {
+  try {
+    const user = req.session?.user;
+    if (!user || user.tipo !== 'T')
+      return res.status(403).json({ error: 'Solo para técnicos' });
+
+    const conn = await db.getConnection();
+    const techCol = await getHerramientaOrdenTechColumn(conn);
+    if (!techCol) { conn.release(); return res.json([]); }
+
+    const techColIsId = techCol.startsWith('uid_') || techCol.startsWith('id_') || techCol.endsWith('_id');
+    let techValue;
+    if (techColIsId) {
+      techValue = String(user.id);
+    } else {
+      const usrCols = await getUsuarioColumns(conn);
+      const nameField = usrCols.nameCol || usrCols.firstNameCol;
+      if (nameField) {
+        const [[usu]] = await conn.execute(
+          `SELECT \`${nameField}\` AS nombre FROM b2c_usuario WHERE \`${usrCols.idCol}\` = ? LIMIT 1`,
+          [user.id]
+        );
+        techValue = usu?.nombre || user.nombre;
+      } else {
+        techValue = user.nombre;
+      }
+    }
+
+    const [rows] = await conn.execute(
+      `SELECT DISTINCT o.uid_orden, o.ord_consecutivo, o.ord_estado, o.ord_fecha,
+              c.cli_razon_social, c.cli_telefono,
+              GROUP_CONCAT(
+                TRIM(CONCAT(IFNULL(h.her_nombre,''),' ',IFNULL(h.her_marca,'')))
+                ORDER BY ho.uid_herramienta_orden SEPARATOR ' | '
+              ) AS maquinas_resumen
+       FROM b2c_herramienta_orden ho
+       JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
+       JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+       JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+       WHERE ho.\`${techCol}\` = ?
+       GROUP BY o.uid_orden, o.ord_consecutivo, o.ord_estado, o.ord_fecha, c.cli_razon_social, c.cli_telefono
+       ORDER BY o.ord_fecha DESC
+       LIMIT 50`,
+      [techValue]
+    );
+
+    conn.release();
+    res.json(rows);
+  } catch (e) {
+    console.error('Error mis-ordenes-tecnico:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Orden completa + máquinas + técnicos
 router.get('/orders/:orderId', async (req, res) => {
   try {
@@ -380,6 +435,24 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
     res.json({ success: true, status, changed_at: logRow?.changed_at || null });
   } catch (e) {
     console.error('Error actualizando estado de máquina:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Guardar observaciones del técnico en una máquina
+router.patch('/equipment-order/:equipmentOrderId/observaciones', async (req, res) => {
+  try {
+    const { observaciones } = req.body;
+    const uid = String(req.params.equipmentOrderId);
+    const conn = await db.getConnection();
+    await conn.execute(
+      `UPDATE b2c_herramienta_orden SET hor_observaciones = ? WHERE uid_herramienta_orden = ?`,
+      [observaciones ?? null, uid]
+    );
+    conn.release();
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Error guardando observaciones:', e);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -639,7 +712,34 @@ router.get('/orders/:orderId/detalle', async (req, res) => {
     }
   } catch (e) {
     console.error('Error obteniendo detalle de orden:', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: e.message || String(e) || 'Error en la base de datos' });
+  }
+});
+
+// Informe de mantenimiento — acceso cliente con validación de propiedad
+router.get('/cliente/informe/:uid_herramienta_orden', async (req, res) => {
+  const user = req.session?.user;
+  if (!user || user.tipo !== 'C') return res.status(403).json({ error: 'Acceso denegado' });
+  try {
+    const conn = await db.getConnection();
+    const [[row]] = await conn.execute(
+      `SELECT i.inf_archivo
+       FROM b2c_informe_mantenimiento i
+       JOIN b2c_herramienta_orden ho ON ho.uid_herramienta_orden = i.uid_herramienta_orden
+       JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
+       JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+       WHERE i.uid_herramienta_orden = ? AND c.uid_usuario = ?
+       LIMIT 1`,
+      [req.params.uid_herramienta_orden, user.id]
+    );
+    conn.release();
+    if (!row) return res.status(404).json({ error: 'Informe no encontrado' });
+    const fpath = path.join(__dirname, '..', 'public', 'uploads', 'informes-mantenimiento', row.inf_archivo);
+    if (!fs.existsSync(fpath)) return res.status(404).json({ error: 'Archivo no encontrado en disco' });
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${row.inf_archivo}"` });
+    fs.createReadStream(fpath).pipe(res);
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
   }
 });
 
@@ -651,7 +751,6 @@ router.get('/cliente/mis-ordenes', async (req, res) => {
 
     const conn = await db.getConnection();
 
-    // Buscar el uid_cliente vinculado a este usuario
     const [[cli]] = await conn.execute(
       `SELECT uid_cliente FROM b2c_cliente WHERE uid_usuario = ? LIMIT 1`,
       [user.id]
@@ -665,16 +764,89 @@ router.get('/cliente/mis-ordenes', async (req, res) => {
       [cli.uid_cliente]
     );
 
-    for (const orden of ordenes) {
-      const [maquinas] = await conn.execute(
-        `SELECT h.her_nombre, h.her_marca, h.her_serial, ho.her_estado
-         FROM b2c_herramienta_orden ho
-         JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
-         WHERE ho.uid_orden = ?`,
-        [orden.uid_orden]
+    if (!ordenes.length) { conn.release(); return res.json([]); }
+
+    // ── Batch: todas las máquinas de todas las órdenes ────────────────────────
+    const ordenIds = ordenes.map(o => o.uid_orden);
+    const ph = ordenIds.map(() => '?').join(',');
+
+    const [todasMaquinas] = await conn.execute(
+      `SELECT ho.uid_herramienta_orden, ho.uid_orden,
+              ho.her_estado, ho.hor_observaciones, ho.hor_fecha_prom_entrega,
+              h.her_nombre, h.her_marca, h.her_serial
+       FROM b2c_herramienta_orden ho
+       JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+       WHERE ho.uid_orden IN (${ph})
+       ORDER BY ho.uid_herramienta_orden`,
+      ordenIds
+    );
+
+    const maqIds = todasMaquinas.map(m => m.uid_herramienta_orden);
+
+    let statusMap = {}, cotMap = {}, itemsMap = {}, informeMap = {};
+    if (maqIds.length) {
+      const mhp = maqIds.map(() => '?').join(',');
+
+      // Historial de estados
+      const [logs] = await conn.execute(
+        `SELECT uid_herramienta_orden, estado, changed_at
+         FROM b2c_herramienta_status_log
+         WHERE uid_herramienta_orden IN (${mhp})
+         ORDER BY id ASC`,
+        maqIds
       );
-      orden.maquinas = maquinas;
+      logs.forEach(l => {
+        const k = String(l.uid_herramienta_orden);
+        if (!statusMap[k]) statusMap[k] = [];
+        statusMap[k].push({ estado: l.estado, changed_at: l.changed_at });
+      });
+
+      // Cotización por máquina
+      const [cots] = await conn.execute(
+        `SELECT uid_herramienta_orden, mano_obra, descripcion_trabajo, subtotal
+         FROM b2c_cotizacion_maquina
+         WHERE uid_herramienta_orden IN (${mhp})`,
+        maqIds
+      );
+      cots.forEach(c => { cotMap[String(c.uid_herramienta_orden)] = c; });
+
+      // Ítems (repuestos) por máquina
+      const [items] = await conn.execute(
+        `SELECT uid_herramienta_orden, nombre, cantidad, precio, subtotal
+         FROM b2c_cotizacion_item
+         WHERE uid_herramienta_orden IN (${mhp})
+         ORDER BY uid_herramienta_orden`,
+        maqIds
+      );
+      items.forEach(i => {
+        const k = String(i.uid_herramienta_orden);
+        if (!itemsMap[k]) itemsMap[k] = [];
+        itemsMap[k].push(i);
+      });
+
+      // Informes de mantenimiento
+      const [informeRows] = await conn.execute(
+        `SELECT uid_herramienta_orden, uid_informe, inf_fecha, inf_archivo
+         FROM b2c_informe_mantenimiento
+         WHERE uid_herramienta_orden IN (${mhp})`,
+        maqIds
+      );
+      informeRows.forEach(i => { informeMap[String(i.uid_herramienta_orden)] = i; });
     }
+
+    // ── Ensamblar ─────────────────────────────────────────────────────────────
+    const maqByOrden = {};
+    todasMaquinas.forEach(m => {
+      const k = String(m.uid_herramienta_orden);
+      m.historial  = statusMap[k]  || [];
+      m.cotizacion = cotMap[k]     || null;
+      m.items      = itemsMap[k]   || [];
+      m.informe    = informeMap[k] ? { uid_informe: informeMap[k].uid_informe, inf_fecha: informeMap[k].inf_fecha } : null;
+      if (!maqByOrden[m.uid_orden]) maqByOrden[m.uid_orden] = [];
+      maqByOrden[m.uid_orden].push(m);
+    });
+
+    ordenes.forEach(o => { o.maquinas = maqByOrden[o.uid_orden] || []; });
 
     conn.release();
     res.json(ordenes);

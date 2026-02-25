@@ -4,7 +4,10 @@ const db      = require('../utils/db');
 const bcrypt  = require('bcrypt');
 const { requireInterno } = require('../middleware/auth');
 
-router.use(requireInterno);
+router.use((req, res, next) => {
+  if (req.path === '/cliente/mis-ordenes' || req.path.startsWith('/cliente/informe/')) return next('router');
+  return requireInterno(req, res, next);
+});
 
 // ── Dashboard KPIs ─────────────────────────────────────────────────────────────
 router.get('/dashboard', async (req, res) => {
@@ -46,6 +49,21 @@ router.get('/dashboard', async (req, res) => {
       ORDER BY o.ord_fecha ASC
     `);
 
+    const [revisadasSinCotizar] = await conn.execute(`
+      SELECT ho.uid_herramienta_orden, ho.uid_orden,
+             o.ord_consecutivo, o.ord_fecha,
+             COALESCE(c.cli_razon_social, c.cli_contacto, '') AS cliente,
+             h.her_nombre, h.her_marca
+      FROM b2c_herramienta_orden ho
+      JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
+      JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+      JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+      LEFT JOIN b2c_cotizacion_maquina cm ON cm.uid_herramienta_orden = ho.uid_herramienta_orden
+      WHERE ho.her_estado = 'revisada'
+        AND cm.uid_herramienta_orden IS NULL
+      ORDER BY o.ord_fecha ASC
+    `);
+
     const hoy = Date.now();
     const alertas = reparadas.map(r => {
       const s = String(r.ord_fecha);
@@ -78,6 +96,7 @@ router.get('/dashboard', async (req, res) => {
         entregadas:         em['entregada']           || 0,
       },
       alertas,
+      revisadasSinCotizar,
     });
   } catch (e) {
     console.error('Error /api/dashboard:', e);
@@ -122,7 +141,11 @@ router.get('/clientes/:id', async (req, res) => {
   try {
     const conn = await db.getConnection();
     const [[cliente]] = await conn.execute(
-      `SELECT * FROM b2c_cliente WHERE uid_cliente = ?`, [req.params.id]
+      `SELECT c.*, u.usu_login
+       FROM b2c_cliente c
+       LEFT JOIN b2c_usuario u ON u.uid_usuario = c.uid_usuario
+       WHERE c.uid_cliente = ?`,
+      [req.params.id]
     );
     if (!cliente) { conn.release(); return res.status(404).json({ error: 'No encontrado' }); }
     const [ordenes] = await conn.execute(
@@ -134,6 +157,39 @@ router.get('/clientes/:id', async (req, res) => {
     conn.release();
     res.json({ cliente, ordenes });
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/clientes/:id/crear-acceso', async (req, res) => {
+  if (req.session?.user?.tipo !== 'A')
+    return res.status(403).json({ error: 'Solo administradores' });
+  try {
+    const { login, clave } = req.body;
+    if (!login || !clave)
+      return res.status(400).json({ error: 'Login y clave son requeridos' });
+    const conn = await db.getConnection();
+    const [[c]] = await conn.execute(
+      `SELECT uid_cliente, cli_razon_social, uid_usuario FROM b2c_cliente WHERE uid_cliente = ?`,
+      [req.params.id]
+    );
+    if (!c) { conn.release(); return res.status(404).json({ error: 'Cliente no encontrado' }); }
+    if (c.uid_usuario) { conn.release(); return res.status(400).json({ error: 'Este cliente ya tiene acceso creado' }); }
+    const hash = await bcrypt.hash(String(clave), 10);
+    const [uRes] = await conn.execute(
+      `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado)
+       VALUES (?, ?, ?, 'C', 'A')`,
+      [c.cli_razon_social, login, hash]
+    );
+    await conn.execute(
+      `UPDATE b2c_cliente SET uid_usuario = ? WHERE uid_cliente = ?`,
+      [uRes.insertId, req.params.id]
+    );
+    conn.release();
+    res.json({ success: true });
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY')
+      return res.status(400).json({ error: 'Ese login ya está en uso' });
     res.status(500).json({ error: e.message });
   }
 });

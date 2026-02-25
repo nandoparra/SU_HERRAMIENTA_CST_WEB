@@ -32,6 +32,8 @@ const QUOTE_TABLES = [
   'b2c_cotizacion_maquina',
   'b2c_cotizacion_item',
   'b2c_herramienta_status_log',
+  'b2c_informe_mantenimiento',
+  'b2c_wa_autorizacion_pendiente',
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
