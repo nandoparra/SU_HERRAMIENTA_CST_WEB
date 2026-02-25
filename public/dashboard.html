@@ -44,6 +44,7 @@
     .topbar-user{font-size:12px;color:#888;}
     .btn-nueva-orden{background:var(--dark);color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;}
     .btn-nueva-orden:hover{background:var(--mid);}
+    .nueva-orden-nav{display:none;}
 
     /* ── View container ── */
     #viewContainer{flex:1;overflow-y:auto;overflow-x:hidden;}
@@ -302,6 +303,7 @@
       .sidebar.open{transform:translateX(0);}
       .hamburger{display:flex;}
       .btn-nueva-orden{display:none;}
+      .nueva-orden-nav{display:flex;}
       /* Two-panel mobile */
       .two-panel{flex-direction:column;height:auto;min-height:calc(100vh - var(--topbar-h));}
       .pnl-left{width:100%;min-width:unset;border-right:none;border-bottom:1px solid #e2e8f0;max-height:320px;}
@@ -424,6 +426,9 @@
     </div>
     <div class="nav-item" data-view="inventario" onclick="navigate('inventario')">
       <span class="ni">📦</span><span>Inventario</span>
+    </div>
+    <div class="nav-item nueva-orden-nav" onclick="navigate('nuevaOrden')">
+      <span class="ni">➕</span><span>Nueva Orden</span>
     </div>
     <div class="nav-item" data-view="misOrdenes" onclick="navigate('misOrdenes')" style="display:none;">
       <span class="ni">🔧</span><span>Mis Órdenes</span>
@@ -2353,9 +2358,11 @@ Views.buscarOrden = {
     document.querySelectorAll('.nav-item').forEach(el => {
       el.style.display = TEC_VIEWS.includes(el.dataset.view) ? '' : 'none';
     });
-    // Ocultar botón "Nueva Orden"
+    // Ocultar botón y nav-item "Nueva Orden"
     const btnNO = document.querySelector('.btn-nueva-orden');
     if (btnNO) btnNO.style.display = 'none';
+    const navNO = document.querySelector('.nueva-orden-nav');
+    if (navNO) navNO.style.display = 'none';
   } else {
     // Para otros roles, ocultar los nav-items exclusivos del técnico
     document.querySelectorAll('.nav-item').forEach(el => {
