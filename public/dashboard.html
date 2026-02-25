@@ -315,6 +315,28 @@
       .item-row .del-item,.add-item-group button{grid-column:span 2;}
       .kpi-grid{grid-template-columns:repeat(2,1fr);}
       .client-grid{grid-template-columns:1fr;}
+      /* Tables scroll horizontally */
+      .func-table,.inv-table,.ordenes-list-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+      /* Dash-wrap padding */
+      .dash-wrap{padding:14px;}
+      .dash-header{flex-wrap:wrap;gap:8px;}
+    }
+    @media (max-width:480px) {
+      /* Collapse item grids to single column on very small screens */
+      .item-row,.add-item-group{grid-template-columns:1fr;}
+      .item-row .del-item,.add-item-group button{grid-column:unset;}
+      /* Topbar */
+      .topbar{padding:0 10px;}
+      .topbar-title{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;}
+      /* Wizard nueva orden */
+      .no-wrap{padding:12px;}
+      .no-step{font-size:11px;padding:9px 4px;}
+      /* Action buttons full width on small screens */
+      .acciones,.no-nav-row{flex-direction:column;}
+      .acciones a,.acciones button{width:100%;text-align:center;}
+      /* Alertas */
+      .alerta-row{flex-wrap:wrap;gap:6px;}
+      .alertas-legend{flex-wrap:wrap;gap:4px 10px;}
     }
     @media (min-width:769px) and (max-width:1024px) {
       :root{--sidebar-w:200px;}

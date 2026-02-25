@@ -126,8 +126,15 @@
 
     @media(max-width:768px){
       .main{flex-direction:column;}
-      .panel-left{width:100%;min-width:unset;border-right:none;border-bottom:1px solid #e2e8f0;}
+      .panel-left{width:100%;min-width:unset;border-right:none;border-bottom:1px solid #e2e8f0;max-height:50vh;overflow-y:auto;}
       .add-item-group,.item-row{grid-template-columns:1fr;}
+      header{flex-wrap:wrap;padding:10px 14px;gap:8px 12px;}
+      header h1{font-size:14px;flex:1 1 100%;}
+      .nav-links{flex-wrap:wrap;gap:6px 12px;}
+    }
+    @media(max-width:480px){
+      .panel-right{padding:12px;}
+      .order-loaded-panel{padding:10px;}
     }
   </style>
 </head>

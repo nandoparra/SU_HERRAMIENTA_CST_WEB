@@ -142,6 +142,20 @@
     @media(max-width:700px){
       .main{flex-direction:column;}
       .panel-left{width:100%;min-width:unset;border-right:none;border-bottom:1px solid #e2e8f0;max-height:320px;}
+      header{flex-wrap:wrap;padding:10px 14px;gap:8px 12px;}
+      header h1{font-size:14px;flex:1 1 100%;}
+      .nav-links{flex-wrap:wrap;gap:6px 12px;}
+      .client-grid{grid-template-columns:1fr;}
+    }
+    @media(max-width:480px){
+      .panel-right{padding:12px;}
+      .orden-header{flex-direction:column;align-items:flex-start;gap:4px;}
+      .orden-num{font-size:18px;}
+      .maq-top{flex-wrap:wrap;gap:6px;}
+      .maq-actions{flex-wrap:wrap;}
+      .acciones{flex-direction:column;}
+      .acciones .btn-print,.acciones .btn-quote,.acciones .btn-quote-ver{display:block;width:100%;text-align:center;}
+      .total-card{flex-direction:column;align-items:flex-start;gap:8px;}
     }
   </style>
 </head>
