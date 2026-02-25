@@ -35,10 +35,14 @@ utils/phones.js                    parseColombianPhones() — separa múltiples 
 routes/auth.js                     GET/POST /login (rate limit 10/15min), /logout, /me
                                      └─ POST /login redirige a /dashboard.html (internos) o /seguimiento.html (C)
 routes/orders.js                   GET/PATCH órdenes + estados + notificaciones WA
-                                     └─ todos los endpoints con requireInterno
+                                     └─ todos los endpoints con requireInterno (excepto rutas /cliente/*)
                                      └─ GET /orders/:id/detalle — orden+cliente+máquinas+fotos+cotización
                                      └─ POST /orders/:id/fotos-trabajo/:uid — subir foto de trabajo
                                      └─ DELETE /orders/fotos-trabajo/:uid — eliminar foto de trabajo
+                                     └─ GET /orders/mis-ordenes-tecnico — órdenes asignadas al técnico logueado
+                                     └─ PATCH /equipment-order/:uid/observaciones — guardar observaciones técnico
+                                     └─ GET /cliente/mis-ordenes — órdenes del cliente con historial+cotización+informes
+                                     └─ GET /cliente/informe/:uid_herramienta_orden — PDF informe (valida propiedad)
 routes/quote.js                    GET/POST cotizaciones — mensaje incluye menú WA autorización
 routes/whatsapp.js                 POST envío WhatsApp — registra pendiente en b2c_wa_autorizacion_pendiente
 routes/pdf.js                      GET descargar/POST enviar PDFs
@@ -48,9 +52,11 @@ routes/pdf.js                      GET descargar/POST enviar PDFs
 routes/crear-orden.js              POST crear cliente/herramienta/orden + fotos
                                      └─ todos los endpoints con requireInterno
 routes/dashboard.js                KPIs + CRUD clientes, funcionarios, inventario (requireInterno)
-                                     └─ GET /dashboard?mes=YYYY-MM — KPIs + alertas reparadas sin entregar
-                                     └─ GET /clientes/search, GET /clientes/:id
+                                     └─ GET /dashboard?mes=YYYY-MM — KPIs + alertas reparadas + revisadas sin cotizar
+                                     └─ GET /clientes/search, GET /clientes/:id (incluye usu_login del usuario)
+                                     └─ POST /clientes/:id/crear-acceso — crea usuario tipo C para cliente (solo admin)
                                      └─ GET/POST/PATCH /funcionarios, GET/POST/PATCH /inventario
+                                     └─ bypass requireInterno para rutas /cliente/* (next('router') hacia orders.js)
 public/login.html                  Página de login
 public/seguimiento.html            Vista cliente — seguimiento de sus órdenes
 public/crear-orden.html            Módulo creación de órdenes
@@ -97,10 +103,11 @@ feature/crear-orden     Módulo crear orden — pendiente merge a main
 feature/security-fixes  Correcciones de seguridad — pendiente merge a main
 feature/wa-autorizacion Flujo autorización cotizaciones por WhatsApp — pendiente merge
 feature/ui-fixes        Quitar lista máquinas panel izq. cotizaciones — pendiente merge
-feature/dashboard       Dashboard SPA + edición funcionarios + fix técnicos — pendiente merge
+feature/dashboard       Dashboard SPA + vista técnico + nueva orden SPA + seguimiento mejorado — pendiente merge
+feature/responsive      Responsive completo todas las páginas — pendiente merge (base: feature/dashboard)
 ```
 
-Mergear en orden: login → crear-orden → security-fixes → wa-autorizacion → ui-fixes → dashboard.
+Mergear en orden: login → crear-orden → security-fixes → wa-autorizacion → ui-fixes → dashboard → responsive.
 
 ---
 
@@ -239,10 +246,17 @@ Las fotos aparecen en el informe de mantenimiento PDF agrupadas por tipo.
 - **Sidebar**: 240px desktop, drawer en móvil (hamburger), logo portrait centrado arriba + nombre
 - **Logo sidebar**: wrapper `154×80px` overflow:hidden + img `width:80px` rotate(-90deg)
 - **Navegación**: hash-based (`#inicio`, `#ordenes`, `#cotizaciones`, `#clientes`, `#funcionarios`, `#inventario`)
-- **Vistas**: objetos JS con `render()` + `init()`, funciones prefijadas (`ord_`, `cot_`, `cli_`, `fun_`, `inv_`)
+- **Vistas**: objetos JS con `render()` + `init()`, funciones prefijadas (`ord_`, `cot_`, `cli_`, `fun_`, `inv_`, `no_`, `tec_`)
 - **KPIs Inicio**: filtro por mes, tarjetas de estado, alertas reparadas sin entregar (amarillo ≥7d, naranja ≥15d, rojo ≥30d)
+- **Revisadas sin cotizar**: sección en inicio — máquinas con her_estado='revisada' sin entrada en b2c_cotizacion_maquina
+- **Vista Nueva Orden**: wizard 4 pasos (Views.nuevaOrden, prefijo `no_`), mismos endpoints que crear-orden.html
+- **Vista técnico**: `isTecnico()` — sidebar solo muestra Mis Órdenes + Buscar Orden; botón Nueva Orden oculto
+  - `Views.misOrdenes`: lista órdenes asignadas al técnico logueado
+  - `Views.buscarOrden`: busca cualquier orden por consecutivo o cliente
+  - Detalle máquina: observaciones editables, fotos de trabajo, botón "Marcar revisada"
 - **Funcionarios**: editar nombre/rol/clave (modal), toggle activo/inactivo — solo admin
 - **Técnico asignado**: `getTechnicianWhereClause` filtra `usu_tipo='T'` — solo técnicos
+- **Nueva Orden mobile**: ítem `.nueva-orden-nav` en sidebar (display:none en desktop, flex en ≤768px), oculto para técnicos
 
 ---
 
@@ -336,6 +350,65 @@ La fecha se guarda como string `20260212`. Para mostrar en frontend:
 const m = String(raw).match(/^(\d{4})(\d{2})(\d{2})$/);
 return m ? `${m[3]}/${m[2]}/${m[1]}` : '-';
 ```
+
+---
+
+## seguimiento.html — rediseño (feature/dashboard)
+
+- Acordeón por máquina: click para expandir, muestra historial + cotización + informe
+- Datos por máquina: `her_estado`, `hor_observaciones`, `hor_fecha_prom_entrega`, historial, cotización, ítems, informe
+- Aviso naranja si `her_estado='cotizada'` — máquina pendiente de autorizar
+- Batch queries en `GET /api/cliente/mis-ordenes` — sin N+1 (5 queries totales para todas las órdenes)
+- Informe PDF cliente: `GET /api/cliente/informe/:uid_herramienta_orden` — valida que la orden pertenece al cliente
+- Bug crítico resuelto: `routes/dashboard.js` tenía `router.use(requireInterno)` que bloqueaba rutas `/cliente/*`
+  - Fix: bypass con `if (req.path === '/cliente/mis-ordenes' || req.path.startsWith('/cliente/informe/')) return next('router')`
+
+---
+
+## Clientes — acceso a seguimiento.html
+
+- Clientes nuevos creados vía `crear-orden.html` reciben usuario automáticamente (login=identificación, clave=últimos 4 dígitos)
+- Clientes del ERP anterior (importados de GoDaddy) no tienen usuario — crear manualmente o con SQL:
+  ```sql
+  INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado)
+  SELECT COALESCE(cli_razon_social, cli_contacto, cli_identificacion),
+         cli_identificacion, RIGHT(cli_identificacion, 4), 'C', 'A'
+  FROM b2c_cliente WHERE uid_usuario IS NULL;
+
+  UPDATE b2c_cliente c
+  JOIN b2c_usuario u ON u.usu_login = c.cli_identificacion
+  SET c.uid_usuario = u.uid_usuario
+  WHERE c.uid_usuario IS NULL AND u.usu_tipo = 'C';
+  ```
+- Las claves en texto plano migran a bcrypt en el primer login (lazy migration en routes/auth.js)
+- `POST /api/clientes/:id/crear-acceso` — crea usuario para un cliente específico (solo admin)
+
+---
+
+## sync-db.js — tablas preservadas en sync con GoDaddy
+
+Las siguientes tablas se respaldan antes del sync y se restauran después:
+```
+b2c_cotizacion_orden, b2c_cotizacion_maquina, b2c_cotizacion_item,
+b2c_herramienta_status_log, b2c_informe_mantenimiento, b2c_wa_autorizacion_pendiente
+```
+Los archivos PDF de informes se guardan en disco (`public/uploads/informes-mantenimiento/`) — no se borran con el sync.
+Si se corre sync sin reiniciar el servidor después, las tablas locales desaparecen hasta el próximo arranque.
+
+---
+
+## Responsive — feature/responsive (base: feature/dashboard)
+
+Breakpoints aplicados en cada página:
+
+| Página | Breakpoints | Notas |
+|--------|-------------|-------|
+| `dashboard.html` | 768px, 480px | Tablas scroll horizontal, grids 1 col en 480px |
+| `seguimiento.html` | 520px, 360px | Diseñado mobile-first, botones full-width |
+| `ordenes.html` | 700px, 480px | Header wrap, acciones full-width |
+| `generador-cotizaciones.html` | 768px, 480px | Panel izq max-height:50vh con scroll |
+| `login.html` | 480px | Body padding para que card no toque bordes |
+| `crear-orden.html` | 600px | grid2/grid3 → 1 columna |
 
 ---
 
