@@ -21,6 +21,19 @@ if (!process.env.SESSION_SECRET) {
 }
 
 const app = express();
+
+// HTTPS redirect — Escenario B: detrás de proxy inverso que termina TLS (nginx, Render, Railway…)
+// Activar con BEHIND_PROXY=true en el entorno de producción.
+if (process.env.BEHIND_PROXY === 'true') {
+  app.set('trust proxy', 1); // confiar en X-Forwarded-* del primer proxy
+  app.use((req, res, next) => {
+    if (req.headers['x-forwarded-proto'] !== 'https') {
+      return res.redirect(301, `https://${req.hostname}${req.originalUrl}`);
+    }
+    next();
+  });
+}
+
 app.use(express.json());
 // CORS: solo mismo origen — bloquea peticiones cross-origin de otros dominios
 app.use(cors({ origin: false }));
