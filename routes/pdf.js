@@ -180,7 +180,8 @@ router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', async (req, res
     conn.release();
 
     const fname = 'mantenimiento-' + order.ord_consecutivo + '-' + (machine.her_nombre || 'maquina').replace(/\s+/g, '-') + '.pdf';
-    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="' + fname + '"' });
+    const fnameAscii = fname.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.\-]/g, '-');
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${fnameAscii}"; filename*=UTF-8''${encodeURIComponent(fname)}` });
     res.send(pdf);
   } catch (e) {
     console.error('Error generando PDF mantenimiento:', e);

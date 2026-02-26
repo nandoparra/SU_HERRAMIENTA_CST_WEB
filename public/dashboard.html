@@ -316,6 +316,7 @@
       .item-row,.add-item-group{grid-template-columns:1fr 1fr;}
       .item-row .del-item,.add-item-group button{grid-column:span 2;}
       .kpi-grid{grid-template-columns:repeat(2,1fr);}
+      .kpi-grid .kpi-card:last-child:nth-child(odd){grid-column:span 2;}
       .client-grid{grid-template-columns:1fr;}
       /* Tables scroll horizontally */
       .func-table,.inv-table,.ordenes-list-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;}
@@ -603,7 +604,7 @@ Views.inicio = {
         <div class="kpi-card kc-grey">
           <div class="kpi-icon">🔍</div>
           <div class="kpi-val">${k.pendiente_revision + k.revisadas}</div>
-          <div class="kpi-lbl">Pendientes de revisión / revisar</div>
+          <div class="kpi-lbl">Pendientes de revisión</div>
         </div>`;
 
       const sec = document.getElementById('alertasSection');
