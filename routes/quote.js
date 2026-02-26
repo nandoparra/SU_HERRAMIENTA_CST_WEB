@@ -124,6 +124,23 @@ router.post('/quotes/machine', async (req, res) => {
         [String(orderId), orderSubtotal, iva, total]
       );
 
+      // Cambiar estado a 'cotizada' automáticamente si no está ya más avanzado
+      const ESTADOS_NO_RETROCEDER = ['autorizada', 'no_autorizada', 'reparada', 'entregada'];
+      const [[maqRow]] = await conn.execute(
+        `SELECT her_estado FROM b2c_herramienta_orden WHERE uid_herramienta_orden = ?`,
+        [String(equipmentOrderId)]
+      );
+      if (maqRow && !ESTADOS_NO_RETROCEDER.includes(maqRow.her_estado)) {
+        await conn.execute(
+          `UPDATE b2c_herramienta_orden SET her_estado = 'cotizada' WHERE uid_herramienta_orden = ?`,
+          [String(equipmentOrderId)]
+        );
+        await conn.execute(
+          `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado) VALUES (?, 'cotizada')`,
+          [String(equipmentOrderId)]
+        );
+      }
+
       await conn.commit();
       conn.release();
       res.json({ success: true, subtotal, orderSubtotal, total });
