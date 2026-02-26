@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const helmet  = require('helmet');
 const cors    = require('cors');
 const path    = require('path');
 const session = require('express-session');
@@ -23,6 +24,22 @@ const app = express();
 app.use(express.json());
 // CORS: solo mismo origen — bloquea peticiones cross-origin de otros dominios
 app.use(cors({ origin: false }));
+
+// Cabeceras de seguridad HTTP
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:              ["'self'"],
+      scriptSrc:               ["'self'", "'unsafe-inline'"],
+      styleSrc:                ["'self'", "'unsafe-inline'"],
+      imgSrc:                  ["'self'", "data:", "blob:"],
+      connectSrc:              ["'self'"],
+      fontSrc:                 ["'self'"],
+      objectSrc:               ["'none'"],
+      upgradeInsecureRequests: null, // manejamos el redirect HTTPS manualmente
+    },
+  },
+}));
 
 // Sesiones
 app.use(session({
@@ -216,6 +233,19 @@ async function ensureStatusTables() {
         estado           ENUM('esperando_opcion','esperando_maquinas') NOT NULL DEFAULT 'esperando_opcion',
         created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uq_wa_phone (wa_phone)
+      )
+    `);
+
+    // Tabla de informes de mantenimiento persistentes
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_informe_mantenimiento (
+        uid_informe           INT AUTO_INCREMENT PRIMARY KEY,
+        uid_orden             INT NOT NULL,
+        uid_herramienta_orden INT NOT NULL,
+        inf_archivo           VARCHAR(255) NOT NULL,
+        inf_fecha             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_informe_maquina (uid_herramienta_orden),
+        INDEX idx_inf_orden (uid_orden)
       )
     `);
 
