@@ -12,6 +12,7 @@ Sistema de cotizaciones y órdenes de servicio para **SU HERRAMIENTA CST** (tall
 - **PDF**: PDFKit `^0.17.2` (`utils/pdf-generator.js`)
 - **WhatsApp**: `whatsapp-web.js` (`utils/whatsapp-client.js`)
 - **Sesiones**: `express-session` + `bcrypt`
+- **Seguridad HTTP**: `helmet@8.1.0` (CSP, HSTS, etc.)
 - **Fotos**: `multer` → `public/uploads/fotos-recepcion/`
 
 ---
@@ -43,6 +44,7 @@ routes/orders.js                   GET/PATCH órdenes + estados + notificaciones
                                      └─ PATCH /equipment-order/:uid/observaciones — guardar observaciones técnico
                                      └─ GET /cliente/mis-ordenes — órdenes del cliente con historial+cotización+informes
                                      └─ GET /cliente/informe/:uid_herramienta_orden — PDF informe (valida propiedad)
+                                     └─ PATCH /cliente/maquina/:uid/autorizar — autorizar/rechazar máquina (solo tipo C)
 routes/quote.js                    GET/POST cotizaciones — mensaje incluye menú WA autorización
 routes/whatsapp.js                 POST envío WhatsApp — registra pendiente en b2c_wa_autorizacion_pendiente
 routes/pdf.js                      GET descargar/POST enviar PDFs
@@ -56,7 +58,7 @@ routes/dashboard.js                KPIs + CRUD clientes, funcionarios, inventari
                                      └─ GET /clientes/search, GET /clientes/:id (incluye usu_login del usuario)
                                      └─ POST /clientes/:id/crear-acceso — crea usuario tipo C para cliente (solo admin)
                                      └─ GET/POST/PATCH /funcionarios, GET/POST/PATCH /inventario
-                                     └─ bypass requireInterno para rutas /cliente/* (next('router') hacia orders.js)
+                                     └─ bypass requireInterno para /cliente/mis-ordenes, /cliente/informe/, /cliente/maquina/:id/autorizar
 public/login.html                  Página de login
 public/seguimiento.html            Vista cliente — seguimiento de sus órdenes
 public/crear-orden.html            Módulo creación de órdenes
@@ -90,6 +92,7 @@ IVA_RATE              (decimal, default 0 — sin IVA)
 API_SECRET_KEY        (opcional, guard de rutas)
 SESSION_SECRET        (requerido en producción — lanza error si no está)
 PARTS_WHATSAPP_NUMBER (número del encargado de repuestos, ej: 3104650437)
+BEHIND_PROXY          (true = activar redirect HTTP→HTTPS vía x-forwarded-proto)
 ```
 
 ---
@@ -104,10 +107,11 @@ feature/security-fixes  Correcciones de seguridad — pendiente merge a main
 feature/wa-autorizacion Flujo autorización cotizaciones por WhatsApp — pendiente merge
 feature/ui-fixes        Quitar lista máquinas panel izq. cotizaciones — pendiente merge
 feature/dashboard       Dashboard SPA + vista técnico + nueva orden SPA + seguimiento mejorado — pendiente merge
-feature/responsive      Responsive completo todas las páginas — pendiente merge (base: feature/dashboard)
+feature/responsive      Responsive + autorización portal cliente desde seguimiento.html — pendiente merge
+feature/helmet-https    Helmet CSP + redirect HTTPS vía BEHIND_PROXY — pendiente merge (base: feature/responsive)
 ```
 
-Mergear en orden: login → crear-orden → security-fixes → wa-autorizacion → ui-fixes → dashboard → responsive.
+Mergear en orden: login → crear-orden → security-fixes → wa-autorizacion → ui-fixes → dashboard → responsive → helmet-https.
 
 ---
 
@@ -365,6 +369,33 @@ return m ? `${m[3]}/${m[2]}/${m[1]}` : '-';
 
 ---
 
+## Autorización portal cliente — seguimiento.html (feature/responsive)
+
+El cliente puede autorizar o rechazar máquinas directamente desde `seguimiento.html`,
+sin necesidad de responder por WhatsApp.
+
+**Endpoint**: `PATCH /api/cliente/maquina/:uid_herramienta_orden/autorizar`
+- Solo accesible para `usu_tipo='C'` (403 si usuario interno intenta usarlo)
+- Body: `{ decision: 'autorizada' | 'no_autorizada' }`
+- Valida propiedad: JOIN `herramienta_orden → orden → cliente → uid_usuario`
+- Solo permite si `her_estado === 'cotizada'` — 409 si ya fue procesada
+- Transacción: UPDATE her_estado + INSERT en b2c_herramienta_status_log
+- Si `autorizada`: envía lista de repuestos a PARTS_WHATSAPP_NUMBER por WA (falla silenciosamente si WA no está listo)
+
+**Bypass doble** (bug conocido a evitar): el path debe estar en el bypass de AMBOS routers:
+- `routes/dashboard.js`: `req.path.match(/^\/cliente\/maquina\/\d+\/autorizar$/)` → `next('router')`
+- `routes/orders.js`: mismo regex → `next()`
+
+**Frontend** (`seguimiento.html`):
+- Botones ✅ / ❌ por máquina cuando `her_estado === 'cotizada'`
+- Botón "Autorizar todas" en header de orden si hay ≥1 máquina cotizada
+- `seg_autorizar(uid, decision, btn)` — confirma + PATCH + recarga
+- `seg_autorizarTodas(uid_orden, btn)` — itera secuencial + recarga
+- `loadOrdenes()` — función reutilizable (guarda `window._ordenesData` para `seg_autorizarTodas`)
+- `init()` solo autentica y llama `loadOrdenes()`
+
+---
+
 ## Clientes — acceso a seguimiento.html
 
 - Clientes nuevos creados vía `crear-orden.html` reciben usuario automáticamente (login=identificación, clave=últimos 4 dígitos)
@@ -409,6 +440,46 @@ Breakpoints aplicados en cada página:
 | `generador-cotizaciones.html` | 768px, 480px | Panel izq max-height:50vh con scroll |
 | `login.html` | 480px | Body padding para que card no toque bordes |
 | `crear-orden.html` | 600px | grid2/grid3 → 1 columna |
+
+---
+
+## Seguridad HTTP — Helmet + HTTPS (feature/helmet-https)
+
+### Helmet (Commit 1)
+`helmet@8.1.0` montado en `server.js` después de CORS con CSP personalizada:
+```js
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:              ["'self'"],
+      scriptSrc:               ["'self'", "'unsafe-inline'"],  // páginas usan JS inline
+      styleSrc:                ["'self'", "'unsafe-inline'"],  // páginas usan CSS inline
+      imgSrc:                  ["'self'", "data:", "blob:"],
+      connectSrc:              ["'self'"],
+      fontSrc:                 ["'self'"],
+      objectSrc:               ["'none'"],
+      upgradeInsecureRequests: null,  // redirect HTTPS manejado manualmente
+    },
+  },
+}));
+```
+
+### HTTPS redirect (Commit 2) — Escenario B: proxy inverso
+Activado solo con `BEHIND_PROXY=true`. Se coloca al inicio de la app (antes de express.json):
+```js
+if (process.env.BEHIND_PROXY === 'true') {
+  app.set('trust proxy', 1);
+  app.use((req, res, next) => {
+    if (req.headers['x-forwarded-proto'] !== 'https') {
+      return res.redirect(301, `https://${req.hostname}${req.originalUrl}`);
+    }
+    next();
+  });
+}
+```
+- `trust proxy 1`: Express confía en `X-Forwarded-*` del primer proxy (nginx, Render, Railway…)
+- Sin efecto en desarrollo local (BEHIND_PROXY no configurado)
+- `upgradeInsecureRequests: null` en CSP evita conflicto con este redirect manual
 
 ---
 
