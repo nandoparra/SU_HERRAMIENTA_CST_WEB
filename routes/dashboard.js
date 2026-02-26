@@ -5,7 +5,9 @@ const bcrypt  = require('bcrypt');
 const { requireInterno } = require('../middleware/auth');
 
 router.use((req, res, next) => {
-  if (req.path === '/cliente/mis-ordenes' || req.path.startsWith('/cliente/informe/')) return next('router');
+  if (req.path === '/cliente/mis-ordenes'
+    || req.path.startsWith('/cliente/informe/')
+    || req.path.match(/^\/cliente\/maquina\/\d+\/autorizar$/)) return next('router');
   return requireInterno(req, res, next);
 });
 

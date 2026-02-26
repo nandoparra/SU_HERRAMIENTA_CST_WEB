@@ -167,6 +167,27 @@
     }
     .btn-informe:hover { background: #2a4a73; }
 
+    /* ── Botones autorización ── */
+    .auth-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+    .btn-autorizar {
+      background:#27ae60; color:#fff; border:none; padding:7px 16px;
+      border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;
+    }
+    .btn-autorizar:hover { background:#219a52; }
+    .btn-no-autorizar {
+      background:#e74c3c; color:#fff; border:none; padding:7px 16px;
+      border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;
+    }
+    .btn-no-autorizar:hover { background:#c0392b; }
+    .btn-autorizar:disabled, .btn-no-autorizar:disabled { opacity:.5; cursor:not-allowed; }
+    .auth-global { margin:8px 0 4px; }
+    .btn-autorizar-todas {
+      background:#1d3557; color:#fff; border:none; padding:7px 16px;
+      border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; width:100%;
+    }
+    .btn-autorizar-todas:hover { background:#16294a; }
+    .btn-autorizar-todas:disabled { opacity:.5; cursor:not-allowed; }
+
     /* ── Responsive ── */
     @media (max-width: 520px) {
       header { padding: 11px 14px; gap: 8px; }
@@ -214,6 +235,8 @@
   </div>
 
   <script>
+    const API = '/api';
+
     const ESTADOS = {
       pendiente_revision: { label: 'Pendiente de revisión', color: '#888' },
       revisada:           { label: 'Revisada',              color: '#2196F3' },
@@ -257,11 +280,21 @@
       const est = ESTADOS[m.her_estado] || ESTADOS.pendiente_revision;
       const badgeClass = 'estado-badge eb-' + (m.her_estado || 'pendiente_revision');
 
-      // Aviso cotización pendiente
+      // Aviso cotización pendiente + botones de autorización
       const avisoHtml = (m.her_estado === 'cotizada' && m.cotizacion) ? `
         <div class="cot-aviso">
           <span class="cot-aviso-txt">⚠️ Tiene una cotización pendiente de autorizar</span>
           <button class="btn-ver-cot" onclick="document.getElementById('cot-${maqIdx}').scrollIntoView({behavior:'smooth',block:'nearest'})">Ver cotización ↓</button>
+        </div>` : '';
+
+      const authHtml = (m.her_estado === 'cotizada') ? `
+        <div class="auth-actions">
+          <button class="btn-autorizar" onclick="seg_autorizar(${m.uid_herramienta_orden}, 'autorizada', this)">
+            ✅ Autorizar reparación
+          </button>
+          <button class="btn-no-autorizar" onclick="seg_autorizar(${m.uid_herramienta_orden}, 'no_autorizada', this)">
+            ❌ No autorizar
+          </button>
         </div>` : '';
 
       // Fecha estimada de entrega
@@ -362,6 +395,7 @@
           </div>
           <div class="maq-body">
             ${avisoHtml}
+            ${authHtml}
             ${fechaEnt}
             ${obsHtml}
             ${histHtml}
@@ -371,47 +405,90 @@
         </div>`;
     }
 
-    async function init() {
-      const me = await fetch('/me').then(r => r.json()).catch(() => ({}));
-      if (!me.authenticated) { window.location.href = '/login'; return; }
-      document.getElementById('userName').textContent = me.user.nombre;
-
-      const data = await fetch('/api/cliente/mis-ordenes').then(r => r.json()).catch(() => []);
+    async function loadOrdenes() {
+      const data = await fetch(`${API}/cliente/mis-ordenes`).then(r => r.json()).catch(() => []);
+      window._ordenesData = data;
       const el = document.getElementById('ordenesList');
-
       if (!data.length) {
         el.innerHTML = '<div class="empty">No tienes órdenes de servicio registradas.</div>';
         return;
       }
-
       let maqCounter = 0;
       el.innerHTML = data.map(orden => {
-        // Fecha estimada: tomar la más próxima no entregada entre las máquinas
         const fechasEnt = (orden.maquinas || [])
           .filter(m => m.hor_fecha_prom_entrega && m.her_estado !== 'entregada')
-          .map(m => m.hor_fecha_prom_entrega)
-          .sort();
+          .map(m => m.hor_fecha_prom_entrega).sort();
         const fechaEntBadge = fechasEnt.length
           ? `<span class="orden-entrega">📅 Entrega est. ${fmtFecha(fechasEnt[0])}</span>` : '';
-
-        const maquinasHtml = (orden.maquinas || []).map(m => {
-          return buildMaqHtml(m, maqCounter++);
-        }).join('');
-
+        const tieneCotizadas = (orden.maquinas || []).some(m => m.her_estado === 'cotizada');
+        const autorizarTodasHtml = tieneCotizadas ? `
+          <div class="auth-global">
+            <button class="btn-autorizar-todas"
+              onclick="seg_autorizarTodas(${orden.uid_orden}, this)">
+              ✅ Autorizar todas las máquinas cotizadas de esta orden
+            </button>
+          </div>` : '';
+        const maquinasHtml = (orden.maquinas || []).map(m => buildMaqHtml(m, maqCounter++)).join('');
         return `<div class="orden-card">
           <div class="orden-header">
             <span class="orden-num">Orden #${orden.ord_consecutivo}</span>
             <span class="orden-meta">Ingreso: ${fmtFecha(orden.ord_fecha)}</span>
             ${fechaEntBadge}
+            ${autorizarTodasHtml}
           </div>
           ${maquinasHtml || '<div style="padding:12px 18px;font-size:13px;color:#aaa;">Sin equipos registrados</div>'}
         </div>`;
       }).join('');
-
-      // Auto-expand si solo hay una máquina en la orden o si tiene aviso
       document.querySelectorAll('.maq-item').forEach(item => {
         if (item.querySelector('.cot-aviso')) item.classList.add('open');
       });
+    }
+
+    async function seg_autorizar(uid, decision, btn) {
+      const accion = decision === 'autorizada' ? 'autorizar' : 'NO autorizar';
+      if (!confirm(`¿Confirma que desea ${accion} la reparación de esta máquina?`)) return;
+      btn.parentElement.querySelectorAll('button').forEach(b => b.disabled = true);
+      try {
+        const r = await fetch(`${API}/cliente/maquina/${uid}/autorizar`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ decision })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Error');
+        await loadOrdenes();
+      } catch (e) {
+        alert('Error: ' + e.message);
+        btn.parentElement.querySelectorAll('button').forEach(b => b.disabled = false);
+      }
+    }
+
+    async function seg_autorizarTodas(uid_orden, btn) {
+      if (!confirm('¿Confirma que desea autorizar TODAS las máquinas cotizadas de esta orden?')) return;
+      btn.disabled = true;
+      const maquinas = (window._ordenesData || [])
+        .find(o => o.uid_orden === uid_orden)
+        ?.maquinas.filter(m => m.her_estado === 'cotizada') || [];
+      try {
+        for (const m of maquinas) {
+          await fetch(`${API}/cliente/maquina/${m.uid_herramienta_orden}/autorizar`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ decision: 'autorizada' })
+          });
+        }
+        await loadOrdenes();
+      } catch (e) {
+        alert('Error: ' + e.message);
+        btn.disabled = false;
+      }
+    }
+
+    async function init() {
+      const me = await fetch('/me').then(r => r.json()).catch(() => ({}));
+      if (!me.authenticated) { window.location.href = '/login'; return; }
+      document.getElementById('userName').textContent = me.user.nombre;
+      await loadOrdenes();
     }
 
     async function logout() {

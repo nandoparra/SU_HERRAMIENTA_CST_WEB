@@ -15,9 +15,10 @@ const { waClient, isReady, sendWAMessage } = require('../utils/whatsapp-client')
 const { parseColombianPhones } = require('../utils/phones');
 const { requireInterno } = require('../middleware/auth');
 
-// Todas las rutas de órdenes requieren rol interno, excepto mis-ordenes (es del cliente)
+// Todas las rutas de órdenes requieren rol interno, excepto rutas de cliente
 router.use((req, res, next) => {
   if (req.path === '/cliente/mis-ordenes') return next();
+  if (req.path.match(/^\/cliente\/maquina\/\d+\/autorizar$/)) return next();
   return requireInterno(req, res, next);
 });
 
@@ -740,6 +741,111 @@ router.get('/cliente/informe/:uid_herramienta_orden', async (req, res) => {
     fs.createReadStream(fpath).pipe(res);
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// Autorizar o rechazar máquina desde portal cliente
+router.patch('/cliente/maquina/:uid_herramienta_orden/autorizar', async (req, res) => {
+  const user = req.session?.user;
+  if (!user || user.tipo !== 'C') return res.status(403).json({ error: 'Solo clientes pueden usar este endpoint' });
+
+  const { decision } = req.body;
+  if (!['autorizada', 'no_autorizada'].includes(decision)) {
+    return res.status(400).json({ error: "decision debe ser 'autorizada' o 'no_autorizada'" });
+  }
+
+  const uid = Number(req.params.uid_herramienta_orden);
+  if (!uid) return res.status(400).json({ error: 'uid inválido' });
+
+  let conn;
+  try {
+    conn = await db.getConnection();
+
+    // Verificar propiedad: la máquina debe pertenecer a una orden del cliente logueado
+    const [[maq]] = await conn.execute(
+      `SELECT ho.uid_herramienta_orden, ho.uid_orden, ho.her_estado
+       FROM b2c_herramienta_orden ho
+       JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
+       JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+       WHERE ho.uid_herramienta_orden = ? AND c.uid_usuario = ?
+       LIMIT 1`,
+      [uid, user.id]
+    );
+    if (!maq) return res.status(403).json({ error: 'No autorizado o máquina no encontrada' });
+    if (maq.her_estado !== 'cotizada') {
+      return res.status(409).json({ error: `La máquina no puede modificarse (estado actual: ${maq.her_estado})` });
+    }
+
+    // Actualizar estado + log en transacción
+    await conn.beginTransaction();
+    try {
+      await conn.execute(
+        `UPDATE b2c_herramienta_orden SET her_estado = ? WHERE uid_herramienta_orden = ?`,
+        [decision, uid]
+      );
+      await conn.execute(
+        `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado) VALUES (?, ?)`,
+        [uid, decision]
+      );
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    }
+
+    // Si autorizada, enviar lista de repuestos al encargado (sin fallar el endpoint si WA no está listo)
+    if (decision === 'autorizada') {
+      try {
+        const partsNumber = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
+        if (partsNumber && isReady()) {
+          const [[orderRow]] = await conn.execute(
+            `SELECT ord_consecutivo FROM b2c_orden WHERE uid_orden = ?`,
+            [maq.uid_orden]
+          );
+          const [maquinas] = await conn.execute(
+            `SELECT ho.uid_herramienta_orden, h.her_nombre, h.her_marca, h.her_serial
+             FROM b2c_herramienta_orden ho
+             JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+             WHERE ho.uid_orden = ? AND ho.her_estado = 'autorizada'
+             ORDER BY ho.uid_herramienta_orden`,
+            [maq.uid_orden]
+          );
+          if (maquinas.length) {
+            const bloques = await Promise.all(maquinas.map(async (maq2) => {
+              const [items] = await conn.execute(
+                `SELECT nombre, cantidad FROM b2c_cotizacion_item WHERE uid_herramienta_orden = ? ORDER BY id`,
+                [maq2.uid_herramienta_orden]
+              );
+              const nombre = [maq2.her_nombre, maq2.her_marca].filter(Boolean).join(' ');
+              const serial = maq2.her_serial ? ` / S/N: ${maq2.her_serial}` : '';
+              const lineas = items.length
+                ? items.map(i => `  • ${i.cantidad}x ${i.nombre}`).join('\n')
+                : '  (solo mano de obra)';
+              return `*${nombre}*${serial}\n${lineas}`;
+            }));
+            const msg =
+              `🔧 *REPUESTOS AUTORIZADOS*\n` +
+              `Orden #${orderRow?.ord_consecutivo || maq.uid_orden}\n\n` +
+              bloques.join('\n\n') +
+              `\n\n— SU HERRAMIENTA CST`;
+            let phone = partsNumber;
+            if (!phone.startsWith('57')) phone = '57' + phone.slice(-10);
+            await sendWAMessage(`${phone}@c.us`, msg);
+          }
+        } else {
+          console.warn('⚠️ orders: WA no listo o PARTS_WHATSAPP_NUMBER no configurado, se omite notificación');
+        }
+      } catch (waErr) {
+        console.warn('⚠️ orders: error enviando lista de repuestos por WA (autorización guardada):', waErr.message);
+      }
+    }
+
+    res.json({ success: true, her_estado: decision });
+  } catch (e) {
+    console.error('Error en autorización cliente:', e);
+    res.status(500).json({ error: e.message || 'Error interno' });
+  } finally {
+    if (conn) conn.release();
   }
 });
 
