@@ -24,7 +24,6 @@ waClient.on('message', async (msg) => {
   // Solo chats individuales con texto
   if (msg.from.endsWith('@g.us')) return;
   const text = String(msg.body || '').trim();
-  if (!text) return;
 
   let senderPhone = normalizePhone(msg.from);
 
@@ -48,7 +47,7 @@ waClient.on('message', async (msg) => {
     }
   }
 
-  console.log(`📨 wa-handler: mensaje de ${senderPhone} → "${text}"`);
+  console.log(`📨 wa-handler: mensaje de ${senderPhone} → "${text || '(sin texto / audio/media)'}"`);
 
   let conn;
   try {
@@ -69,6 +68,16 @@ waClient.on('message', async (msg) => {
     }
 
     console.log(`📨 wa-handler: pendiente encontrado uid_orden=${pendiente.uid_orden} estado=${pendiente.estado}`);
+
+    // Audio, imagen u otro mensaje sin texto — responder con aviso
+    if (!text) {
+      await sendWAMessage(senderPhone,
+        'Este número es exclusivo para notificaciones automáticas y no permite conversación.\n\n' +
+        'Si desea responder a su cotización, por favor indique únicamente *1*, *2*, *3* o *4*.\n\n' +
+        'Para cualquier otra consulta comuníquese con nosotros al *3104650437*. — SU HERRAMIENTA CST'
+      );
+      return;
+    }
 
     if (pendiente.estado === 'esperando_opcion') {
       await handleOpcion(conn, pendiente, text, senderPhone);
@@ -197,7 +206,9 @@ async function handleOpcion(conn, pendiente, text, senderPhone) {
   } else {
     // Opción no reconocida
     await sendWAMessage(senderPhone,
-      'Por favor responda con *1*, *2*, *3* o *4* según su elección.'
+      'Este número es exclusivo para notificaciones automáticas y no permite conversación.\n\n' +
+      'Si desea responder a su cotización, por favor indique únicamente *1*, *2*, *3* o *4*.\n\n' +
+      'Para cualquier otra consulta comuníquese con nosotros al *3104650437*. — SU HERRAMIENTA CST'
     );
   }
 }

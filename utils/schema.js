@@ -5,42 +5,24 @@ let TECH_FILTER_CACHE = undefined; // cache roles/status detectados
 
 async function getHerramientaOrdenTechColumn(connection) {
   if (HO_TECH_COL_CACHE !== undefined) return HO_TECH_COL_CACHE;
-
-  const [cols] = await connection.execute(`SHOW COLUMNS FROM b2c_herramienta_orden`);
-  const names = cols.map((c) => c.Field);
-
-  const candidates = [
-    'uid_usuario_asignado',
-    'uid_tecnico_asignado',
-    'uid_usuario_tecnico',
-    'uid_tecnico',
-    'uid_usuario',
-    'tecnico_id',
-    'id_tecnico',
-    'hor_tecnico',
-  ];
-
-  HO_TECH_COL_CACHE = candidates.find((c) => names.includes(c)) || null;
+  // Columna conocida del ERP — hardcodeada para evitar SHOW COLUMNS que crashea MariaDB 10.4 con tablas latin1
+  HO_TECH_COL_CACHE = 'hor_tecnico';
   return HO_TECH_COL_CACHE;
 }
 
 async function getUsuarioColumns(connection) {
   if (USR_COLS_CACHE !== undefined) return USR_COLS_CACHE;
-
-  const [cols] = await connection.execute(`SHOW COLUMNS FROM b2c_usuario`);
-  const names = cols.map((c) => c.Field);
-
-  const pick = (candidates) => candidates.find((c) => names.includes(c)) || null;
-
-  const idCol = pick(['uid_usuario', 'id_usuario', 'usuario_id', 'id']);
-  const nameCol = pick(['usu_nombre', 'usr_nombre', 'usr_nombre_completo', 'nombre_completo', 'full_name', 'usr_name', 'name']);
-  const firstNameCol = pick(['usr_nombres', 'nombres', 'nombre', 'first_name', 'firstname']);
-  const lastNameCol = pick(['usr_apellidos', 'apellidos', 'last_name', 'lastname']);
-  const emailCol = pick(['usu_email', 'usr_email', 'email', 'correo', 'mail', 'usr_correo']);
-  const roleCol = pick(['usu_tipo', 'usr_rol', 'rol', 'role', 'perfil', 'tipo', 'usr_role']);
-  const statusCol = pick(['usu_estado', 'usr_estado', 'estado', 'status', 'activo', 'habilitado', 'usr_status']);
-
-  USR_COLS_CACHE = { idCol, nameCol, firstNameCol, lastNameCol, emailCol, roleCol, statusCol, all: names };
+  // Columnas conocidas del ERP — hardcodeadas para evitar SHOW COLUMNS que crashea MariaDB 10.4 con tablas latin1
+  USR_COLS_CACHE = {
+    idCol:        'uid_usuario',
+    nameCol:      'usu_nombre',
+    firstNameCol: null,
+    lastNameCol:  null,
+    emailCol:     null,
+    roleCol:      'usu_tipo',
+    statusCol:    'usu_estado',
+    all: ['uid_usuario','usu_nombre','usu_login','usu_clave','usu_tipo','usu_estado'],
+  };
   return USR_COLS_CACHE;
 }
 

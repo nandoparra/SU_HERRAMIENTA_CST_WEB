@@ -44,6 +44,7 @@ app.use(helmet({
     directives: {
       defaultSrc:              ["'self'"],
       scriptSrc:               ["'self'", "'unsafe-inline'"],
+      scriptSrcAttr:           ["'unsafe-inline'"], // páginas usan onclick/onsubmit en atributos HTML
       styleSrc:                ["'self'", "'unsafe-inline'"],
       imgSrc:                  ["'self'", "data:", "blob:"],
       connectSrc:              ["'self'"],
@@ -204,27 +205,17 @@ async function ensureQuoteTables() {
 async function ensureStatusTables() {
   const conn = await db.getConnection();
   try {
-    // Agregar columna her_estado si no existe
-    const [cols] = await conn.execute(
-      `SHOW COLUMNS FROM b2c_herramienta_orden LIKE 'her_estado'`
+    // Agregar columna her_estado si no existe (IF NOT EXISTS — evita SHOW COLUMNS que crashea MariaDB 10.4)
+    await conn.execute(
+      `ALTER TABLE b2c_herramienta_orden
+       ADD COLUMN IF NOT EXISTS her_estado VARCHAR(32) NOT NULL DEFAULT 'pendiente_revision'`
     );
-    if (cols.length === 0) {
-      await conn.execute(
-        `ALTER TABLE b2c_herramienta_orden
-         ADD COLUMN her_estado VARCHAR(32) NOT NULL DEFAULT 'pendiente_revision'`
-      );
-    }
 
     // Agregar columna fho_tipo a fotos si no existe
-    const [colsFho] = await conn.execute(
-      `SHOW COLUMNS FROM b2c_foto_herramienta_orden LIKE 'fho_tipo'`
+    await conn.execute(
+      `ALTER TABLE b2c_foto_herramienta_orden
+       ADD COLUMN IF NOT EXISTS fho_tipo VARCHAR(20) NOT NULL DEFAULT 'recepcion'`
     );
-    if (colsFho.length === 0) {
-      await conn.execute(
-        `ALTER TABLE b2c_foto_herramienta_orden
-         ADD COLUMN fho_tipo VARCHAR(20) NOT NULL DEFAULT 'recepcion'`
-      );
-    }
 
     // Tabla de historial de cambios de estado
     await conn.execute(`

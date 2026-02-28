@@ -33,6 +33,7 @@ const QUOTE_TABLES = [
   'b2c_cotizacion_item',
   'b2c_herramienta_status_log',
   'b2c_wa_autorizacion_pendiente',
+  'b2c_foto_herramienta_orden', // fotos subidas localmente (no existen en GoDaddy)
   // b2c_informe_mantenimiento NO se preserva — se regenera desde cero con los datos reales de GoDaddy
 ];
 
@@ -47,6 +48,41 @@ function connArgs() {
 function run(cmd) {
   console.log(`  > ${cmd.replace(DB_PASS || 'NOPASS', '***')}`);
   execSync(cmd, { stdio: 'inherit' });
+}
+
+/**
+ * Dump de tablas usando mysql2 (evita mysqldump que crashea MariaDB 10.4 con tablas latin1).
+ * Genera INSERT statements compatibles con mysql.exe para restaurar.
+ */
+async function dumpTablesNode(tablas, outFile) {
+  const mysql = require('mysql2/promise');
+  const conn = await mysql.createConnection({
+    host: DB_HOST, user: DB_USER, password: DB_PASS || '', database: DB_NAME,
+  });
+  let sql = `-- Backup Node.js ${new Date().toISOString()}\nSET FOREIGN_KEY_CHECKS=0;\n\n`;
+  for (const tabla of tablas) {
+    try {
+      const [rows] = await conn.execute(`SELECT * FROM \`${tabla}\``);
+      sql += `-- ${tabla} (${rows.length} filas)\nDELETE FROM \`${tabla}\`;\n`;
+      for (const row of rows) {
+        const cols = Object.keys(row).map(c => `\`${c}\``).join(', ');
+        const vals = Object.values(row).map(v => {
+          if (v === null) return 'NULL';
+          if (v instanceof Date) return `'${v.toISOString().slice(0,19).replace('T',' ')}'`;
+          if (typeof v === 'number') return v;
+          return `'${String(v).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}'`;
+        }).join(', ');
+        sql += `INSERT INTO \`${tabla}\` (${cols}) VALUES (${vals});\n`;
+      }
+      sql += '\n';
+      console.log(`  ✅ ${tabla}: ${rows.length} filas`);
+    } catch (e) {
+      console.warn(`  ⚠️  ${tabla}: ${e.message}`);
+    }
+  }
+  sql += 'SET FOREIGN_KEY_CHECKS=1;\n';
+  fs.writeFileSync(outFile, sql, 'utf8');
+  await conn.end();
 }
 
 function log(msg) { console.log(`\n[sync-db] ${msg}`); }
@@ -101,17 +137,14 @@ async function main() {
   const backupFile = path.join(__dirname, `cotizaciones_backup_${timestamp}.sql`);
   const passArg = DB_PASS ? `-p${DB_PASS}` : '';
 
-  // ── PASO 1: Backup completo de la BD local ───────────────────────────────
-  log('PASO 1/7 — Backup completo de la base de datos local...');
-  const fullBackupFile = path.join(__dirname, `backup_completo_${timestamp}.sql`);
-  const fullDumpCmd = `"${MYSQLDUMP}" -h ${DB_HOST} -u ${DB_USER} ${passArg} ${DB_NAME} --result-file="${fullBackupFile}"`;
-  run(fullDumpCmd);
-  console.log(`  Backup completo guardado en: ${fullBackupFile}`);
+  // ── PASO 1: Backup completo omitido ─────────────────────────────────────
+  // mysqldump crashea MariaDB 10.4 con tablas latin1 (SHOW FIELDS). Se omite.
+  log('PASO 1/7 — Backup completo (omitido — mysqldump crashea con tablas latin1).');
+  console.log('  ℹ️  El backup crítico reciente está en backup_critico_2026-02-27.sql');
 
-  // ── PASO 2: Backup de tablas de cotización ───────────────────────────────
-  log('PASO 2/7 — Guardando cotizaciones locales...');
-  const dumpCmd = `"${MYSQLDUMP}" -h ${DB_HOST} -u ${DB_USER} ${passArg} ${DB_NAME} ${QUOTE_TABLES.join(' ')} --result-file="${backupFile}"`;
-  run(dumpCmd);
+  // ── PASO 2: Backup de tablas de cotización (via Node.js) ─────────────────
+  log('PASO 2/7 — Guardando cotizaciones locales (via Node.js)...');
+  await dumpTablesNode(QUOTE_TABLES, backupFile);
   console.log(`  Backup cotizaciones guardado en: ${backupFile}`);
 
   // ── PASO 3: Limpiar informes de mantenimiento anteriores ─────────────────
@@ -140,6 +173,21 @@ async function main() {
   try { fs.unlinkSync(processedSql); } catch (_) {}
   console.log('  Archivo temporal eliminado.');
 
+  // ── PASO 5.5: Crear tablas locales (no vienen en el dump de GoDaddy) ───────
+  log('PASO 5.5/7 — Creando tablas locales de cotizaciones...');
+  const createSQL = [
+    `CREATE TABLE IF NOT EXISTS b2c_cotizacion_orden (uid_orden VARCHAR(64) PRIMARY KEY, subtotal DECIMAL(14,2) NOT NULL DEFAULT 0, iva DECIMAL(14,2) NOT NULL DEFAULT 0, total DECIMAL(14,2) NOT NULL DEFAULT 0, mensaje_whatsapp TEXT NULL, whatsapp_enviado TINYINT(1) NOT NULL DEFAULT 0, whatsapp_enviado_at DATETIME NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)`,
+    `CREATE TABLE IF NOT EXISTS b2c_cotizacion_maquina (uid_orden VARCHAR(64) NOT NULL, uid_herramienta_orden VARCHAR(64) NOT NULL, tecnico_id VARCHAR(64) NULL, mano_obra DECIMAL(14,2) NOT NULL DEFAULT 0, descripcion_trabajo TEXT NULL, subtotal DECIMAL(14,2) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (uid_orden, uid_herramienta_orden))`,
+    `CREATE TABLE IF NOT EXISTS b2c_cotizacion_item (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, uid_orden VARCHAR(64) NOT NULL, uid_herramienta_orden VARCHAR(64) NOT NULL, nombre VARCHAR(255) NOT NULL, cantidad INT NOT NULL DEFAULT 1, precio DECIMAL(14,2) NOT NULL DEFAULT 0, subtotal DECIMAL(14,2) NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_cot_item (uid_orden, uid_herramienta_orden))`,
+    `CREATE TABLE IF NOT EXISTS b2c_herramienta_status_log (id BIGINT AUTO_INCREMENT PRIMARY KEY, uid_herramienta_orden VARCHAR(64) NOT NULL, estado VARCHAR(32) NOT NULL, changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_hsl (uid_herramienta_orden))`,
+    `CREATE TABLE IF NOT EXISTS b2c_wa_autorizacion_pendiente (uid_autorizacion INT AUTO_INCREMENT PRIMARY KEY, uid_orden INT NOT NULL, wa_phone VARCHAR(20) NOT NULL, estado ENUM('esperando_opcion','esperando_maquinas') NOT NULL DEFAULT 'esperando_opcion', created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY uq_wa_phone (wa_phone))`,
+    `CREATE TABLE IF NOT EXISTS b2c_informe_mantenimiento (uid_informe INT AUTO_INCREMENT PRIMARY KEY, uid_orden INT NOT NULL, uid_herramienta_orden INT NOT NULL, inf_archivo VARCHAR(255) NOT NULL, inf_fecha DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY uq_informe_maquina (uid_herramienta_orden), INDEX idx_inf_orden (uid_orden))`,
+    `ALTER TABLE b2c_herramienta_orden ADD COLUMN IF NOT EXISTS her_estado VARCHAR(32) NOT NULL DEFAULT 'pendiente_revision'`,
+    `ALTER TABLE b2c_foto_herramienta_orden ADD COLUMN IF NOT EXISTS fho_tipo VARCHAR(20) NOT NULL DEFAULT 'recepcion'`,
+  ].join('; ');
+  run(`"${MYSQL_BIN}" ${connArgs()} -e "${createSQL.replace(/"/g, '\\"')}"`);
+  console.log('  Tablas locales listas.');
+
   // ── PASO 6: Restaurar tablas de cotización ───────────────────────────────
   log('PASO 6/7 — Restaurando cotizaciones y logs locales...');
   const restoreCmd = `"${MYSQL_BIN}" ${connArgs()} < "${backupFile}"`;
@@ -152,7 +200,6 @@ async function main() {
   console.log('  Columna her_estado verificada.');
 
   log('¡Listo! Base de datos actualizada con datos de GoDaddy y datos locales preservados.');
-  console.log(`  Backup completo en:      ${fullBackupFile}`);
   console.log(`  Backup cotizaciones en:  ${backupFile}\n`);
 }
 

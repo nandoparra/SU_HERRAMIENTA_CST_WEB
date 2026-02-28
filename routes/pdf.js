@@ -32,7 +32,8 @@ async function saveInforme(conn, uid_orden, uid_herramienta_orden, pdfBuffer, co
   fs.writeFileSync(path.join(dir, filename), pdfBuffer);
   const [result] = await conn.execute(
     `INSERT INTO b2c_informe_mantenimiento (uid_orden, uid_herramienta_orden, inf_archivo)
-     VALUES (?, ?, ?)`,
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE inf_archivo = VALUES(inf_archivo), inf_fecha = CURRENT_TIMESTAMP`,
     [uid_orden, uid_herramienta_orden, filename]
   );
   return { uid_informe: result.insertId, inf_archivo: filename,
