@@ -205,17 +205,20 @@ async function ensureQuoteTables() {
 async function ensureStatusTables() {
   const conn = await db.getConnection();
   try {
-    // Agregar columna her_estado si no existe (IF NOT EXISTS — evita SHOW COLUMNS que crashea MariaDB 10.4)
-    await conn.execute(
-      `ALTER TABLE b2c_herramienta_orden
-       ADD COLUMN IF NOT EXISTS her_estado VARCHAR(32) NOT NULL DEFAULT 'pendiente_revision'`
-    );
+    // Agregar columna her_estado si no existe
+    // IF NOT EXISTS es sintaxis MariaDB — en MySQL 8 usamos try/catch con ER_DUP_FIELDNAME
+    try {
+      await conn.execute(
+        `ALTER TABLE b2c_herramienta_orden ADD COLUMN her_estado VARCHAR(32) NOT NULL DEFAULT 'pendiente_revision'`
+      );
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
 
     // Agregar columna fho_tipo a fotos si no existe
-    await conn.execute(
-      `ALTER TABLE b2c_foto_herramienta_orden
-       ADD COLUMN IF NOT EXISTS fho_tipo VARCHAR(20) NOT NULL DEFAULT 'recepcion'`
-    );
+    try {
+      await conn.execute(
+        `ALTER TABLE b2c_foto_herramienta_orden ADD COLUMN fho_tipo VARCHAR(20) NOT NULL DEFAULT 'recepcion'`
+      );
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
 
     // Tabla de historial de cambios de estado
     await conn.execute(`
@@ -268,5 +271,7 @@ app.listen(PORT, async () => {
   console.log('⏳ Esperando conexión de WhatsApp Web...');
   await ensureQuoteTables();
   await ensureStatusTables();
-  waClient.initialize();
+  waClient.initialize().catch(e => {
+    console.warn('⚠️ WhatsApp Web no disponible:', e.message);
+  });
 });
