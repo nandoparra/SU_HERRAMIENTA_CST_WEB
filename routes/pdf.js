@@ -2,28 +2,70 @@
 const express      = require('express');
 const router       = express.Router();
 const db           = require('../utils/db');
+const path         = require('path');
+const fs           = require('fs');
 const { resolveOrder } = require('../utils/schema');
-const { generateQuotePDF, generateMaintenancePDF } = require('../utils/pdf-generator');
+const { generateQuotePDF, generateMaintenancePDF, generateOrdenServicioPDF } = require('../utils/pdf-generator');
 const { generateText }  = require('../utils/ia');
-const { waClient, isReady } = require('../utils/whatsapp-client');
+const { waClient, isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { MessageMedia }  = require('whatsapp-web.js');
+const { requireInterno } = require('../middleware/auth');
+
+// ─── Helper: buscar informe existente para esta máquina en esta orden ────────
+async function getExistingInforme(conn, uid_herramienta_orden) {
+  const [[row]] = await conn.execute(
+    `SELECT uid_informe, inf_archivo FROM b2c_informe_mantenimiento
+     WHERE uid_herramienta_orden = ? LIMIT 1`,
+    [uid_herramienta_orden]
+  );
+  if (!row) return null;
+  const fpath = path.join(__dirname, '..', 'public', 'uploads', 'informes-mantenimiento', row.inf_archivo);
+  if (!fs.existsSync(fpath)) return null;   // archivo borrado del disco — tratar como inexistente
+  return { uid_informe: row.uid_informe, inf_archivo: row.inf_archivo, fpath };
+}
+
+// ─── Helper: guardar informe nuevo en disco + BD ──────────────────────────────
+async function saveInforme(conn, uid_orden, uid_herramienta_orden, pdfBuffer, consecutivo) {
+  const dir = path.join(__dirname, '..', 'public', 'uploads', 'informes-mantenimiento');
+  fs.mkdirSync(dir, { recursive: true });
+  const filename = `mant-${consecutivo}-${uid_herramienta_orden}-${Date.now()}.pdf`;
+  fs.writeFileSync(path.join(dir, filename), pdfBuffer);
+  const [result] = await conn.execute(
+    `INSERT INTO b2c_informe_mantenimiento (uid_orden, uid_herramienta_orden, inf_archivo)
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE inf_archivo = VALUES(inf_archivo), inf_fecha = CURRENT_TIMESTAMP`,
+    [uid_orden, uid_herramienta_orden, filename]
+  );
+  return { uid_informe: result.insertId, inf_archivo: filename,
+           fpath: path.join(dir, filename) };
+}
 
 // ─── Prompt IA para informe de mantenimiento ──────────────────────────────────
+// Elimina saltos de línea y caracteres de control que podrían inyectar instrucciones al prompt
+function sanitizeForPrompt(str) {
+  return String(str || '').replace(/[\r\n\t]/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, 200);
+}
+
 function buildMaintenancePrompt(machine, workDesc, items) {
+  const nombre  = sanitizeForPrompt(machine.her_nombre) || 'Herramienta';
+  const marca   = sanitizeForPrompt(machine.her_marca)  || 'N/A';
+  const serial  = sanitizeForPrompt(machine.her_serial) || 'N/A';
+  const trabajo = sanitizeForPrompt(workDesc)            || 'Mantenimiento general';
+
   const partsList = items.length
-    ? items.map(it => '- ' + it.nombre + ' (x' + it.cantidad + ')').join('\n')
+    ? items.map(it => '- ' + sanitizeForPrompt(it.nombre) + ' (x' + Number(it.cantidad) + ')').join('\n')
     : 'Sin repuestos registrados';
 
   return 'Eres un t\u00e9cnico especialista en reparaci\u00f3n y mantenimiento de herramientas en Colombia.\n\n'
     + 'Genera un informe t\u00e9cnico de mantenimiento profesional en espa\u00f1ol.\n\n'
     + 'DATOS DEL EQUIPO:\n'
-    + '- Equipo: ' + (machine.her_nombre || 'Herramienta') + '\n'
-    + '- Marca: '  + (machine.her_marca  || 'N/A') + '\n'
-    + '- Serial: ' + (machine.her_serial || 'N/A') + '\n\n'
-    + 'TRABAJO REALIZADO:\n' + (workDesc || 'Mantenimiento general') + '\n\n'
+    + '- Equipo: ' + nombre + '\n'
+    + '- Marca: '  + marca  + '\n'
+    + '- Serial: ' + serial + '\n\n'
+    + 'TRABAJO REALIZADO:\n' + trabajo + '\n\n'
     + 'REPUESTOS UTILIZADOS:\n' + partsList + '\n\n'
     + 'INSTRUCCIONES:\n'
-    + '1. Comienza con "Informe T\u00e9cnico \u2014 ' + (machine.her_nombre || 'Equipo') + (machine.her_serial ? ' N\u00b0 ' + machine.her_serial : '') + ':"\n'
+    + '1. Comienza con "Informe T\u00e9cnico \u2014 ' + nombre + (machine.her_serial ? ' N\u00b0 ' + serial : '') + ':"\n'
     + '2. Describe t\u00e9cnicamente el trabajo realizado y la justificaci\u00f3n de los repuestos cambiados\n'
     + '3. Finaliza con una nota de verificaci\u00f3n de funcionamiento \u00f3ptimo\n'
     + '4. Entre 80 y 150 palabras, terminolog\u00eda t\u00e9cnica apropiada\n'
@@ -51,7 +93,19 @@ async function getMachineWithItems(conn, uidOrden, equipmentOrderId) {
     [uidOrden, equipmentOrderId]
   );
 
-  return { machine, items };
+  const [fotos] = await conn.execute(
+    `SELECT fho_archivo, fho_nombre, COALESCE(fho_tipo, 'recepcion') AS fho_tipo
+     FROM b2c_foto_herramienta_orden
+     WHERE uid_herramienta_orden = ?
+     ORDER BY uid_foto_herramienta_orden`,
+    [equipmentOrderId]
+  );
+  const photos = {
+    recepcion: fotos.filter(f => f.fho_tipo !== 'trabajo'),
+    trabajo:   fotos.filter(f => f.fho_tipo === 'trabajo'),
+  };
+
+  return { machine, items, photos };
 }
 
 async function getAllMachinesWithItems(conn, uidOrden) {
@@ -109,16 +163,26 @@ router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', async (req, res
     const order = await resolveOrder(conn, req.params.orderId);
     if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
 
-    const { machine, items } = await getMachineWithItems(conn, order.uid_orden, req.params.equipmentOrderId);
-    conn.release();
+    // Si ya existe informe para esta máquina, devolver el guardado sin regenerar
+    const existing = await getExistingInforme(conn, req.params.equipmentOrderId);
+    if (existing) {
+      conn.release();
+      const fname = 'mantenimiento-' + order.ord_consecutivo + '.pdf';
+      res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="' + fname + '"' });
+      return res.sendFile(existing.fpath);
+    }
 
-    if (!machine) return res.status(404).json({ error: 'No hay cotizaci\u00f3n para esta m\u00e1quina.' });
+    const { machine, items, photos } = await getMachineWithItems(conn, order.uid_orden, req.params.equipmentOrderId);
+    if (!machine) { conn.release(); return res.status(404).json({ error: 'No hay cotizaci\u00f3n para esta m\u00e1quina.' }); }
 
     const observation = await generateText(buildMaintenancePrompt(machine, machine.descripcion_trabajo, items), 350);
-    const pdf = await generateMaintenancePDF({ order, machine, items, observation });
+    const pdf = await generateMaintenancePDF({ order, machine, items, observation, photos });
+    await saveInforme(conn, order.uid_orden, req.params.equipmentOrderId, pdf, order.ord_consecutivo);
+    conn.release();
 
     const fname = 'mantenimiento-' + order.ord_consecutivo + '-' + (machine.her_nombre || 'maquina').replace(/\s+/g, '-') + '.pdf';
-    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="' + fname + '"' });
+    const fnameAscii = fname.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.\-]/g, '-');
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${fnameAscii}"; filename*=UTF-8''${encodeURIComponent(fname)}` });
     res.send(pdf);
   } catch (e) {
     console.error('Error generando PDF mantenimiento:', e);
@@ -143,7 +207,7 @@ router.post('/orders/:orderId/send-pdf/quote', async (req, res) => {
     const pdf    = await generateQuotePDF({ order, machines, items, quoteNumber: order.ord_consecutivo });
     const fname  = 'cotizacion-' + order.ord_consecutivo + '.pdf';
     const media  = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
-    await waClient.sendMessage(getPhone(order), media);
+    await sendWAMessage(getPhone(order), media);
 
     res.json({ success: true, filename: fname });
   } catch (e) {
@@ -161,20 +225,168 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', async (re
     const order = await resolveOrder(conn, req.params.orderId);
     if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
 
-    const { machine, items } = await getMachineWithItems(conn, order.uid_orden, req.params.equipmentOrderId);
-    conn.release();
+    const fname = 'mantenimiento-' + order.ord_consecutivo + '.pdf';
 
-    if (!machine) return res.status(404).json({ error: 'No hay cotizaci\u00f3n para esta m\u00e1quina.' });
+    // Si ya existe informe, enviar el guardado sin regenerar
+    const existing = await getExistingInforme(conn, req.params.equipmentOrderId);
+    if (existing) {
+      conn.release();
+      const pdfBuf = fs.readFileSync(existing.fpath);
+      const media  = new MessageMedia('application/pdf', pdfBuf.toString('base64'), fname);
+      await sendWAMessage(getPhone(order), media);
+      return res.json({ success: true, filename: fname });
+    }
+
+    const { machine, items, photos } = await getMachineWithItems(conn, order.uid_orden, req.params.equipmentOrderId);
+    if (!machine) { conn.release(); return res.status(404).json({ error: 'No hay cotizaci\u00f3n para esta m\u00e1quina.' }); }
 
     const observation = await generateText(buildMaintenancePrompt(machine, machine.descripcion_trabajo, items), 350);
-    const pdf   = await generateMaintenancePDF({ order, machine, items, observation });
-    const fname = 'mantenimiento-' + order.ord_consecutivo + '-' + (machine.her_nombre || 'maquina').replace(/\s+/g, '-') + '.pdf';
-    const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
-    await waClient.sendMessage(getPhone(order), media);
+    const pdf   = await generateMaintenancePDF({ order, machine, items, observation, photos });
+    await saveInforme(conn, order.uid_orden, req.params.equipmentOrderId, pdf, order.ord_consecutivo);
+    conn.release();
 
+    const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
+    await sendWAMessage(getPhone(order), media);
     res.json({ success: true, filename: fname });
   } catch (e) {
     console.error('Error enviando PDF mantenimiento:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ─── DESCARGAR informe guardado por uid — solo usuarios internos ──────────────
+router.get('/informes/:uid_informe', requireInterno, async (req, res) => {
+  try {
+    const conn = await db.getConnection();
+    const [[inf]] = await conn.execute(
+      `SELECT inf_archivo, inf_fecha FROM b2c_informe_mantenimiento WHERE uid_informe = ?`,
+      [req.params.uid_informe]
+    );
+    conn.release();
+    if (!inf) return res.status(404).json({ error: 'Informe no encontrado' });
+
+    const fpath = path.join(__dirname, '..', 'public', 'uploads', 'informes-mantenimiento', inf.inf_archivo);
+    if (!fs.existsSync(fpath)) return res.status(404).json({ error: 'Archivo no encontrado en disco' });
+
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="' + inf.inf_archivo + '"' });
+    res.sendFile(fpath);
+  } catch (e) {
+    console.error('Error sirviendo informe:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Helper: todas las máquinas de una orden para el PDF ─────────────────────
+async function getOrdenServicioDataCompleta(conn, uid_orden) {
+  const [[ordenRow]] = await conn.execute(
+    `SELECT o.uid_orden, o.ord_consecutivo, o.ord_fecha,
+            c.cli_razon_social, c.cli_identificacion, c.cli_telefono, c.cli_direccion
+     FROM b2c_orden o
+     JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+     WHERE o.uid_orden = ?`,
+    [uid_orden]
+  );
+  if (!ordenRow) return null;
+
+  const [maquinas] = await conn.execute(
+    `SELECT h.her_nombre, h.her_marca, h.her_serial, h.her_referencia,
+            ho.hor_observaciones, ho.her_estado
+     FROM b2c_herramienta_orden ho
+     JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+     WHERE ho.uid_orden = ?
+     ORDER BY ho.uid_herramienta_orden`,
+    [uid_orden]
+  );
+  return { ordenRow, maquinas };
+}
+
+function printHtml(pdfUrl) {
+  return `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><title>Imprimir Orden de Servicio</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{display:flex;flex-direction:column;height:100vh;font-family:'Segoe UI',sans-serif;background:#f0f4f8}
+  .bar{background:#1d3557;padding:10px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0}
+  .bar span{color:#fff;font-weight:600;font-size:14px;flex:1}
+  .bar button{background:#fff;color:#1d3557;border:none;padding:8px 20px;border-radius:6px;font-weight:700;font-size:14px;cursor:pointer}
+  .bar button:hover{background:#e2e8f0}
+  iframe{flex:1;border:none;width:100%}
+</style></head><body>
+  <div class="bar">
+    <span>Orden de Servicio</span>
+    <button onclick="document.getElementById('f').contentWindow.print()">🖨️ Imprimir</button>
+  </div>
+  <iframe id="f" src="${pdfUrl}"></iframe>
+  <script>
+    document.getElementById('f').addEventListener('load', function() {
+      try { this.contentWindow.print(); } catch(e) {}
+    });
+  </script>
+</body></html>`;
+}
+
+// ─── DESCARGAR / IMPRIMIR orden completa (todas las máquinas) ─────────────────
+router.get('/orders/:orderId/pdf/orden', async (req, res) => {
+  try {
+    const conn  = await db.getConnection();
+    const order = await resolveOrder(conn, req.params.orderId);
+    if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
+
+    const data = await getOrdenServicioDataCompleta(conn, order.uid_orden);
+    conn.release();
+    if (!data) return res.status(404).json({ error: 'Orden no encontrada' });
+
+    const { ordenRow, maquinas } = data;
+    const pdf = await generateOrdenServicioPDF({
+      orden:   { ord_consecutivo: ordenRow.ord_consecutivo, ord_fecha: ordenRow.ord_fecha },
+      cliente: { cli_razon_social: ordenRow.cli_razon_social, cli_identificacion: ordenRow.cli_identificacion, cli_telefono: ordenRow.cli_telefono, cli_direccion: ordenRow.cli_direccion },
+      maquinas,
+    });
+
+    const fname = 'orden-' + ordenRow.ord_consecutivo + '.pdf';
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="' + fname + '"' });
+    res.send(pdf);
+  } catch (e) {
+    console.error('Error generando PDF orden:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/orders/:orderId/print/orden', async (req, res) => {
+  const conn  = await db.getConnection();
+  const order = await resolveOrder(conn, req.params.orderId);
+  conn.release();
+  if (!order) return res.status(404).send('Orden no encontrada');
+  res.send(printHtml(`/api/orders/${order.uid_orden}/pdf/orden`));
+});
+
+// ─── ENVIAR orden completa PDF por WhatsApp ───────────────────────────────────
+router.post('/orders/:orderId/send-pdf/orden', async (req, res) => {
+  try {
+    if (!isReady()) return res.status(503).json({ success: false, error: 'WhatsApp no est\u00e1 conectado.' });
+
+    const conn  = await db.getConnection();
+    const order = await resolveOrder(conn, req.params.orderId);
+    if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
+
+    const data = await getOrdenServicioDataCompleta(conn, order.uid_orden);
+    conn.release();
+    if (!data) return res.status(404).json({ error: 'Orden no encontrada' });
+
+    const { ordenRow, maquinas } = data;
+    const pdf = await generateOrdenServicioPDF({
+      orden:   { ord_consecutivo: ordenRow.ord_consecutivo, ord_fecha: ordenRow.ord_fecha },
+      cliente: { cli_razon_social: ordenRow.cli_razon_social, cli_identificacion: ordenRow.cli_identificacion, cli_telefono: ordenRow.cli_telefono, cli_direccion: ordenRow.cli_direccion },
+      maquinas,
+    });
+
+    const fname = 'orden-' + ordenRow.ord_consecutivo + '.pdf';
+    const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
+    await sendWAMessage(getPhone({ cli_telefono: ordenRow.cli_telefono }), media);
+
+    res.json({ success: true, filename: fname });
+  } catch (e) {
+    console.error('Error enviando PDF orden de servicio:', e);
     res.status(500).json({ success: false, error: e.message });
   }
 });

@@ -3,3 +3,4 @@ node_modules/
 *.sql
 .wwebjs_auth/
 .wwebjs_cache/
+public/uploads/

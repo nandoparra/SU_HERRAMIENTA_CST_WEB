@@ -3,908 +3,923 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Generador de Cotizaciones - Universal</title>
+  <title>SU HERRAMIENTA CST — Cotizaciones</title>
   <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{
-      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,sans-serif;
-      background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
-      min-height:100vh;padding:20px
-    }
-    .container{
-      max-width:1200px;margin:0 auto;background:#fff;border-radius:12px;
-      box-shadow:0 10px 40px rgba(0,0,0,.2);
-      display:grid;grid-template-columns:1fr 1fr;gap:30px;padding:30px
-    }
-    .header{grid-column:1/-1;text-align:center;margin-bottom:20px;border-bottom:2px solid #667eea;padding-bottom:20px}
-    .header h1{color:#333;font-size:28px;margin-bottom:5px}
-    .header p{color:#666;font-size:14px}
-    .section{padding:20px;background:#f8f9fa;border-radius:8px}
-    .section h2{color:#333;margin-bottom:20px;font-size:20px;border-bottom:2px solid #667eea;padding-bottom:10px}
-    label{display:block;color:#555;font-weight:600;margin-bottom:5px;font-size:14px}
-    input,select,textarea{width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:14px;font-family:inherit}
-    input:focus,select:focus,textarea:focus{outline:none;border-color:#667eea;box-shadow:0 0 0 3px rgba(102,126,234,.1)}
-    .search-group{display:flex;gap:10px;margin-bottom:15px}
-    .search-group input{flex:1}
-    button{
-      background:#667eea;color:#fff;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;
-      font-weight:600;transition:all .2s ease
-    }
-    button:hover{background:#764ba2;transform:translateY(-2px);box-shadow:0 5px 15px rgba(102,126,234,.3)}
-    button:disabled{background:#ccc;cursor:not-allowed;transform:none;box-shadow:none}
-    .button-group{display:flex;gap:10px;margin-top:14px}
-    .button-group button{flex:1}
-    .secondary{background:#6c757d}
-    .secondary:hover{background:#5a6268}
-    .success{background:#28a745}
-    .success:hover{background:#218838}
-    .danger{background:#dc3545}
-    .danger:hover{background:#c82333}
-    .order-info{
-      background:#fff;padding:15px;border-radius:6px;margin-bottom:12px;border-left:4px solid #667eea;
-      cursor:pointer;transition:all .15s
-    }
-    .order-info:hover{box-shadow:0 3px 10px rgba(102,126,234,.2);transform:translateX(5px)}
-    .order-info p{color:#666;margin:5px 0;font-size:13px}
-    .items-container{
-      background:#fff;border-radius:6px;padding:15px;max-height:320px;overflow-y:auto
-    }
-    .item-row{
-      display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:10px;padding:12px;border-bottom:1px solid #eee;align-items:center
-    }
-    .item-row:last-child{border-bottom:none}
-    .item-row input{padding:8px}
-    .item-row button{padding:8px 12px;font-size:12px;background:#dc3545}
-    .add-item-group{
-      display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:10px;margin-top:15px
-    }
-    .add-item-group input,.add-item-group select{padding:8px}
-    .add-item-group button{padding:8px 12px;background:#28a745}
-    .summary{background:#fff;padding:15px;border-radius:6px;margin-top:15px}
-    .summary-row{display:flex;justify-content:space-between;margin:8px 0;font-size:14px;color:#666}
-    .summary-row strong{color:#333}
-    .summary-row.total{font-size:18px;font-weight:700;color:#667eea;border-top:2px solid #eee;padding-top:10px;margin-top:10px}
-    .preview{
-      background:#fff;padding:20px;border-radius:6px;margin-top:15px;border:2px solid #667eea;min-height:240px
-    }
-    .preview h3{color:#667eea;margin-bottom:12px;font-size:16px}
-    .preview-content{
-      color:#333;line-height:1.6;font-size:14px;white-space:pre-wrap;word-wrap:break-word;background:#f8f9fa;
-      padding:15px;border-radius:6px;font-family:'Courier New',monospace
-    }
-    .alert{padding:12px 15px;border-radius:6px;margin-bottom:15px;font-size:13px}
-    .alert.info{background:#d1ecf1;color:#0c5460;border:1px solid #bee5eb}
-    .alert.error{background:#f8d7da;color:#721c24;border:1px solid #f5c6cb}
-    .alert.success{background:#d4edda;color:#155724;border:1px solid #c3e6cb}
-    .muted{color:#888;font-size:11px;margin-top:6px}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:#f0f4f8;min-height:100vh;display:flex;flex-direction:column;}
+
+    /* ─── Header ─── */
+    header{background:#1d3557;color:#fff;padding:12px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0;}
+    .logo-wrap{position:relative;width:96px;height:50px;flex-shrink:0;overflow:hidden;}
+    .logo-wrap img{position:absolute;left:50%;top:50%;width:50px;transform:translate(-50%,-50%) rotate(-90deg);}
+    header h1{font-size:15px;font-weight:600;flex:1;}
+    .nav-links{display:flex;gap:12px;align-items:center;}
+    .nav-links a{color:rgba(255,255,255,.8);text-decoration:none;font-size:13px;}
+    .nav-links a:hover{color:#fff;}
+    .logout-btn{background:rgba(255,255,255,.15);border:none;color:#fff;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:13px;}
+    .logout-btn:hover{background:rgba(255,255,255,.25);}
+
+    /* ─── Main layout ─── */
+    .main{display:flex;flex:1;min-height:0;}
+
+    /* ─── Panel izquierdo ─── */
+    .panel-left{width:340px;min-width:260px;background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;flex-shrink:0;}
+    .search-box{padding:14px;border-bottom:1px solid #eee;flex-shrink:0;}
+    .search-box h2{font-size:12px;font-weight:700;color:#1d3557;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px;}
+    .concept-row{margin-bottom:8px;}
+    .concept-row select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;color:#333;background:#fff;outline:none;}
+    .concept-row select:focus{border-color:#457b9d;}
+    .input-row{display:flex;gap:6px;}
+    .input-row input{flex:1;padding:9px 11px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none;}
+    .input-row input:focus{border-color:#457b9d;}
+    .input-row button{padding:9px 14px;background:#1d3557;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;}
+    .input-row button:hover{background:#457b9d;}
+
+    .results-list{flex:1;overflow-y:auto;padding:10px;}
+    .results-empty{padding:20px 14px;text-align:center;color:#aaa;font-size:13px;}
+
+    .result-card{padding:11px 14px;border:1px solid #e8e8e8;border-radius:8px;margin-bottom:7px;cursor:pointer;transition:background .15s,border-color .15s;}
+    .result-card:hover{background:#f0f4f8;border-color:#457b9d;}
+    .result-card.active{background:#e8f4fd;border-color:#1d3557;}
+    .rc-top{display:flex;justify-content:space-between;align-items:center;}
+    .rc-num{font-weight:700;font-size:13px;color:#1d3557;}
+    .rc-fecha{font-size:11px;color:#999;}
+    .rc-cliente{font-size:12px;color:#333;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .rc-maq{font-size:11px;color:#888;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+    /* ─── Panel info orden cargada ─── */
+    .order-loaded-panel{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:0;}
+    .orden-badge{background:#1d3557;color:#fff;border-radius:6px;padding:8px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}
+    .orden-badge .num{font-weight:700;font-size:14px;}
+    .back-btn{background:rgba(255,255,255,.2);border:none;color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;}
+    .back-btn:hover{background:rgba(255,255,255,.35);}
+    .info-field{font-size:12px;color:#555;margin-bottom:4px;}
+    .info-field strong{color:#1d3557;}
+    .slabel{font-size:10px;font-weight:700;color:#457b9d;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 5px;}
+    .maq-sel select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;color:#333;outline:none;}
+    .eq-info{font-size:11px;color:#457b9d;margin-top:4px;min-height:16px;}
+    .status-list{display:flex;flex-direction:column;gap:5px;}
+    .status-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;color:#444;}
+    .status-row select{padding:2px 5px;border-radius:4px;border:1px solid #ddd;font-size:11px;cursor:pointer;}
+    .wa-buttons{display:flex;flex-direction:column;gap:5px;}
+    .wa-btn{border:none;border-radius:5px;padding:7px 10px;font-size:11px;cursor:pointer;text-align:left;font-weight:600;}
+    .wa-btn:hover{opacity:.85;}
+    .btn-parts{background:#FF9800;color:#fff;}
+    .btn-ready{background:#9C27B0;color:#fff;}
+    .btn-deliv{background:#009688;color:#fff;}
+    .tech-row{display:flex;gap:6px;align-items:center;}
+    .tech-row select{flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:5px;font-size:12px;outline:none;}
+    .tech-row button{padding:5px 8px;background:#6c757d;color:#fff;border:none;border-radius:5px;font-size:11px;cursor:pointer;white-space:nowrap;}
+    .tech-row button:hover{background:#5a6268;}
+    .muted-txt{color:#888;font-size:11px;margin-top:4px;}
+
+    /* ─── Panel derecho ─── */
+    .panel-right{flex:1;overflow-y:auto;padding:20px;}
+    .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#aaa;text-align:center;}
+    .empty-state .icon{font-size:48px;margin-bottom:12px;opacity:.4;}
+    .empty-state p{font-size:14px;}
+
+    /* ─── Cards ─── */
+    .card{background:#fff;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.06);padding:18px;margin-bottom:14px;}
+    .card-title{font-size:12px;font-weight:700;color:#457b9d;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;}
+    label{display:block;color:#555;font-weight:600;margin-bottom:4px;font-size:13px;}
+    input[type="number"],input[type="text"],textarea{width:100%;padding:9px 11px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:inherit;outline:none;}
+    input[type="number"]:focus,input[type="text"]:focus,textarea:focus{border-color:#457b9d;}
+
+    /* ─── Items / repuestos ─── */
+    .items-container{background:#f7f9fb;border-radius:6px;padding:10px;max-height:240px;overflow-y:auto;margin-bottom:10px;}
+    .item-row{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;padding:8px;border-bottom:1px solid #eee;align-items:center;}
+    .item-row:last-child{border-bottom:none;}
+    .item-row input{padding:6px 8px;}
+    .item-row button{padding:5px 9px;font-size:12px;background:#dc3545;color:#fff;border:none;border-radius:4px;cursor:pointer;}
+    .add-item-group{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;}
+    .add-item-group input,.add-item-group select{padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:inherit;outline:none;background:#fff;}
+    .add-item-group button{padding:7px 12px;background:#27ae60;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:600;}
+    .add-item-group button:hover{background:#218838;}
+
+    /* ─── Resumen ─── */
+    .summary-box{background:#f0f4f8;border-radius:8px;padding:14px;}
+    .summary-row{display:flex;justify-content:space-between;font-size:13px;color:#555;padding:4px 0;}
+    .summary-row strong{color:#1d3557;}
+    .summary-total{display:flex;justify-content:space-between;font-size:16px;font-weight:700;color:#1d3557;border-top:2px solid #dde;padding-top:8px;margin-top:4px;}
+
+    /* ─── Botones ─── */
+    .btn-group{display:flex;gap:8px;flex-wrap:wrap;}
+    .btn{padding:9px 16px;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;transition:background .2s,transform .1s;}
+    .btn:hover{transform:translateY(-1px);}
+    .btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+    .btn-save{background:#1d3557;color:#fff;}
+    .btn-save:hover{background:#457b9d;}
+    .btn-gen{background:#6c3483;color:#fff;}
+    .btn-gen:hover{background:#5b2c6f;}
+    .btn-send{background:#27ae60;color:#fff;}
+    .btn-send:hover{background:#218838;}
+    .btn-reset{background:#6c757d;color:#fff;}
+    .btn-reset:hover{background:#5a6268;}
+    .btn-pdf{background:#457b9d;color:#fff;}
+    .btn-pdf:hover{background:#1d3557;}
+    .muted{color:#888;font-size:11px;margin-bottom:4px;}
+
+    /* ─── Preview ─── */
+    .preview-box{background:#f7f9fb;border:1px solid #e2e8f0;border-radius:8px;padding:14px;min-height:100px;}
+    .preview-content{color:#333;line-height:1.6;font-size:12px;white-space:pre-wrap;word-wrap:break-word;font-family:'Courier New',monospace;}
+
     @media(max-width:768px){
-      .container{grid-template-columns:1fr;gap:20px}
-      .add-item-group,.item-row{grid-template-columns:1fr}
+      .main{flex-direction:column;}
+      .panel-left{width:100%;min-width:unset;border-right:none;border-bottom:1px solid #e2e8f0;max-height:50vh;overflow-y:auto;}
+      .add-item-group,.item-row{grid-template-columns:1fr;}
+      header{flex-wrap:wrap;padding:10px 14px;gap:8px 12px;}
+      header h1{font-size:14px;flex:1 1 100%;}
+      .nav-links{flex-wrap:wrap;gap:6px 12px;}
+    }
+    @media(max-width:480px){
+      .panel-right{padding:12px;}
+      .order-loaded-panel{padding:10px;}
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <h1>🔧 Generador de Cotizaciones</h1>
-      <p>Universal - Cotiza por máquina, guarda en BD y envía un SOLO WhatsApp final</p>
-    </div>
 
-    <!-- IZQUIERDA -->
-    <div class="section">
-      <h2>📋 Seleccionar Orden</h2>
-
-      <div class="form-group">
-        <label>Buscar por Número de Orden, Cédula, Nombre o Teléfono</label>
-        <div class="search-group">
-          <input id="searchInput" placeholder="Ej: 441 | 1030... | HERNANDO | 301..." />
-          <button onclick="searchOrders()">Buscar</button>
-        </div>
-      </div>
-
-      <div id="searchResults"></div>
-
-      <div id="orderInfo" style="display:none;margin-top:20px;">
-        <div class="alert info"><strong>✅ Orden Cargada</strong></div>
-
-        <div class="order-info" style="margin:0;cursor:default;">
-          <p><strong>Número:</strong> <span id="orderNumber">-</span></p>
-          <p><strong>Cliente:</strong> <span id="clientName">-</span></p>
-          <p><strong>Contacto:</strong> <span id="clientContact">-</span></p>
-          <p><strong>Teléfono:</strong> <span id="clientPhone">-</span></p>
-          <p><strong>Fecha de ingreso:</strong> <span id="orderDate">-</span></p>
-
-          <p><strong>Máquinas en la orden:</strong> <span id="equipmentCount">0</span></p>
-          <p><strong>Cotizaciones guardadas:</strong> <span id="savedCount">0</span></p>
-
-          <p><strong>Máquina seleccionada:</strong> <span id="equipmentName">-</span></p>
-          <p><strong>Marca/Serial:</strong> <span id="equipmentBrand">-</span></p>
-
-          <div style="margin-top:12px;">
-            <label style="font-size:12px;"><strong>Seleccionar máquina para cotizar</strong></label>
-            <select id="equipmentSelect" onchange="onEquipmentChange()">
-              <option value="">-- Selecciona una máquina --</option>
-            </select>
-            <div id="equipmentList" style="margin-top:10px;font-size:12px;color:#666;"></div>
-          </div>
-
-          <div id="statusActions" style="display:none;margin-top:12px;display:flex;flex-direction:column;gap:6px;">
-            <button type="button" onclick="notifyParts()" style="background:#FF9800;color:#fff;border:none;border-radius:5px;padding:7px 10px;font-size:12px;cursor:pointer;text-align:left;">
-              📦 Enviar lista de repuestos al encargado <span style="opacity:.7;font-size:11px;">(autorizadas)</span>
-            </button>
-            <button type="button" onclick="notifyReady()" style="background:#9C27B0;color:#fff;border:none;border-radius:5px;padding:7px 10px;font-size:12px;cursor:pointer;text-align:left;">
-              🔧 Notificar al cliente — máquinas listas <span style="opacity:.7;font-size:11px;">(reparadas)</span>
-            </button>
-            <button type="button" onclick="notifyDelivered()" style="background:#009688;color:#fff;border:none;border-radius:5px;padding:7px 10px;font-size:12px;cursor:pointer;text-align:left;">
-              ✅ Confirmar entrega al cliente <span style="opacity:.7;font-size:11px;">(entregadas)</span>
-            </button>
-          </div>
-
-          <div style="margin-top:12px;">
-            <label style="font-size:12px;"><strong>Técnico asignado</strong></label>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <select id="technicianSelect" onchange="onTechnicianChange()" style="flex:1;">
-                <option value="">(Sin asignar)</option>
-              </select>
-              <button type="button" onclick="assignTechnicianToAll()" class="secondary">A todas</button>
-            </div>
-            <div id="techWarning" class="muted"></div>
-          </div>
-        </div>
-      </div>
-
-      <div style="margin-top:30px;">
-        <h3 style="color:#555;margin-bottom:15px;font-size:15px;">📚 Órdenes Recientes</h3>
-        <div id="recentOrders"></div>
-      </div>
-    </div>
-
-    <!-- DERECHA -->
-    <div class="section">
-      <h2>💰 Cotizar Máquina Seleccionada</h2>
-
-      <div class="form-group">
-        <label>Mano de Obra (valor en $)</label>
-        <input type="number" id="laborCost" placeholder="Ej: 50000" min="0" onchange="updateSummary()" />
-      </div>
-
-      <div class="form-group">
-        <label>Descripción del trabajo</label>
-        <textarea id="workDescription" rows="3" placeholder="Describe el trabajo..."></textarea>
-      </div>
-
-      <h3 style="color:#555;margin-top:20px;margin-bottom:10px;font-size:15px;">⚙️ Repuestos (de esta máquina)</h3>
-
-      <div class="items-container" id="itemsContainer">
-        <p style="color:#999;text-align:center;padding:20px;">(Sin repuestos aún)</p>
-      </div>
-
-      <div class="add-item-group">
-        <select id="partSelect">
-          <option value="">-- Catálogo de Repuestos --</option>
-        </select>
-        <input type="number" id="partQuantity" value="1" min="1" placeholder="Cantidad" />
-        <input type="text" id="customPartName" placeholder="O escribir repuesto" />
-        <button onclick="addItem()">+ Agregar</button>
-      </div>
-
-      <div class="summary">
-        <div class="summary-row"><span>Subtotal máquina:</span> <strong id="subtotalDisplay">$0</strong></div>
-        <div class="summary-row"><span>IVA:</span> <strong id="taxDisplay">$0</strong></div>
-        <div class="summary-row total"><span>TOTAL máquina:</span> <strong id="totalDisplay">$0</strong></div>
-        <div class="muted">* IVA: No aplica</div>
-      </div>
-
-      <div class="button-group">
-        <button class="secondary" onclick="saveMachineQuote()" id="saveBtn">💾 Guardar máquina</button>
-        <button onclick="generateFinalMessage()" id="genFinalBtn">🤖 Mensaje final</button>
-        <button class="success" onclick="sendFinalWhatsApp()" id="sendFinalBtn" disabled>📱 Enviar final</button>
-        <button class="danger" onclick="resetMachineForm()">🔄 Limpiar</button>
-      </div>
-
-      <p class="muted" style="margin-top:14px;">📋 Cotización PDF (toda la orden):</p>
-      <div class="button-group" style="margin-top:4px;">
-        <button class="secondary" onclick="downloadQuotePDF()">📄 Descargar PDF</button>
-        <button class="secondary" onclick="sendQuotePDF()" id="sendQuotePDFBtn">📤 Enviar por WhatsApp</button>
-      </div>
-
-      <p class="muted" style="margin-top:10px;">🔧 Informe de mantenimiento (máquina seleccionada):</p>
-      <div class="button-group" style="margin-top:4px;">
-        <button class="secondary" onclick="downloadMaintenancePDF()">📄 Descargar Informe</button>
-        <button class="secondary" onclick="sendMaintenancePDF()" id="sendMaintPDFBtn">📤 Enviar Informe WA</button>
-      </div>
-
-      <div class="preview">
-        <h3>👀 Vista previa WhatsApp (cotización completa)</h3>
-        <div class="preview-content" id="messagePreview">Aquí aparecerá el mensaje FINAL (todas las máquinas)...</div>
-      </div>
-    </div>
+<header>
+  <div class="logo-wrap">
+    <img src="/assets/logo.png" alt="Logo SU HERRAMIENTA CST">
   </div>
+  <h1>SU HERRAMIENTA CST — Cotizaciones</h1>
+  <div class="nav-links">
+    <a href="/ordenes.html">📋 Órdenes</a>
+    <a href="/crear-orden.html">+ Nueva Orden</a>
+    <span id="headerUserName" style="font-size:13px;opacity:.8;"></span>
+    <button class="logout-btn" onclick="doLogout()">Cerrar sesión</button>
+  </div>
+</header>
 
-  <script>
-    const API_BASE = 'http://localhost:3001/api';
+<div class="main">
 
-    const ESTADOS = [
-      { value: 'pendiente_revision', label: 'Pendiente de revisión', color: '#888' },
-      { value: 'revisada',           label: 'Revisada',              color: '#2196F3' },
-      { value: 'cotizada',           label: 'Cotizada',              color: '#FF9800' },
-      { value: 'autorizada',         label: 'Autorizada',            color: '#4CAF50' },
-      { value: 'no_autorizada',      label: 'No autorizada',         color: '#F44336' },
-      { value: 'reparada',           label: 'Reparada',              color: '#9C27B0' },
-      { value: 'entregada',          label: 'Entregada',             color: '#009688' },
-    ];
+  <!-- ─── Panel izquierdo ─── -->
+  <div class="panel-left">
 
-    function showToast(msg, duration = 3000) {
-      let t = document.getElementById('_toast');
-      if (!t) {
-        t = document.createElement('div');
-        t.id = '_toast';
-        t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#323232;color:#fff;padding:10px 20px;border-radius:6px;font-size:13px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.3);opacity:0;transition:opacity 0.3s';
-        document.body.appendChild(t);
-      }
-      t.textContent = msg;
-      t.style.opacity = '1';
-      clearTimeout(t._timer);
-      t._timer = setTimeout(() => { t.style.opacity = '0'; }, duration);
+    <!-- Buscador (siempre visible) -->
+    <div class="search-box">
+      <h2>Buscar orden</h2>
+      <div class="concept-row">
+        <select id="conceptoSelect" onchange="actualizarPlaceholder()">
+          <option value="consecutivo">Número de orden</option>
+          <option value="cedula">Cédula / NIT</option>
+          <option value="nombre">Nombre del cliente</option>
+        </select>
+      </div>
+      <div class="input-row">
+        <input id="searchInput" type="text" placeholder="Ej: 7833" oninput="buscarDebounce()">
+        <button onclick="buscar()">🔍</button>
+      </div>
+    </div>
+
+    <!-- Resultados -->
+    <div class="results-list" id="resultsList">
+      <div class="results-empty">Escribe para buscar</div>
+    </div>
+
+    <!-- Info de la orden cargada (oculto hasta que se cargue una orden) -->
+    <div id="orderLoadedPanel" style="display:none;" class="order-loaded-panel">
+      <div class="orden-badge">
+        <span class="num">Orden #<span id="orderNumber">-</span></span>
+        <button class="back-btn" onclick="volverBusqueda()">← Volver</button>
+      </div>
+      <div class="info-field"><strong>Cliente:</strong> <span id="clientName">-</span></div>
+      <div class="info-field"><strong>Fecha:</strong> <span id="orderDate">-</span></div>
+      <div class="info-field"><strong>Tel:</strong> <span id="clientPhone">-</span></div>
+      <div class="info-field" style="color:#666;"><span id="equipmentCount">0</span> equipo(s) | <span id="savedCount">0</span> cotizado(s)</div>
+
+      <div class="slabel">Máquina a cotizar</div>
+      <div class="maq-sel">
+        <select id="equipmentSelect" onchange="onEquipmentChange()">
+          <option value="">-- Selecciona una máquina --</option>
+        </select>
+      </div>
+      <div class="eq-info">
+        <span id="equipmentName"></span><span id="equipmentBrand" style="color:#888;margin-left:4px;"></span>
+      </div>
+
+      <div class="slabel">Notificaciones WhatsApp</div>
+      <div class="wa-buttons">
+        <button class="wa-btn btn-parts" type="button" onclick="notifyParts()">
+          📦 Lista repuestos al encargado <span style="opacity:.7;font-size:10px;">(autorizadas)</span>
+        </button>
+        <button class="wa-btn btn-ready" type="button" onclick="notifyReady()">
+          🔧 Cliente — máquinas listas <span style="opacity:.7;font-size:10px;">(reparadas)</span>
+        </button>
+        <button class="wa-btn btn-deliv" type="button" onclick="notifyDelivered()">
+          ✅ Confirmar entrega <span style="opacity:.7;font-size:10px;">(entregadas)</span>
+        </button>
+      </div>
+
+      <div class="slabel">Técnico asignado</div>
+      <div class="tech-row">
+        <select id="technicianSelect" onchange="onTechnicianChange()">
+          <option value="">(Sin asignar)</option>
+        </select>
+        <button onclick="assignTechnicianToAll()">A todas</button>
+      </div>
+      <div id="techWarning" class="muted-txt"></div>
+    </div>
+
+  </div><!-- /.panel-left -->
+
+  <!-- ─── Panel derecho ─── -->
+  <div class="panel-right">
+
+    <!-- Estado vacío -->
+    <div id="emptyState" class="empty-state">
+      <div class="icon">💰</div>
+      <p>Busca y selecciona una orden para cotizar</p>
+    </div>
+
+    <!-- Formulario cotización (oculto hasta cargar orden) -->
+    <div id="cotizadorSection" style="display:none;">
+
+      <!-- Mano de obra + descripción -->
+      <div class="card">
+        <div class="card-title">💰 Cotizar máquina seleccionada</div>
+        <div style="margin-bottom:12px;">
+          <label>Mano de obra ($)</label>
+          <input type="number" id="laborCost" placeholder="Ej: 50000" min="0" onchange="updateSummary()" />
+        </div>
+        <div>
+          <label>Descripción del trabajo</label>
+          <textarea id="workDescription" rows="3" placeholder="Describe el trabajo..."></textarea>
+        </div>
+      </div>
+
+      <!-- Repuestos -->
+      <div class="card">
+        <div class="card-title">⚙️ Repuestos</div>
+        <div class="items-container" id="itemsContainer">
+          <p style="color:#999;text-align:center;padding:16px;">(Sin repuestos aún)</p>
+        </div>
+        <div class="add-item-group">
+          <select id="partSelect">
+            <option value="">-- Catálogo de Repuestos --</option>
+          </select>
+          <input type="number" id="partQuantity" value="1" min="1" placeholder="Cant." />
+          <input type="text" id="customPartName" placeholder="O escribir repuesto" />
+          <button onclick="addItem()">+ Agregar</button>
+        </div>
+      </div>
+
+      <!-- Resumen -->
+      <div class="card">
+        <div class="card-title">📊 Resumen</div>
+        <div class="summary-box">
+          <div class="summary-row"><span>Subtotal máquina:</span><strong id="subtotalDisplay">$0</strong></div>
+          <div class="summary-row"><span>IVA:</span><strong id="taxDisplay">$0</strong></div>
+          <div class="summary-total"><span>TOTAL máquina:</span><span id="totalDisplay">$0</span></div>
+        </div>
+        <div class="muted" style="margin-top:8px;">* IVA: No aplica</div>
+      </div>
+
+      <!-- Acciones -->
+      <div class="card">
+        <div class="card-title">⚡ Acciones</div>
+        <div class="btn-group">
+          <button class="btn btn-save" onclick="saveMachineQuote()" id="saveBtn">💾 Guardar máquina</button>
+          <button class="btn btn-gen" onclick="generateFinalMessage()" id="genFinalBtn">🤖 Mensaje final</button>
+          <button class="btn btn-send" onclick="sendFinalWhatsApp()" id="sendFinalBtn" disabled>📱 Enviar WA final</button>
+          <button class="btn btn-reset" onclick="resetMachineForm()">🔄 Limpiar</button>
+        </div>
+
+        <div class="muted" style="margin-top:14px;">📄 Cotización PDF (toda la orden)</div>
+        <div class="btn-group" style="margin-top:4px;">
+          <button class="btn btn-pdf" onclick="downloadQuotePDF()">📄 Descargar PDF</button>
+          <button class="btn btn-pdf" onclick="sendQuotePDF()" id="sendQuotePDFBtn">📤 Enviar por WA</button>
+        </div>
+
+        <div class="muted" style="margin-top:10px;">🔧 Informe de mantenimiento (máquina seleccionada)</div>
+        <div class="btn-group" style="margin-top:4px;">
+          <button class="btn btn-pdf" onclick="downloadMaintenancePDF()">📄 Descargar Informe</button>
+          <button class="btn btn-pdf" onclick="sendMaintenancePDF()" id="sendMaintPDFBtn">📤 Enviar Informe WA</button>
+        </div>
+      </div>
+
+      <!-- Vista previa WhatsApp -->
+      <div class="card">
+        <div class="card-title">👀 Vista previa WhatsApp (cotización completa)</div>
+        <div class="preview-box">
+          <div class="preview-content" id="messagePreview">Aquí aparecerá el mensaje FINAL (todas las máquinas)...</div>
+        </div>
+      </div>
+
+    </div><!-- /#cotizadorSection -->
+
+  </div><!-- /.panel-right -->
+
+</div><!-- /.main -->
+
+<script>
+  const API_BASE = '/api';
+
+  // ── Sesión ──────────────────────────────────────────────────────────────────
+  (async function checkSession() {
+    const res = await fetch('/me').then(r => r.json()).catch(() => ({}));
+    if (!res.authenticated) { window.location.href = '/login'; return; }
+    document.getElementById('headerUserName').textContent = res.user.nombre;
+    const params = new URLSearchParams(window.location.search);
+    const ordenParam = params.get('orden');
+    if (ordenParam) await loadOrder({ uid_orden: ordenParam });
+  })();
+
+  async function doLogout() {
+    await fetch('/logout', { method: 'POST' });
+    window.location.href = '/login';
+  }
+
+  const ESTADOS = [
+    { value: 'pendiente_revision', label: 'Pendiente de revisión', color: '#888' },
+    { value: 'revisada',           label: 'Revisada',              color: '#2196F3' },
+    { value: 'cotizada',           label: 'Cotizada',              color: '#FF9800' },
+    { value: 'autorizada',         label: 'Autorizada',            color: '#4CAF50' },
+    { value: 'no_autorizada',      label: 'No autorizada',         color: '#F44336' },
+    { value: 'reparada',           label: 'Reparada',              color: '#9C27B0' },
+    { value: 'entregada',          label: 'Entregada',             color: '#009688' },
+  ];
+
+  function showToast(msg, duration = 3000) {
+    let t = document.getElementById('_toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = '_toast';
+      t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#323232;color:#fff;padding:10px 20px;border-radius:6px;font-size:13px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.3);opacity:0;transition:opacity 0.3s';
+      document.body.appendChild(t);
     }
+    t.textContent = msg;
+    t.style.opacity = '1';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => { t.style.opacity = '0'; }, duration);
+  }
 
-    let currentOrderId = null;
-    let currentOrderData = null;
+  let currentOrderId = null;
+  let currentOrderData = null;
+  let equipmentData = [];
+  let techniciansData = [];
+  let selectedEquipment = null;
+  let currentQuoteItems = [];
+  let finalMessage = '';
 
-    let equipmentData = [];
-    let techniciansData = [];
-    let selectedEquipment = null;
+  // ── Búsqueda con concepto ────────────────────────────────────────────────────
+  const PLACEHOLDERS = {
+    consecutivo: 'Ej: 7833',
+    cedula:      'Ej: 8914110164',
+    nombre:      'Ej: Motel Casa Blanca',
+  };
 
-    let currentQuoteItems = [];
-    let finalMessage = '';
+  function actualizarPlaceholder() {
+    const concepto = document.getElementById('conceptoSelect').value;
+    document.getElementById('searchInput').placeholder = PLACEHOLDERS[concepto];
+    document.getElementById('searchInput').value = '';
+    document.getElementById('resultsList').innerHTML = '<div class="results-empty">Escribe para buscar</div>';
+  }
 
-    // ===== Search =====
-    async function searchOrders(){
-      const q = document.getElementById('searchInput').value.trim();
-      if(!q) return alert('Escribe algo para buscar');
+  let buscarTimer = null;
+  function buscarDebounce() {
+    clearTimeout(buscarTimer);
+    buscarTimer = setTimeout(buscar, 350);
+  }
 
-      try{
-        const r = await fetch(`${API_BASE}/orders/search?q=${encodeURIComponent(q)}`);
-        if(!r.ok) throw new Error('Error en búsqueda');
-        const orders = await r.json();
-
-        const box = document.getElementById('searchResults');
-        box.innerHTML = '';
-
-        if(!orders.length){
-          box.innerHTML = '<div class="alert info">❌ No se encontraron órdenes</div>';
-          return;
-        }
-
-        orders.forEach(o=>{
-          const div = document.createElement('div');
-          div.className='order-info';
-          div.innerHTML = `
-            <p><strong>Orden #${o.ord_consecutivo}</strong></p>
-            <p>${o.cli_razon_social}</p>
-            <p style="color:#999;font-size:12px;">📞 ${o.cli_telefono||'-'}</p>
-            <p style="color:#666;font-size:12px;">🧰 Máquinas: ${o.maquinas ?? '-'}</p>
-            ${o.maquinas_resumen ? `<p style="color:#999;font-size:11px;margin-top:4px;">${o.maquinas_resumen}</p>` : ''}
-          `;
-          div.onclick = ()=> loadOrder(o);
-          box.appendChild(div);
-        });
-      }catch(e){
-        console.error(e);
-        document.getElementById('searchResults').innerHTML = '<div class="alert error">⚠️ Error al buscar</div>';
-      }
+  async function buscar() {
+    const q = document.getElementById('searchInput').value.trim();
+    if (q.length < 1) {
+      document.getElementById('resultsList').innerHTML = '<div class="results-empty">Escribe para buscar</div>';
+      return;
     }
-
-    // ===== Load order detail =====
-    async function loadOrder(order){
-      try{
-        const resp = await fetch(`${API_BASE}/orders/${encodeURIComponent(order.uid_orden)}`);
-        if(!resp.ok) throw new Error('No se pudo cargar el detalle de la orden');
-        const data = await resp.json();
-
-        currentOrderId = data.order.uid_orden;
-        currentOrderData = data.order;
-
-        equipmentData = Array.isArray(data.equipment) ? data.equipment : [];
-        techniciansData = Array.isArray(data.technicians) ? data.technicians : [];
-
-        document.getElementById('orderNumber').textContent = data.order.ord_consecutivo;
-        document.getElementById('clientName').textContent = data.order.cli_razon_social;
-        document.getElementById('clientContact').textContent = data.order.cli_contacto || '-';
-        document.getElementById('clientPhone').textContent = data.order.cli_telefono || '-';
-        document.getElementById('orderDate').textContent = (function(raw) {
-          if (!raw) return '-';
-          const s = String(raw);
-          // Formato YYYYMMDD
-          const m8 = s.match(/^(\d{4})(\d{2})(\d{2})$/);
-          if (m8) return `${m8[3]}/${m8[2]}/${m8[1]}`;
-          // Formato YYYY-MM-DD o YYYY-MM-DDTHH:mm:ss
-          const miso = s.match(/(\d{4})-(\d{2})-(\d{2})/);
-          if (miso) return `${miso[3]}/${miso[2]}/${miso[1]}`;
-          return '-';
-        })(data.order.ord_fecha);
-
-        document.getElementById('equipmentCount').textContent = String(data.equipmentCount ?? equipmentData.length);
-        document.getElementById('savedCount').textContent = String(data.quotesSaved ?? 0);
-
-        // warning técnicos
-        const tw = document.getElementById('techWarning');
-        tw.textContent = data.techniciansWarning ? `⚠️ ${data.techniciansWarning}` : '';
-
-        document.getElementById('orderInfo').style.display = 'block';
-        document.getElementById('statusActions').style.display = 'flex';
-
-        renderTechnicians(techniciansData);
-        renderEquipment(equipmentData);
-
-        // seleccionar primera
-        if(equipmentData.length){
-          selectedEquipment = equipmentData[0];
-          document.getElementById('equipmentSelect').value = String(selectedEquipment.uid_herramienta_orden);
-          paintSelectedEquipment(selectedEquipment);
-          syncTechnicianSelect(selectedEquipment);
-          await loadSavedQuoteForSelectedMachine();
-        }else{
-          selectedEquipment = null;
-          paintSelectedEquipment(null);
-          syncTechnicianSelect(null);
-          resetMachineForm();
-        }
-
-        // catálogo
-        loadPartsSelect();
-
-        // limpiar resultados
-        document.getElementById('searchResults').innerHTML='';
-        document.getElementById('searchInput').value='';
-
-        // refrescar contador guardadas
-        await refreshSavedCount();
-
-        // limpiar preview final
-        finalMessage = '';
-        document.getElementById('messagePreview').textContent = 'Aquí aparecerá el mensaje FINAL (todas las máquinas)...';
-        document.getElementById('sendFinalBtn').disabled = true;
-      }catch(e){
-        console.error(e);
-        alert(`⚠️ ${e.message}`);
-      }
+    document.getElementById('resultsList').innerHTML = '<div class="results-empty">Buscando...</div>';
+    try {
+      const orders = await fetch(`${API_BASE}/orders/search?q=${encodeURIComponent(q)}`).then(r => r.json());
+      renderResultados(orders);
+    } catch(e) {
+      document.getElementById('resultsList').innerHTML = '<div class="results-empty" style="color:#e74c3c;">Error al buscar</div>';
     }
+  }
 
-    function renderEquipment(list){
-      const sel = document.getElementById('equipmentSelect');
-      const box = document.getElementById('equipmentList');
+  function fmtFecha(raw) {
+    if (!raw) return '-';
+    const s = String(raw);
+    const m8 = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (m8) return `${m8[3]}/${m8[2]}/${m8[1]}`;
+    const miso = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (miso) return `${miso[3]}/${miso[2]}/${miso[1]}`;
+    return s;
+  }
 
-      sel.innerHTML = '<option value="">-- Selecciona una máquina --</option>';
-      box.innerHTML = '';
+  function renderResultados(orders) {
+    const el = document.getElementById('resultsList');
+    if (!orders.length) { el.innerHTML = '<div class="results-empty">Sin resultados</div>'; return; }
+    el.innerHTML = '';
+    orders.forEach(o => {
+      const div = document.createElement('div');
+      div.className = 'result-card';
+      div.innerHTML = `
+        <div class="rc-top">
+          <span class="rc-num">Orden #${o.ord_consecutivo}</span>
+          <span class="rc-fecha">${fmtFecha(o.ord_fecha)}</span>
+        </div>
+        <div class="rc-cliente">${o.cli_razon_social || ''}</div>
+        <div class="rc-maq">${o.maquinas_resumen || (o.maquinas ? o.maquinas + ' máquina(s)' : '')}</div>
+      `;
+      div.onclick = () => loadOrder(o);
+      el.appendChild(div);
+    });
+  }
 
-      if(!list.length){
-        box.innerHTML = 'No hay máquinas asociadas a esta orden.';
-        return;
+  function volverBusqueda() {
+    document.getElementById('orderLoadedPanel').style.display = 'none';
+    document.getElementById('resultsList').style.display = '';
+    document.getElementById('emptyState').style.display = '';
+    document.getElementById('cotizadorSection').style.display = 'none';
+    currentOrderId = null;
+    currentOrderData = null;
+    selectedEquipment = null;
+    currentQuoteItems = [];
+  }
+
+  // ── Cargar orden ─────────────────────────────────────────────────────────────
+  async function loadOrder(order) {
+    try {
+      const resp = await fetch(`${API_BASE}/orders/${encodeURIComponent(order.uid_orden)}`);
+      if (!resp.ok) throw new Error('No se pudo cargar el detalle de la orden');
+      const data = await resp.json();
+
+      currentOrderId = data.order.uid_orden;
+      currentOrderData = data.order;
+      equipmentData = Array.isArray(data.equipment) ? data.equipment : [];
+      techniciansData = Array.isArray(data.technicians) ? data.technicians : [];
+
+      document.getElementById('orderNumber').textContent = data.order.ord_consecutivo;
+      document.getElementById('clientName').textContent = data.order.cli_razon_social;
+      document.getElementById('clientPhone').textContent = data.order.cli_telefono || '-';
+      document.getElementById('orderDate').textContent = fmtFecha(data.order.ord_fecha);
+      document.getElementById('equipmentCount').textContent = String(data.equipmentCount ?? equipmentData.length);
+      document.getElementById('savedCount').textContent = String(data.quotesSaved ?? 0);
+
+      const tw = document.getElementById('techWarning');
+      tw.textContent = data.techniciansWarning ? `⚠️ ${data.techniciansWarning}` : '';
+
+      // Cambiar de resultados a panel de orden
+      document.getElementById('resultsList').style.display = 'none';
+      document.getElementById('orderLoadedPanel').style.display = 'flex';
+
+      // Mostrar formulario de cotización
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('cotizadorSection').style.display = 'block';
+
+      renderTechnicians(techniciansData);
+      renderEquipment(equipmentData);
+
+      if (equipmentData.length) {
+        selectedEquipment = equipmentData[0];
+        document.getElementById('equipmentSelect').value = String(selectedEquipment.uid_herramienta_orden);
+        paintSelectedEquipment(selectedEquipment);
+        syncTechnicianSelect(selectedEquipment);
+        await loadSavedQuoteForSelectedMachine();
+      } else {
+        selectedEquipment = null;
+        paintSelectedEquipment(null);
+        syncTechnicianSelect(null);
+        resetMachineForm();
       }
 
-      list.forEach((eq, idx)=>{
-        const tech = eq.tecnico_nombre ? ` — Tec: ${eq.tecnico_nombre}` : '';
-        const label = `${idx+1}. ${eq.her_nombre||'-'} ${eq.her_marca||''}${eq.her_serial ? ' / '+eq.her_serial : ''}${tech}`;
-        const opt = document.createElement('option');
-        opt.value = String(eq.uid_herramienta_orden);
-        opt.textContent = label.trim();
-        sel.appendChild(opt);
+      loadPartsSelect();
+      await refreshSavedCount();
+
+      finalMessage = '';
+      document.getElementById('messagePreview').textContent = 'Aquí aparecerá el mensaje FINAL (todas las máquinas)...';
+      document.getElementById('sendFinalBtn').disabled = true;
+    } catch(e) {
+      console.error(e);
+      alert(`⚠️ ${e.message}`);
+    }
+  }
+
+  function renderEquipment(list) {
+    const sel = document.getElementById('equipmentSelect');
+    sel.innerHTML = '<option value="">-- Selecciona una máquina --</option>';
+
+    if (!list.length) return;
+
+    list.forEach((eq, idx) => {
+      const tech = eq.tecnico_nombre ? ` — Tec: ${eq.tecnico_nombre}` : '';
+      const label = `${idx+1}. ${eq.her_nombre||'-'} ${eq.her_marca||''}${eq.her_serial ? ' / '+eq.her_serial : ''}${tech}`;
+      const opt = document.createElement('option');
+      opt.value = String(eq.uid_herramienta_orden);
+      opt.textContent = label.trim();
+      sel.appendChild(opt);
+    });
+  }
+
+  async function updateEquipmentStatus(uid, selectEl) {
+    const status = selectEl.value;
+    const prev = selectEl.dataset.prev || selectEl.value;
+    selectEl.dataset.prev = status;
+    try {
+      const res = await fetch(`${API_BASE}/equipment-order/${encodeURIComponent(uid)}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
       });
-
-      box.innerHTML = '';
-      list.forEach((eq, idx) => {
-        const tech = eq.tecnico_nombre ? ` | Tec: ${eq.tecnico_nombre}` : '';
-        const estadoActual = eq.her_estado || 'pendiente_revision';
-        const estadoInfo = ESTADOS.find(e => e.value === estadoActual) || ESTADOS[0];
-
-        const opciones = ESTADOS.map(e =>
-          `<option value="${e.value}"${e.value === estadoActual ? ' selected' : ''}>${e.label}</option>`
-        ).join('');
-
-        const uid = eq.uid_herramienta_orden;
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;';
-        row.innerHTML = `
-          <span style="font-size:12px;color:#444;">• ${idx+1}. ${eq.her_nombre||'-'} (${eq.her_marca||'-'})${eq.her_serial ? ' / '+eq.her_serial : ''}${tech}</span>
-          <select id="status_${uid}" onchange="updateEquipmentStatus('${uid}', this)"
-            style="font-size:11px;border-radius:4px;border:1px solid #ddd;padding:2px 6px;color:${estadoInfo.color};font-weight:600;cursor:pointer;">
-            ${opciones}
-          </select>`;
-        box.appendChild(row);
-      });
-    }
-
-    async function updateEquipmentStatus(uid, selectEl) {
-      const status = selectEl.value;
-      const prev = selectEl.dataset.prev || selectEl.value;
-      selectEl.dataset.prev = status;
-      try {
-        const res = await fetch(`${API_BASE}/equipment-order/${encodeURIComponent(uid)}/status`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status }),
-        });
-        const data = await res.json();
-        if (!data.success) {
-          alert('Error al actualizar estado: ' + (data.error || 'Error desconocido'));
-          selectEl.value = prev;
-          return;
-        }
-        const estadoInfo = ESTADOS.find(e => e.value === status) || ESTADOS[0];
-        selectEl.style.color = estadoInfo.color;
-        selectEl.dataset.prev = status;
-        // Actualizar dato en memoria
-        const eq = equipmentData.find(e => String(e.uid_herramienta_orden) === String(uid));
-        if (eq) eq.her_estado = status;
-      } catch(e) {
-        console.error(e);
-        alert('Error de red al actualizar estado');
+      const data = await res.json();
+      if (!data.success) {
+        alert('Error al actualizar estado: ' + (data.error || 'Error desconocido'));
         selectEl.value = prev;
-      }
-    }
-
-    async function notifyParts() {
-      if (!currentOrderId) return;
-      try {
-        const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/notify-parts`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-        const data = await res.json();
-        if (!data.success) { alert('Error: ' + (data.error || 'Error desconocido')); return; }
-        showToast(`📦 Lista enviada al encargado (${data.maquinas} máquina${data.maquinas !== 1 ? 's' : ''})`);
-      } catch(e) { alert('Error de red: ' + e.message); }
-    }
-
-    async function notifyReady() {
-      if (!currentOrderId) return;
-      try {
-        const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/notify-ready`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-        const data = await res.json();
-        if (!data.success) { alert('Error: ' + (data.error || 'Error desconocido')); return; }
-        showToast(`🔧 Cliente notificado (${data.maquinas} máquina${data.maquinas !== 1 ? 's' : ''} reparada${data.maquinas !== 1 ? 's' : ''})`);
-      } catch(e) { alert('Error de red: ' + e.message); }
-    }
-
-    async function notifyDelivered() {
-      if (!currentOrderId) return;
-      try {
-        const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/notify-delivered`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-        const data = await res.json();
-        if (!data.success) { alert('Error: ' + (data.error || 'Error desconocido')); return; }
-        showToast(`✅ Entrega confirmada al cliente (${data.maquinas} máquina${data.maquinas !== 1 ? 's' : ''})`);
-      } catch(e) { alert('Error de red: ' + e.message); }
-    }
-
-    async function onEquipmentChange(){
-      const id = document.getElementById('equipmentSelect').value;
-      selectedEquipment = equipmentData.find(e => String(e.uid_herramienta_orden) === String(id)) || null;
-      paintSelectedEquipment(selectedEquipment);
-      syncTechnicianSelect(selectedEquipment);
-
-      await loadSavedQuoteForSelectedMachine();
-      loadPartsSelect();
-    }
-
-    function paintSelectedEquipment(eq){
-      if(!eq){
-        document.getElementById('equipmentName').textContent='-';
-        document.getElementById('equipmentBrand').textContent='-';
         return;
       }
-      document.getElementById('equipmentName').textContent = eq.her_nombre || '-';
-      document.getElementById('equipmentBrand').textContent = (eq.her_marca||'-') + (eq.her_serial ? ` / ${eq.her_serial}` : '');
+      const estadoInfo = ESTADOS.find(e => e.value === status) || ESTADOS[0];
+      selectEl.style.color = estadoInfo.color;
+      selectEl.dataset.prev = status;
+      const eq = equipmentData.find(e => String(e.uid_herramienta_orden) === String(uid));
+      if (eq) eq.her_estado = status;
+    } catch(e) {
+      console.error(e);
+      alert('Error de red al actualizar estado');
+      selectEl.value = prev;
     }
+  }
 
-    // ===== Technicians =====
-    function renderTechnicians(list){
-      const sel = document.getElementById('technicianSelect');
-      sel.innerHTML = '<option value="">(Sin asignar)</option>';
+  async function notifyParts() {
+    if (!currentOrderId) return;
+    try {
+      const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/notify-parts`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const data = await res.json();
+      if (!data.success) { alert('Error: ' + (data.error || 'Error desconocido')); return; }
+      showToast(`📦 Lista enviada al encargado (${data.maquinas} máquina${data.maquinas !== 1 ? 's' : ''})`);
+    } catch(e) { alert('Error de red: ' + e.message); }
+  }
 
-      if(!Array.isArray(list) || !list.length) return;
+  async function notifyReady() {
+    if (!currentOrderId) return;
+    try {
+      const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/notify-ready`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const data = await res.json();
+      if (!data.success) { alert('Error: ' + (data.error || 'Error desconocido')); return; }
+      showToast(`🔧 Cliente notificado (${data.maquinas} máquina${data.maquinas !== 1 ? 's' : ''} reparada${data.maquinas !== 1 ? 's' : ''})`);
+    } catch(e) { alert('Error de red: ' + e.message); }
+  }
 
-      list.forEach(t=>{
+  async function notifyDelivered() {
+    if (!currentOrderId) return;
+    try {
+      const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/notify-delivered`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const data = await res.json();
+      if (!data.success) { alert('Error: ' + (data.error || 'Error desconocido')); return; }
+      showToast(`✅ Entrega confirmada al cliente (${data.maquinas} máquina${data.maquinas !== 1 ? 's' : ''})`);
+    } catch(e) { alert('Error de red: ' + e.message); }
+  }
+
+  async function onEquipmentChange() {
+    const id = document.getElementById('equipmentSelect').value;
+    selectedEquipment = equipmentData.find(e => String(e.uid_herramienta_orden) === String(id)) || null;
+    paintSelectedEquipment(selectedEquipment);
+    syncTechnicianSelect(selectedEquipment);
+    await loadSavedQuoteForSelectedMachine();
+    loadPartsSelect();
+  }
+
+  function paintSelectedEquipment(eq) {
+    if (!eq) {
+      document.getElementById('equipmentName').textContent = '';
+      document.getElementById('equipmentBrand').textContent = '';
+      return;
+    }
+    document.getElementById('equipmentName').textContent = eq.her_nombre || '-';
+    document.getElementById('equipmentBrand').textContent = (eq.her_marca||'-') + (eq.her_serial ? ` / ${eq.her_serial}` : '');
+  }
+
+  function renderTechnicians(list) {
+    const sel = document.getElementById('technicianSelect');
+    sel.innerHTML = '<option value="">(Sin asignar)</option>';
+    if (!Array.isArray(list) || !list.length) return;
+    list.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = String(t.uid_usuario);
+      opt.textContent = t.usr_nombre || `Técnico ${t.uid_usuario}`;
+      sel.appendChild(opt);
+    });
+  }
+
+  function syncTechnicianSelect(eq) {
+    const sel = document.getElementById('technicianSelect');
+    if (!sel) return;
+    const techId = eq && (eq.tecnico_id ?? eq.uid_usuario_asignado);
+    sel.value = techId ? String(techId) : '';
+  }
+
+  async function onTechnicianChange() {
+    if (!currentOrderId || !selectedEquipment) return;
+    const sel = document.getElementById('technicianSelect');
+    const technicianId = sel.value ? sel.value : null;
+    try {
+      const resp = await fetch(`${API_BASE}/equipment-order/${encodeURIComponent(selectedEquipment.uid_herramienta_orden)}/assign-technician`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ technicianId })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.success === false) throw new Error(data.error || data.details || 'No se pudo asignar');
+      const map = new Map(techniciansData.map(t => [String(t.uid_usuario), t.usr_nombre]));
+      selectedEquipment.tecnico_id = technicianId;
+      selectedEquipment.tecnico_nombre = technicianId ? (map.get(String(technicianId)) || '') : '';
+      equipmentData = equipmentData.map(eq => {
+        if (String(eq.uid_herramienta_orden) === String(selectedEquipment.uid_herramienta_orden)) {
+          return { ...eq, tecnico_id: technicianId, tecnico_nombre: selectedEquipment.tecnico_nombre };
+        }
+        return eq;
+      });
+      renderEquipment(equipmentData);
+    } catch(e) {
+      console.error(e);
+      alert(`⚠️ ${e.message}`);
+    }
+  }
+
+  async function assignTechnicianToAll() {
+    if (!currentOrderId) return;
+    const sel = document.getElementById('technicianSelect');
+    const technicianId = sel.value ? sel.value : null;
+    if (!technicianId) {
+      const ok = confirm('¿Quieres quitar el técnico de TODAS las máquinas?');
+      if (!ok) return;
+    }
+    try {
+      const resp = await fetch(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/assign-technician`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ technicianId })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.success === false) throw new Error(data.error || data.details || 'No se pudo asignar');
+      const map = new Map(techniciansData.map(t => [String(t.uid_usuario), t.usr_nombre]));
+      const techName = technicianId ? (map.get(String(technicianId)) || '') : '';
+      equipmentData = equipmentData.map(eq => ({ ...eq, tecnico_id: technicianId, tecnico_nombre: techName }));
+      if (selectedEquipment) {
+        selectedEquipment.tecnico_id = technicianId;
+        selectedEquipment.tecnico_nombre = techName;
+      }
+      renderEquipment(equipmentData);
+    } catch(e) {
+      console.error(e);
+      alert(`⚠️ ${e.message}`);
+    }
+  }
+
+  async function loadPartsSelect() {
+    try {
+      const r = await fetch(`${API_BASE}/quote/catalog?type=R`);
+      if (!r.ok) throw new Error('Error catálogo');
+      const parts = await r.json();
+      const sel = document.getElementById('partSelect');
+      sel.innerHTML = '<option value="">-- Catálogo de Repuestos --</option>';
+      parts.forEach(p => {
         const opt = document.createElement('option');
-        opt.value = String(t.uid_usuario);
-        opt.textContent = t.usr_nombre || `Técnico ${t.uid_usuario}`;
+        opt.value = p.uid_concepto_costo;
+        opt.textContent = `${p.cco_descripcion} ($${Number(p.cco_valor||0).toLocaleString('es-CO')})`;
+        opt.dataset.price = p.cco_valor;
         sel.appendChild(opt);
       });
+    } catch(e) {
+      console.warn(e);
     }
+  }
 
-    function syncTechnicianSelect(eq){
-      const sel = document.getElementById('technicianSelect');
-      if(!sel) return;
-
-      const techId = eq && (eq.tecnico_id ?? eq.uid_usuario_asignado);
-      sel.value = techId ? String(techId) : '';
+  function addItem() {
+    const partSelect = document.getElementById('partSelect');
+    const qty = parseInt(document.getElementById('partQuantity').value || '1', 10) || 1;
+    const custom = document.getElementById('customPartName').value.trim();
+    let name, price;
+    if (partSelect.value) {
+      const opt = partSelect.options[partSelect.selectedIndex];
+      name = opt.textContent.split(' ($')[0];
+      price = Number(opt.dataset.price || 0);
+    } else if (custom) {
+      name = custom;
+      price = 0;
+    } else {
+      alert('Selecciona o escribe un repuesto');
+      return;
     }
+    currentQuoteItems.push({ id: Date.now(), name, quantity: qty, price });
+    renderItems();
+    updateSummary();
+    partSelect.value = '';
+    document.getElementById('partQuantity').value = '1';
+    document.getElementById('customPartName').value = '';
+  }
 
-    async function onTechnicianChange(){
-      if(!currentOrderId || !selectedEquipment) return;
-
-      const sel = document.getElementById('technicianSelect');
-      const technicianId = sel.value ? sel.value : null;
-
-      try{
-        const resp = await fetch(`${API_BASE}/equipment-order/${encodeURIComponent(selectedEquipment.uid_herramienta_orden)}/assign-technician`,{
-          method:'PATCH',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ technicianId })
-        });
-        const data = await resp.json().catch(()=>({}));
-        if(!resp.ok || data.success === false) throw new Error(data.error || data.details || 'No se pudo asignar');
-
-        // actualizar memoria
-        const map = new Map(techniciansData.map(t=>[String(t.uid_usuario), t.usr_nombre]));
-        selectedEquipment.tecnico_id = technicianId;
-        selectedEquipment.tecnico_nombre = technicianId ? (map.get(String(technicianId)) || '') : '';
-
-        equipmentData = equipmentData.map(eq=>{
-          if(String(eq.uid_herramienta_orden) === String(selectedEquipment.uid_herramienta_orden)){
-            return { ...eq, tecnico_id: technicianId, tecnico_nombre: selectedEquipment.tecnico_nombre };
-          }
-          return eq;
-        });
-
-        renderEquipment(equipmentData);
-
-        // si ya existe cotización guardada, actualiza técnico al guardar
-      }catch(e){
-        console.error(e);
-        alert(`⚠️ ${e.message}`);
-      }
+  function renderItems() {
+    const c = document.getElementById('itemsContainer');
+    if (!currentQuoteItems.length) {
+      c.innerHTML = '<p style="color:#999;text-align:center;padding:16px;">(Sin repuestos aún)</p>';
+      return;
     }
+    c.innerHTML = '';
+    currentQuoteItems.forEach(it => {
+      const div = document.createElement('div');
+      div.className = 'item-row';
+      div.innerHTML = `
+        <div><input type="text" value="${escapeHtml(it.name)}" readonly style="background:#fff;border:none;font-weight:500;"></div>
+        <div><input type="number" value="${it.quantity}" min="1" onchange="updateItemQty(${it.id}, this.value)"></div>
+        <div><input type="number" value="${it.price}" min="0" onchange="updateItemPrice(${it.id}, this.value)"></div>
+        <button onclick="removeItem(${it.id})">❌</button>
+      `;
+      c.appendChild(div);
+    });
+  }
 
-    async function assignTechnicianToAll(){
-      if(!currentOrderId) return;
+  function updateItemQty(id, v) {
+    const it = currentQuoteItems.find(x => x.id === id);
+    if (it) { it.quantity = parseInt(v||'1',10)||1; updateSummary(); }
+  }
+  function updateItemPrice(id, v) {
+    const it = currentQuoteItems.find(x => x.id === id);
+    if (it) { it.price = Number(v)||0; updateSummary(); }
+  }
+  function removeItem(id) {
+    currentQuoteItems = currentQuoteItems.filter(x => x.id !== id);
+    renderItems();
+    updateSummary();
+  }
 
-      const sel = document.getElementById('technicianSelect');
-      const technicianId = sel.value ? sel.value : null;
+  function updateSummary() {
+    const labor = Number(document.getElementById('laborCost').value) || 0;
+    const itemsSubtotal = currentQuoteItems.reduce((s,it) => s + (Number(it.quantity)||0)*(Number(it.price)||0), 0);
+    const subtotal = labor + itemsSubtotal;
+    document.getElementById('subtotalDisplay').textContent = `$${subtotal.toLocaleString('es-CO',{maximumFractionDigits:0})}`;
+    document.getElementById('taxDisplay').textContent = `$0`;
+    document.getElementById('totalDisplay').textContent = `$${subtotal.toLocaleString('es-CO',{maximumFractionDigits:0})}`;
+  }
 
-      if(!technicianId){
-        const ok = confirm('¿Quieres quitar el técnico de TODAS las máquinas?');
-        if(!ok) return;
-      }
+  function resetMachineForm() {
+    currentQuoteItems = [];
+    document.getElementById('laborCost').value = '';
+    document.getElementById('workDescription').value = '';
+    document.getElementById('partSelect').value = '';
+    document.getElementById('partQuantity').value = '1';
+    document.getElementById('customPartName').value = '';
+    renderItems();
+    updateSummary();
+  }
 
-      try{
-        const resp = await fetch(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/assign-technician`,{
-          method:'PATCH',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ technicianId })
-        });
-        const data = await resp.json().catch(()=>({}));
-        if(!resp.ok || data.success === false) throw new Error(data.error || data.details || 'No se pudo asignar');
-
-        const map = new Map(techniciansData.map(t=>[String(t.uid_usuario), t.usr_nombre]));
-        const techName = technicianId ? (map.get(String(technicianId)) || '') : '';
-
-        equipmentData = equipmentData.map(eq=>({ ...eq, tecnico_id: technicianId, tecnico_nombre: techName }));
-        if(selectedEquipment){
-          selectedEquipment.tecnico_id = technicianId;
-          selectedEquipment.tecnico_nombre = techName;
-        }
-        renderEquipment(equipmentData);
-      }catch(e){
-        console.error(e);
-        alert(`⚠️ ${e.message}`);
-      }
-    }
-
-    // ===== Parts catalog =====
-    async function loadPartsSelect(){
-      try{
-        const r = await fetch(`${API_BASE}/quote/catalog?type=R`);
-        if(!r.ok) throw new Error('Error catálogo');
-        const parts = await r.json();
-        const sel = document.getElementById('partSelect');
-        sel.innerHTML = '<option value="">-- Catálogo de Repuestos --</option>';
-        parts.forEach(p=>{
-          const opt = document.createElement('option');
-          opt.value = p.uid_concepto_costo;
-          opt.textContent = `${p.cco_descripcion} ($${Number(p.cco_valor||0).toLocaleString('es-CO')})`;
-          opt.dataset.price = p.cco_valor;
-          sel.appendChild(opt);
-        });
-      }catch(e){
-        console.warn(e);
-      }
-    }
-
-    // ===== Items machine =====
-    function addItem(){
-      const partSelect = document.getElementById('partSelect');
-      const qty = parseInt(document.getElementById('partQuantity').value || '1', 10) || 1;
-      const custom = document.getElementById('customPartName').value.trim();
-
-      let name, price;
-
-      if(partSelect.value){
-        const opt = partSelect.options[partSelect.selectedIndex];
-        name = opt.textContent.split(' ($')[0];
-        price = Number(opt.dataset.price || 0);
-      }else if(custom){
-        name = custom;
-        price = 0;
-      }else{
-        alert('Selecciona o escribe un repuesto');
-        return;
-      }
-
-      currentQuoteItems.push({ id: Date.now(), name, quantity: qty, price });
+  async function loadSavedQuoteForSelectedMachine() {
+    resetMachineForm();
+    if (!currentOrderId || !selectedEquipment) return;
+    try {
+      const resp = await fetch(`${API_BASE}/quotes/machine?orderId=${encodeURIComponent(currentOrderId)}&equipmentOrderId=${encodeURIComponent(selectedEquipment.uid_herramienta_orden)}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (!data.exists) return;
+      const mq = data.machineQuote;
+      document.getElementById('laborCost').value = mq?.mano_obra ?? '';
+      document.getElementById('workDescription').value = mq?.descripcion_trabajo ?? '';
+      currentQuoteItems = (data.items || []).map(it => ({
+        id: it.id || Date.now()+Math.random(),
+        name: it.nombre,
+        quantity: Number(it.cantidad||1),
+        price: Number(it.precio||0)
+      }));
       renderItems();
       updateSummary();
-
-      partSelect.value='';
-      document.getElementById('partQuantity').value='1';
-      document.getElementById('customPartName').value='';
+    } catch(e) {
+      console.warn(e);
     }
+  }
 
-    function renderItems(){
-      const c = document.getElementById('itemsContainer');
-      if(!currentQuoteItems.length){
-        c.innerHTML = '<p style="color:#999;text-align:center;padding:20px;">(Sin repuestos aún)</p>';
-        return;
-      }
-      c.innerHTML='';
-      currentQuoteItems.forEach(it=>{
-        const div = document.createElement('div');
-        div.className='item-row';
-        div.innerHTML = `
-          <div><input type="text" value="${escapeHtml(it.name)}" readonly style="background:#fff;border:none;font-weight:500;cursor:text;"></div>
-          <div><input type="number" value="${it.quantity}" min="1" onchange="updateItemQty(${it.id}, this.value)"></div>
-          <div><input type="number" value="${it.price}" min="0" onchange="updateItemPrice(${it.id}, this.value)"></div>
-          <button onclick="removeItem(${it.id})">❌</button>
-        `;
-        c.appendChild(div);
+  async function saveMachineQuote() {
+    if (!currentOrderId) return alert('Selecciona una orden');
+    if (!selectedEquipment) return alert('Selecciona una máquina');
+    const laborCost = Number(document.getElementById('laborCost').value) || 0;
+    const workDescription = document.getElementById('workDescription').value || '';
+    const technicianId = document.getElementById('technicianSelect').value || null;
+    const btn = document.getElementById('saveBtn');
+    btn.disabled = true; btn.textContent = '💾 Guardando...';
+    try {
+      const resp = await fetch(`${API_BASE}/quotes/machine`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: currentOrderId,
+          equipmentOrderId: String(selectedEquipment.uid_herramienta_orden),
+          technicianId,
+          laborCost,
+          workDescription,
+          items: currentQuoteItems
+        })
       });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.success === false) throw new Error(data.error || 'No se pudo guardar');
+      showToast('✅ Cotización guardada para esta máquina');
+      await refreshSavedCount();
+    } catch(e) {
+      console.error(e);
+      alert(`⚠️ ${e.message}`);
+    } finally {
+      btn.disabled = false; btn.textContent = '💾 Guardar máquina';
     }
+  }
 
-    function updateItemQty(id, v){
-      const it = currentQuoteItems.find(x=>x.id===id);
-      if(it){ it.quantity = parseInt(v||'1',10)||1; updateSummary(); }
+  async function refreshSavedCount() {
+    if (!currentOrderId) return;
+    try {
+      const r = await fetch(`${API_BASE}/quotes/order/${encodeURIComponent(currentOrderId)}`);
+      if (!r.ok) return;
+      const data = await r.json();
+      if (!data.success) return;
+      document.getElementById('savedCount').textContent = String(data.savedCount ?? 0);
+    } catch(e) {}
+  }
+
+  async function generateFinalMessage() {
+    if (!currentOrderId) return alert('Selecciona una orden');
+    const btn = document.getElementById('genFinalBtn');
+    btn.disabled = true; btn.textContent = '⏳ Generando...';
+    document.getElementById('messagePreview').textContent = 'Generando mensaje final...';
+    try {
+      const resp = await fetch(`${API_BASE}/quotes/order/${encodeURIComponent(currentOrderId)}/generate-message`, { method: 'POST' });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.success === false) throw new Error(data.error || 'No se pudo generar');
+      finalMessage = data.message;
+      document.getElementById('messagePreview').textContent = finalMessage;
+      document.getElementById('sendFinalBtn').disabled = false;
+    } catch(e) {
+      console.error(e);
+      document.getElementById('messagePreview').textContent = `⚠️ ${e.message}`;
+      document.getElementById('sendFinalBtn').disabled = true;
+    } finally {
+      btn.disabled = false; btn.textContent = '🤖 Mensaje final';
     }
-    function updateItemPrice(id, v){
-      const it = currentQuoteItems.find(x=>x.id===id);
-      if(it){ it.price = Number(v)||0; updateSummary(); }
+  }
+
+  async function sendFinalWhatsApp() {
+    if (!currentOrderId) return;
+    const btn = document.getElementById('sendFinalBtn');
+    btn.disabled = true; btn.textContent = '📤 Enviando...';
+    try {
+      const resp = await fetch(`${API_BASE}/quotes/order/${encodeURIComponent(currentOrderId)}/send-whatsapp`, { method: 'POST' });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.success === false) throw new Error(data.error || 'No se pudo enviar');
+      alert(`✅ Mensaje enviado a ${data.cliente || 'cliente'}`);
+      btn.textContent = '📱 Enviar WA final';
+    } catch(e) {
+      console.error(e);
+      alert(`⚠️ ${e.message}`);
+      btn.disabled = false; btn.textContent = '📱 Enviar WA final';
     }
-    function removeItem(id){
-      currentQuoteItems = currentQuoteItems.filter(x=>x.id!==id);
-      renderItems();
-      updateSummary();
-    }
+  }
 
-    function updateSummary(){
-      const labor = Number(document.getElementById('laborCost').value) || 0;
-      const itemsSubtotal = currentQuoteItems.reduce((s,it)=> s + (Number(it.quantity)||0)*(Number(it.price)||0), 0);
-      const subtotal = labor + itemsSubtotal;
-      const tax = 0;
-      const total = subtotal;
+  function downloadQuotePDF() {
+    if (!currentOrderId) return alert('Selecciona una orden');
+    window.open(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/pdf/quote`, '_blank');
+  }
 
-      document.getElementById('subtotalDisplay').textContent = `$${subtotal.toLocaleString('es-CO',{maximumFractionDigits:0})}`;
-      document.getElementById('taxDisplay').textContent = `$${tax.toLocaleString('es-CO',{maximumFractionDigits:0})}`;
-      document.getElementById('totalDisplay').textContent = `$${total.toLocaleString('es-CO',{maximumFractionDigits:0})}`;
-    }
+  async function sendQuotePDF() {
+    if (!currentOrderId) return alert('Selecciona una orden');
+    const btn = document.getElementById('sendQuotePDFBtn');
+    btn.disabled = true; btn.textContent = '⏳ Enviando...';
+    try {
+      const resp = await fetch(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/send-pdf/quote`, { method: 'POST' });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.success === false) throw new Error(data.error || 'No se pudo enviar');
+      alert('✅ Cotización PDF enviada por WhatsApp');
+    } catch(e) { alert(`⚠️ ${e.message}`); }
+    finally { btn.disabled = false; btn.textContent = '📤 Enviar por WA'; }
+  }
 
-    function resetMachineForm(){
-      currentQuoteItems = [];
-      document.getElementById('laborCost').value='';
-      document.getElementById('workDescription').value='';
-      document.getElementById('partSelect').value='';
-      document.getElementById('partQuantity').value='1';
-      document.getElementById('customPartName').value='';
-      renderItems();
-      updateSummary();
-    }
+  function downloadMaintenancePDF() {
+    if (!currentOrderId) return alert('Selecciona una orden');
+    if (!selectedEquipment) return alert('Selecciona una máquina');
+    window.open(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/pdf/maintenance/${encodeURIComponent(selectedEquipment.uid_herramienta_orden)}`, '_blank');
+  }
 
-    // ===== Guardar / cargar cotización por máquina =====
-    async function loadSavedQuoteForSelectedMachine(){
-      resetMachineForm();
-      if(!currentOrderId || !selectedEquipment) return;
+  async function sendMaintenancePDF() {
+    if (!currentOrderId) return alert('Selecciona una orden');
+    if (!selectedEquipment) return alert('Selecciona una máquina');
+    const btn = document.getElementById('sendMaintPDFBtn');
+    btn.disabled = true; btn.textContent = '⏳ Generando y enviando...';
+    try {
+      const resp = await fetch(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/send-pdf/maintenance/${encodeURIComponent(selectedEquipment.uid_herramienta_orden)}`, { method: 'POST' });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.success === false) throw new Error(data.error || 'No se pudo enviar');
+      alert('✅ Informe de mantenimiento enviado por WhatsApp');
+    } catch(e) { alert(`⚠️ ${e.message}`); }
+    finally { btn.disabled = false; btn.textContent = '📤 Enviar Informe WA'; }
+  }
 
-      try{
-        const resp = await fetch(`${API_BASE}/quotes/machine?orderId=${encodeURIComponent(currentOrderId)}&equipmentOrderId=${encodeURIComponent(selectedEquipment.uid_herramienta_orden)}`);
-        if(!resp.ok) return;
+  function escapeHtml(str) {
+    return String(str||'').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  }
 
-        const data = await resp.json();
-        if(!data.exists) return;
+  document.addEventListener('DOMContentLoaded', () => {
+    loadPartsSelect();
+  });
 
-        const mq = data.machineQuote;
-        document.getElementById('laborCost').value = mq?.mano_obra ?? '';
-        document.getElementById('workDescription').value = mq?.descripcion_trabajo ?? '';
-
-        // items
-        currentQuoteItems = (data.items || []).map(it=>({
-          id: it.id || Date.now()+Math.random(),
-          name: it.nombre,
-          quantity: Number(it.cantidad||1),
-          price: Number(it.precio||0)
-        }));
-
-        renderItems();
-        updateSummary();
-      }catch(e){
-        console.warn(e);
-      }
-    }
-
-    async function saveMachineQuote(){
-      if(!currentOrderId) return alert('Selecciona una orden');
-      if(!selectedEquipment) return alert('Selecciona una máquina');
-
-      const laborCost = Number(document.getElementById('laborCost').value) || 0;
-      const workDescription = document.getElementById('workDescription').value || '';
-      const technicianId = document.getElementById('technicianSelect').value || null;
-
-      const btn = document.getElementById('saveBtn');
-      btn.disabled = true;
-      btn.textContent = '💾 Guardando...';
-
-      try{
-        const resp = await fetch(`${API_BASE}/quotes/machine`,{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            orderId: currentOrderId,
-            equipmentOrderId: String(selectedEquipment.uid_herramienta_orden),
-            technicianId,
-            laborCost,
-            workDescription,
-            items: currentQuoteItems
-          })
-        });
-        const data = await resp.json().catch(()=>({}));
-        if(!resp.ok || data.success === false) throw new Error(data.error || 'No se pudo guardar');
-
-        alert('✅ Cotización guardada para esta máquina');
-        await refreshSavedCount();
-      }catch(e){
-        console.error(e);
-        alert(`⚠️ ${e.message}`);
-      }finally{
-        btn.disabled = false;
-        btn.textContent = '💾 Guardar máquina';
-      }
-    }
-
-    async function refreshSavedCount(){
-      if(!currentOrderId) return;
-      try{
-        const r = await fetch(`${API_BASE}/quotes/order/${encodeURIComponent(currentOrderId)}`);
-        if(!r.ok) return;
-        const data = await r.json();
-        if(!data.success) return;
-        document.getElementById('savedCount').textContent = String(data.savedCount ?? 0);
-      }catch(e){}
-    }
-
-    // ===== Mensaje final =====
-    async function generateFinalMessage(){
-      if(!currentOrderId) return alert('Selecciona una orden');
-      const btn = document.getElementById('genFinalBtn');
-      btn.disabled = true;
-      btn.textContent = '⏳ Generando...';
-      document.getElementById('messagePreview').textContent = 'Generando mensaje final...';
-
-      try{
-        const resp = await fetch(`${API_BASE}/quotes/order/${encodeURIComponent(currentOrderId)}/generate-message`,{ method:'POST' });
-        const data = await resp.json().catch(()=>({}));
-        if(!resp.ok || data.success === false) throw new Error(data.error || 'No se pudo generar');
-
-        finalMessage = data.message;
-        document.getElementById('messagePreview').textContent = finalMessage;
-        document.getElementById('sendFinalBtn').disabled = false;
-      }catch(e){
-        console.error(e);
-        document.getElementById('messagePreview').textContent = `⚠️ ${e.message}`;
-        document.getElementById('sendFinalBtn').disabled = true;
-      }finally{
-        btn.disabled = false;
-        btn.textContent = '🤖 Mensaje final';
-      }
-    }
-
-    async function sendFinalWhatsApp(){
-      if(!currentOrderId) return;
-      const btn = document.getElementById('sendFinalBtn');
-      btn.disabled = true;
-      btn.textContent = '📤 Enviando...';
-
-      try{
-        const resp = await fetch(`${API_BASE}/quotes/order/${encodeURIComponent(currentOrderId)}/send-whatsapp`,{ method:'POST' });
-        const data = await resp.json().catch(()=>({}));
-        if(!resp.ok || data.success === false) throw new Error(data.error || 'No se pudo enviar');
-
-        alert(`✅ Mensaje final enviado a ${data.phone}`);
-        btn.textContent = '📱 Enviar final';
-      }catch(e){
-        console.error(e);
-        alert(`⚠️ ${e.message}`);
-        btn.disabled = false;
-        btn.textContent = '📱 Enviar final';
-      }
-    }
-
-    // ===== Recent orders =====
-    async function loadRecentOrders(){
-      try{
-        const r = await fetch(`${API_BASE}/orders?limit=8`);
-        if(!r.ok) throw new Error('Error');
-        const orders = await r.json();
-        const c = document.getElementById('recentOrders');
-        c.innerHTML = '';
-
-        if(!orders.length){
-          c.innerHTML = '<p style="color:#999;font-size:13px;">No hay órdenes recientes</p>';
-          return;
-        }
-
-        orders.forEach(o=>{
-          const div = document.createElement('div');
-          div.className='order-info';
-          div.style.marginBottom='10px';
-          div.innerHTML = `
-            <p><strong>#${o.ord_consecutivo}</strong> - ${o.cli_razon_social}</p>
-            <p style="color:#999;font-size:12px;">📅 ${o.ord_fecha}</p>
-          `;
-          div.onclick = ()=> loadOrder(o);
-          c.appendChild(div);
-        });
-      }catch(e){
-        console.error(e);
-        document.getElementById('recentOrders').innerHTML = '<p style="color:#c82333;font-size:12px;">⚠️ Error cargando órdenes</p>';
-      }
-    }
-
-    // ===== PDFs =====
-    function downloadQuotePDF(){
-      if(!currentOrderId) return alert('Selecciona una orden');
-      window.open(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/pdf/quote`, '_blank');
-    }
-
-    async function sendQuotePDF(){
-      if(!currentOrderId) return alert('Selecciona una orden');
-      const btn = document.getElementById('sendQuotePDFBtn');
-      btn.disabled = true; btn.textContent = '⏳ Enviando...';
-      try{
-        const resp = await fetch(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/send-pdf/quote`, { method:'POST' });
-        const data = await resp.json().catch(()=>({}));
-        if(!resp.ok || data.success === false) throw new Error(data.error || 'No se pudo enviar');
-        alert('✅ Cotización PDF enviada por WhatsApp');
-      }catch(e){ alert(`⚠️ ${e.message}`); }
-      finally{ btn.disabled = false; btn.textContent = '📤 Enviar por WhatsApp'; }
-    }
-
-    function downloadMaintenancePDF(){
-      if(!currentOrderId) return alert('Selecciona una orden');
-      if(!selectedEquipment) return alert('Selecciona una máquina');
-      window.open(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/pdf/maintenance/${encodeURIComponent(selectedEquipment.uid_herramienta_orden)}`, '_blank');
-    }
-
-    async function sendMaintenancePDF(){
-      if(!currentOrderId) return alert('Selecciona una orden');
-      if(!selectedEquipment) return alert('Selecciona una máquina');
-      const btn = document.getElementById('sendMaintPDFBtn');
-      btn.disabled = true; btn.textContent = '⏳ Generando y enviando...';
-      try{
-        const resp = await fetch(`${API_BASE}/orders/${encodeURIComponent(currentOrderId)}/send-pdf/maintenance/${encodeURIComponent(selectedEquipment.uid_herramienta_orden)}`, { method:'POST' });
-        const data = await resp.json().catch(()=>({}));
-        if(!resp.ok || data.success === false) throw new Error(data.error || 'No se pudo enviar');
-        alert('✅ Informe de mantenimiento enviado por WhatsApp');
-      }catch(e){ alert(`⚠️ ${e.message}`); }
-      finally{ btn.disabled = false; btn.textContent = '📤 Enviar Informe WA'; }
-    }
-
-    function escapeHtml(str){
-      return String(str||'').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
-    }
-
-    document.addEventListener('DOMContentLoaded', ()=>{
-      loadRecentOrders();
-      loadPartsSelect();
-      fetch('http://localhost:3001/health').catch(()=>{});
-    });
-
-    document.getElementById('searchInput').addEventListener('keypress', (e)=>{
-      if(e.key === 'Enter') searchOrders();
-    });
-  </script>
+  document.getElementById('searchInput').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') buscar();
+  });
+</script>
 </body>
 </html>

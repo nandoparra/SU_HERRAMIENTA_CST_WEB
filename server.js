@@ -1,36 +1,114 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
-const path = require('path');
+const helmet  = require('helmet');
+const cors    = require('cors');
+const path    = require('path');
+const session = require('express-session');
 
-const db = require('./utils/db');
+const db      = require('./utils/db');
 const { waClient } = require('./utils/whatsapp-client');
-const apiKey = require('./middleware/apiKey');
+require('./utils/wa-handler'); // Listener de mensajes entrantes (autorización por WA)
+const apiKey  = require('./middleware/apiKey');
+const { requireLogin, requireInterno } = require('./middleware/auth');
+
+// Validar SESSION_SECRET antes de arrancar
+if (!process.env.SESSION_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('SESSION_SECRET no configurado. Defina esta variable de entorno antes de iniciar en producción.');
+  } else {
+    console.warn('\x1b[33m⚠️  SEGURIDAD: SESSION_SECRET no configurado — usando valor de desarrollo. NO usar en producción.\x1b[0m');
+  }
+}
 
 const app = express();
+
+// HTTPS redirect — Escenario B: detrás de proxy inverso que termina TLS (nginx, Render, Railway…)
+// Activar con BEHIND_PROXY=true en el entorno de producción.
+if (process.env.BEHIND_PROXY === 'true') {
+  app.set('trust proxy', 1); // confiar en X-Forwarded-* del primer proxy
+  app.use((req, res, next) => {
+    if (req.headers['x-forwarded-proto'] !== 'https') {
+      return res.redirect(301, `https://${req.hostname}${req.originalUrl}`);
+    }
+    next();
+  });
+}
+
 app.use(express.json());
-app.use(cors());
-app.use(express.static(path.join(__dirname, 'public')));
-app.get('/', (req, res) => res.redirect('/generador-cotizaciones.html'));
+// CORS: solo mismo origen — bloquea peticiones cross-origin de otros dominios
+app.use(cors({ origin: false }));
+
+// Cabeceras de seguridad HTTP
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:              ["'self'"],
+      scriptSrc:               ["'self'", "'unsafe-inline'"],
+      scriptSrcAttr:           ["'unsafe-inline'"], // páginas usan onclick/onsubmit en atributos HTML
+      styleSrc:                ["'self'", "'unsafe-inline'"],
+      imgSrc:                  ["'self'", "data:", "blob:"],
+      connectSrc:              ["'self'"],
+      fontSrc:                 ["'self'"],
+      objectSrc:               ["'none'"],
+      upgradeInsecureRequests: null, // manejamos el redirect HTTPS manualmente
+    },
+  },
+}));
+
+// Sesiones
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'cst-dev-insecure',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge:   8 * 60 * 60 * 1000, // 8 horas
+    httpOnly: true,                // JS del frontend no puede leer la cookie
+    sameSite: 'lax',               // protección CSRF básica
+    secure:   process.env.NODE_ENV === 'production', // solo HTTPS en prod
+  },
+}));
+
+// Rutas públicas — login/logout/me
+app.use('/', require('./routes/auth'));
+
+// Archivos estáticos — protegidos excepto login.html y assets
+app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
+app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+app.get('/seguimiento.html', requireLogin, (req, res) => res.sendFile(path.join(__dirname, 'public', 'seguimiento.html')));
+app.get('/generador-cotizaciones.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'generador-cotizaciones.html')));
+app.get('/crear-orden.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'crear-orden.html')));
+app.get('/dashboard.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.html')));
+app.get('/ordenes.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'ordenes.html')));
+app.use('/uploads', requireLogin, express.static(path.join(__dirname, 'public', 'uploads')));
+app.get('/', (req, res) => {
+  if (!req.session.user) return res.redirect('/login');
+  if (req.session.user.tipo === 'C') return res.redirect('/seguimiento.html');
+  res.redirect('/dashboard.html');
+});
 
 // Protección API key (todas las rutas /api/*)
 app.use('/api', apiKey);
 
+// Protección de sesión en rutas /api/ — clientes solo acceden a sus endpoints
+app.use('/api', requireLogin);
+
 // Rutas modulares
+app.use('/api', require('./routes/dashboard'));
 app.use('/api', require('./routes/orders'));
 app.use('/api', require('./routes/quote'));
 app.use('/api', require('./routes/whatsapp'));
 app.use('/api', require('./routes/pdf'));
+app.use('/api', require('./routes/crear-orden'));
 
-// Health
-app.get('/health', (req, res) => {
+// Health — solo usuarios internos autenticados
+app.get('/health', requireInterno, (req, res) => {
   const { isReady } = require('./utils/whatsapp-client');
   res.json({ status: 'OK', whatsappReady: isReady(), timestamp: new Date() });
 });
 
-// Debug endpoint: solo en desarrollo
+// Debug endpoint: solo en desarrollo y solo usuarios internos
 if (process.env.NODE_ENV !== 'production') {
-  app.get('/api/debug/usuario-schema', async (req, res) => {
+  app.get('/api/debug/usuario-schema', requireInterno, async (req, res) => {
     try {
       const conn = await db.getConnection();
       const { getUsuarioColumns } = require('./utils/schema');
@@ -127,16 +205,17 @@ async function ensureQuoteTables() {
 async function ensureStatusTables() {
   const conn = await db.getConnection();
   try {
-    // Agregar columna her_estado si no existe
-    const [cols] = await conn.execute(
-      `SHOW COLUMNS FROM b2c_herramienta_orden LIKE 'her_estado'`
+    // Agregar columna her_estado si no existe (IF NOT EXISTS — evita SHOW COLUMNS que crashea MariaDB 10.4)
+    await conn.execute(
+      `ALTER TABLE b2c_herramienta_orden
+       ADD COLUMN IF NOT EXISTS her_estado VARCHAR(32) NOT NULL DEFAULT 'pendiente_revision'`
     );
-    if (cols.length === 0) {
-      await conn.execute(
-        `ALTER TABLE b2c_herramienta_orden
-         ADD COLUMN her_estado VARCHAR(32) NOT NULL DEFAULT 'pendiente_revision'`
-      );
-    }
+
+    // Agregar columna fho_tipo a fotos si no existe
+    await conn.execute(
+      `ALTER TABLE b2c_foto_herramienta_orden
+       ADD COLUMN IF NOT EXISTS fho_tipo VARCHAR(20) NOT NULL DEFAULT 'recepcion'`
+    );
 
     // Tabla de historial de cambios de estado
     await conn.execute(`
@@ -146,6 +225,31 @@ async function ensureStatusTables() {
         estado      VARCHAR(32) NOT NULL,
         changed_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_hsl (uid_herramienta_orden)
+      )
+    `);
+
+    // Tabla de conversaciones de autorización por WhatsApp
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_wa_autorizacion_pendiente (
+        uid_autorizacion INT AUTO_INCREMENT PRIMARY KEY,
+        uid_orden        INT NOT NULL,
+        wa_phone         VARCHAR(20) NOT NULL,
+        estado           ENUM('esperando_opcion','esperando_maquinas') NOT NULL DEFAULT 'esperando_opcion',
+        created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_wa_phone (wa_phone)
+      )
+    `);
+
+    // Tabla de informes de mantenimiento persistentes
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_informe_mantenimiento (
+        uid_informe           INT AUTO_INCREMENT PRIMARY KEY,
+        uid_orden             INT NOT NULL,
+        uid_herramienta_orden INT NOT NULL,
+        inf_archivo           VARCHAR(255) NOT NULL,
+        inf_fecha             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_informe_maquina (uid_herramienta_orden),
+        INDEX idx_inf_orden (uid_orden)
       )
     `);
 
