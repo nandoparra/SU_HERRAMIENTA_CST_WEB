@@ -2,7 +2,9 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 
 const waClient = new Client({
-  authStrategy: new LocalAuth(),
+  authStrategy: new LocalAuth({
+    dataPath: process.env.WA_AUTH_PATH || './.wwebjs_auth',
+  }),
   puppeteer: {
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
@@ -10,9 +12,11 @@ const waClient = new Client({
 });
 
 let waReady = false;
+let _lastQR = null;  // raw QR string para exponer vía /api/whatsapp/qr
 
 waClient.on('qr', (qr) => {
-  console.log('📱 ESCANEA ESTE CÓDIGO QR EN TU WHATSAPP WEB:');
+  _lastQR = qr;
+  console.log('📱 ESCANEA ESTE CÓDIGO QR EN TU WHATSAPP WEB (o visita /api/whatsapp/qr):');
   qrcode.generate(qr, { small: true });
 });
 
@@ -114,4 +118,6 @@ async function sendWAMessage(phoneOrChatId, content) {
   return await waClient.sendMessage(resolvedId, content);
 }
 
-module.exports = { waClient, isReady, sendWAMessage };
+function getLastQR() { return _lastQR; }
+
+module.exports = { waClient, isReady, sendWAMessage, getLastQR };

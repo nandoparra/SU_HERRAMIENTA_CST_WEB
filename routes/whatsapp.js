@@ -2,8 +2,29 @@ const express = require('express');
 const router = express.Router();
 const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
-const { waClient, isReady, sendWAMessage } = require('../utils/whatsapp-client');
+const { waClient, isReady, sendWAMessage, getLastQR } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
+const QRCode = require('qrcode');
+const { requireInterno } = require('../middleware/auth');
+
+// Mostrar QR para escanear desde el navegador (solo internos)
+router.get('/whatsapp/qr', requireInterno, async (req, res) => {
+  if (isReady()) {
+    return res.send('<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2 style="color:green">✅ WhatsApp ya está conectado</h2></body></html>');
+  }
+  const qr = getLastQR();
+  if (!qr) {
+    return res.send('<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>⏳ Esperando QR...</h2><p>Recarga en unos segundos.</p><script>setTimeout(()=>location.reload(),3000)</script></body></html>');
+  }
+  const dataUrl = await QRCode.toDataURL(qr, { width: 300, margin: 2 });
+  res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px;background:#f5f5f5">
+    <h2>📱 Escanea este QR en WhatsApp</h2>
+    <p>Abre WhatsApp → Dispositivos vinculados → Vincular dispositivo</p>
+    <img src="${dataUrl}" style="border:4px solid #1d3557;border-radius:8px">
+    <p style="color:#666">Esta página se recarga automáticamente cada 10s</p>
+    <script>setTimeout(()=>location.reload(),10000)</script>
+  </body></html>`);
+});
 
 // Enviar WhatsApp usando el mensaje guardado de la orden
 router.post('/quotes/order/:orderId/send-whatsapp', async (req, res) => {
