@@ -323,8 +323,23 @@
     if (!res.authenticated) { window.location.href = '/login'; return; }
     document.getElementById('headerUserName').textContent = res.user.nombre;
     const params = new URLSearchParams(window.location.search);
-    const ordenParam = params.get('orden');
-    if (ordenParam) await loadOrder({ uid_orden: ordenParam });
+    const ordenParam   = params.get('orden');
+    const maquinaParam = params.get('maquina');
+    if (ordenParam) {
+      await loadOrder({ uid_orden: ordenParam });
+      // Pre-seleccionar máquina específica si viene el parámetro
+      if (maquinaParam && equipmentData.length) {
+        const maq = equipmentData.find(e => String(e.uid_herramienta_orden) === String(maquinaParam));
+        if (maq) {
+          selectedEquipment = maq;
+          const sel = document.getElementById('equipmentSelect');
+          if (sel) sel.value = String(maq.uid_herramienta_orden);
+          paintSelectedEquipment(maq);
+          syncTechnicianSelect(maq);
+          await loadSavedQuoteForSelectedMachine();
+        }
+      }
+    }
   })();
 
   async function doLogout() {
@@ -813,6 +828,13 @@
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok || data.success === false) throw new Error(data.error || 'No se pudo guardar');
       showToast('✅ Cotización guardada para esta máquina');
+      // Notificar al padre si estamos dentro de un modal iframe
+      if (window.parent !== window) {
+        window.parent.postMessage(
+          { type: 'cotizacionGuardada', orderId: currentOrderId },
+          window.location.origin
+        );
+      }
       await refreshSavedCount();
     } catch(e) {
       console.error(e);

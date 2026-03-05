@@ -462,6 +462,17 @@
 
 <div id="_toast"></div>
 
+<!-- Modal: Cotizar máquina -->
+<div id="cotizarModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);align-items:center;justify-content:center;">
+  <div style="background:#fff;width:92%;max-width:1140px;height:90vh;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid #e5e7eb;">
+      <span id="cotizarModalTitle" style="font-weight:600;font-size:15px">Cotizar máquina</span>
+      <button onclick="cerrarModalCotizar()" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px 8px;color:#666">✕</button>
+    </div>
+    <iframe id="cotizarIframe" src="" style="flex:1;border:none;"></iframe>
+  </div>
+</div>
+
 <script>
 const API = '/api';
 let _currentUser = null;
@@ -483,6 +494,27 @@ function showToast(msg, ms=3000) {
 }
 function isAdmin()   { return _currentUser?.tipo === 'A'; }
 function isTecnico() { return _currentUser?.tipo === 'T'; }
+
+// ── Modal Cotizar por máquina ──────────────────────────────────────────────────
+window.ord_abrirCotizar = (orderId, equipmentOrderId) => {
+  document.getElementById('cotizarIframe').src =
+    `/generador-cotizaciones.html?orden=${orderId}&maquina=${equipmentOrderId}`;
+  document.getElementById('cotizarModal').style.display = 'flex';
+};
+window.cerrarModalCotizar = () => {
+  document.getElementById('cotizarModal').style.display = 'none';
+  document.getElementById('cotizarIframe').src = '';
+};
+window.addEventListener('message', e => {
+  if (e.origin !== window.location.origin) return;
+  if (e.data?.type === 'cotizacionGuardada') {
+    cerrarModalCotizar();
+    ord_verDetalle(e.data.orderId);
+  }
+});
+document.getElementById('cotizarModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('cotizarModal')) cerrarModalCotizar();
+});
 
 // ── Sidebar / navigation shell ────────────────────────────────────────────────
 function toggleSidebar() {
@@ -777,6 +809,7 @@ Views.ordenes = {
             <div class="maq-actions">
               <select class="estado-select" data-prev="${m.her_estado||'pendiente_revision'}"
                       onchange="ord_cambiarEstado(${m.uid_herramienta_orden},this)">${opts}</select>
+              <button class="btn btn-sm btn-mid" onclick="ord_abrirCotizar(${orden.uid_orden},${m.uid_herramienta_orden})">✏️ Cotizar</button>
               <button class="btn btn-sm btn-teal" onclick="ord_verInforme(${orden.uid_orden},${m.uid_herramienta_orden})">📋 Informe</button>
             </div>
             ${m.hor_observaciones?`<div class="maq-obs"><div class="maq-obs-lbl">Observaciones</div>${esc(m.hor_observaciones)}</div>`:''}
