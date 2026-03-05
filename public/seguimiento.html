@@ -333,9 +333,9 @@
       const informeHtml = m.informe ? `
         <div class="sec-block">
           <div class="sec-lbl">Informe de mantenimiento</div>
-          <a class="btn-informe" href="/api/cliente/informe/${m.uid_herramienta_orden}" target="_blank">
+          <button class="btn-informe" onclick="seg_descargarInforme(${m.uid_herramienta_orden})">
             📄 Descargar informe PDF
-          </a>
+          </button>
         </div>` : '';
 
       // Cotización
@@ -442,6 +442,17 @@
       document.querySelectorAll('.maq-item').forEach(item => {
         if (item.querySelector('.cot-aviso')) item.classList.add('open');
       });
+    }
+
+    async function seg_descargarInforme(uid) {
+      const r = await fetch(`/api/cliente/informe/${uid}`);
+      if (!r.ok) {
+        alert('El informe aún no está disponible. Por favor consulte con el taller.');
+        return;
+      }
+      const blob = await r.blob();
+      const url  = URL.createObjectURL(blob);
+      window.open(url, '_blank');
     }
 
     async function seg_autorizar(uid, decision, btn) {

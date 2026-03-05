@@ -777,7 +777,7 @@ Views.ordenes = {
             <div class="maq-actions">
               <select class="estado-select" data-prev="${m.her_estado||'pendiente_revision'}"
                       onchange="ord_cambiarEstado(${m.uid_herramienta_orden},this)">${opts}</select>
-              <a class="btn btn-sm btn-teal" href="${API}/orders/${orden.uid_orden}/pdf/maintenance/${m.uid_herramienta_orden}" target="_blank">📋 Informe</a>
+              <button class="btn btn-sm btn-teal" onclick="ord_verInforme(${orden.uid_orden},${m.uid_herramienta_orden})">📋 Informe</button>
             </div>
             ${m.hor_observaciones?`<div class="maq-obs"><div class="maq-obs-lbl">Observaciones</div>${esc(m.hor_observaciones)}</div>`:''}
             <div class="fotos-seccion">
@@ -873,6 +873,19 @@ Views.ordenes = {
     };
     // Trigger load by order ID (called from dashboard alerts or cotizaciones)
     window.ord_verDetalleById = window.ord_verDetalle;
+
+    window.ord_verInforme = async (orderId, uid) => {
+      const r = await fetch(`${API}/orders/${orderId}/pdf/maintenance/${uid}`);
+      if (r.status === 404) {
+        const d = await r.json().catch(() => ({}));
+        showToast('⚠️ ' + (d.error || 'No hay cotización para esta máquina. Cotízala primero.'), 5000);
+        return;
+      }
+      if (!r.ok) { showToast('⚠️ Error generando informe', 4000); return; }
+      const blob = await r.blob();
+      const url  = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    };
   }
 };
 
@@ -2133,7 +2146,7 @@ async function tec_verDetalle(uid, rightId, panelId) {
             ? `<span class="badge b-revisada">✓ Revisada</span>`
             : `<button class="btn btn-sm btn-mid" id="tec-btn-${m.uid_herramienta_orden}"
                  onclick="tec_marcarRevisada(${m.uid_herramienta_orden})">Marcar revisada</button>`}
-          <a class="btn btn-sm btn-teal" href="${API}/orders/${orden.uid_orden}/pdf/maintenance/${m.uid_herramienta_orden}" target="_blank">📋 Informe</a>
+          <button class="btn btn-sm btn-teal" onclick="ord_verInforme(${orden.uid_orden},${m.uid_herramienta_orden})">📋 Informe</button>
         </div>
         <div style="margin-top:8px;">
           <div class="maq-obs-lbl">Observaciones del técnico</div>
