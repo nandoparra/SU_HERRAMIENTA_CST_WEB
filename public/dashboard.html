@@ -416,7 +416,7 @@
     <div class="nav-item" data-view="ordenes" onclick="navigate('ordenes')">
       <span class="ni">📋</span><span>Órdenes</span>
     </div>
-    <div class="nav-item" data-view="cotizaciones" onclick="navigate('cotizaciones')">
+    <div class="nav-item" data-view="cotizaciones" onclick="if(Views.cotizaciones)Views.cotizaciones._state.fromOrden=null;navigate('cotizaciones')">
       <span class="ni">💰</span><span>Cotizaciones</span>
     </div>
     <div class="nav-item" data-view="clientes" onclick="navigate('clientes')">
@@ -861,7 +861,7 @@ Views.ordenes = {
           ${totalHtml}
           <div class="ord-acciones">
             <a class="btn btn-dark" href="${API}/orders/${orden.uid_orden}/print/orden" target="_blank">🖨️ Imprimir orden</a>
-            <button class="btn btn-green" onclick="navigate('cotizaciones');setTimeout(()=>cot_loadById(${orden.uid_orden}),80)">
+            <button class="btn btn-green" onclick="Views.cotizaciones._state.fromOrden=${orden.uid_orden};navigate('cotizaciones');setTimeout(()=>cot_loadById(${orden.uid_orden}),80)">
               ${tieneCotizacion?'✏️ Editar cotización':'✏️ Cotizar'}
             </button>
             ${tieneCotizacion?`<a class="btn btn-purple" href="${API}/orders/${orden.uid_orden}/pdf/quote" target="_blank">📄 PDF Cotización</a>`:''}
@@ -927,7 +927,7 @@ Views.ordenes = {
 // ════════════════════════════════════════════════════════════════════════════
 Views.cotizaciones = {
   _timer: null,
-  _state: { orderId:null, equipment:[], technicians:[], selected:null, items:[], finalMsg:'' },
+  _state: { orderId:null, equipment:[], technicians:[], selected:null, items:[], finalMsg:'', fromOrden:null },
   render() {
     return `
       <div class="two-panel" id="cotPanel">
@@ -963,6 +963,7 @@ Views.cotizaciones = {
   init() {
     const S = Views.cotizaciones._state;
     S.orderId=null; S.equipment=[]; S.technicians=[]; S.selected=null; S.items=[]; S.finalMsg='';
+    // fromOrden se preserva: lo setea el botón en Órdenes y lo limpia cot_volverAOrden / sidebar
     const PLCH = {consecutivo:'Ej: 7833',cedula:'Ej: 8914110164',nombre:'Ej: Cliente X'};
     const ESTADOS = [
       {value:'pendiente_revision',label:'Pendiente de revisión',color:'#888'},
@@ -1003,6 +1004,11 @@ Views.cotizaciones = {
     };
     window.cot_back = () => document.getElementById('cotPanel')?.classList.remove('immersive');
     window.cot_loadById = (uid) => cot_loadOrder(uid);
+    window.cot_volverAOrden = (uid) => {
+      S.fromOrden = null;
+      navigate('ordenes');
+      setTimeout(() => ord_verDetalle(uid), 80);
+    };
     window.cot_loadOrder = async (uid) => {
       const data = await fetch(`${API}/orders/${uid}`).then(r=>r.json()).catch(()=>null);
       if (!data) return;
@@ -1033,6 +1039,7 @@ Views.cotizaciones = {
       return `
         <div class="orden-badge">
           <span class="num">Orden #${o.ord_consecutivo}</span>
+          ${S.fromOrden ? `<button class="btn btn-sm btn-dark" onclick="cot_volverAOrden(${S.fromOrden})" style="margin-left:auto">← Volver a la orden</button>` : ''}
           <button class="back-btn" onclick="cot_back()">← Volver</button>
         </div>
         <div class="info-field"><strong>Cliente:</strong> ${esc(o.cli_razon_social||'-')}</div>
