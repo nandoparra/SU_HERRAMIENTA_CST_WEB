@@ -14,7 +14,7 @@
     .nav-links a:hover{color:#fff;}
     .logout-btn{background:rgba(255,255,255,.15);border:none;color:#fff;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:13px;}
 
-    .container{max-width:860px;margin:28px auto;padding:0 16px;}
+    .container{max-width:860px;margin:28px auto;padding:0 16px 48px;}
 
     /* Steps */
     .steps{display:flex;gap:0;margin-bottom:28px;}
@@ -174,7 +174,7 @@
       </div>
     </div>
 
-    <div style="display:flex;justify-content:flex-end;">
+    <div class="nav-row" style="display:flex;justify-content:flex-end;">
       <button class="btn-primary" id="btnStep1Next" onclick="goStep2()" disabled>Siguiente →</button>
     </div>
   </div>
@@ -223,7 +223,7 @@
     <!-- Lista de máquinas agregadas -->
     <div id="maquinasEnOrden"></div>
 
-    <div style="display:flex;justify-content:space-between;margin-top:8px;">
+    <div class="nav-row" style="display:flex;justify-content:space-between;margin-top:8px;">
       <button class="btn-secondary" onclick="goStep1()">← Atrás</button>
       <button class="btn-primary" id="btnStep2Next" onclick="goStep3()" disabled>Siguiente →</button>
     </div>
@@ -236,7 +236,7 @@
       <div id="resumenOrden"></div>
       <div id="step3Error" class="alert alert-error" style="display:none;"></div>
     </div>
-    <div style="display:flex;justify-content:space-between;">
+    <div class="nav-row" style="display:flex;justify-content:space-between;">
       <button class="btn-secondary" onclick="goStep2()">← Atrás</button>
       <button class="btn-success" id="btnCrear" onclick="crearOrden()">✓ Crear Orden</button>
     </div>
