@@ -150,6 +150,53 @@ router.get('/orders/search', async (req, res) => {
   }
 });
 
+// Órdenes filtradas por estado de máquina (para KPIs del dashboard)
+router.get('/orders/by-estado', async (req, res) => {
+  try {
+    const estado = String(req.query.estado || '');
+    const mes    = String(req.query.mes    || '');
+
+    const params = [];
+    let estadoClause = '';
+    if (estado === 'pendiente_revision') {
+      estadoClause = `AND ho.her_estado IN ('pendiente_revision','revisada')`;
+    } else if (estado) {
+      estadoClause = `AND ho.her_estado = ?`;
+      params.push(estado);
+    }
+    if (mes) {
+      estadoClause += ` AND o.ord_fecha LIKE ?`;
+      params.push(`${mes.replace('-', '')}%`);
+    }
+
+    const conn = await db.getConnection();
+    const [rows] = await conn.execute(
+      `SELECT o.uid_orden, o.ord_consecutivo, o.ord_estado, o.ord_fecha,
+              COALESCE(c.cli_razon_social, c.cli_contacto, '') AS cli_razon_social,
+              GROUP_CONCAT(
+                CONCAT(
+                  TRIM(CONCAT(IFNULL(h.her_nombre,''),' ',IFNULL(h.her_marca,''))),
+                  IF(h.her_serial IS NULL OR h.her_serial='','',CONCAT(' (',h.her_serial,')'))
+                ) SEPARATOR ' | '
+              ) AS maquinas_resumen
+       FROM b2c_herramienta_orden ho
+       JOIN b2c_orden o  ON o.uid_orden    = ho.uid_orden
+       JOIN b2c_cliente c ON c.uid_cliente  = o.uid_cliente
+       LEFT JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+       WHERE 1=1 ${estadoClause}
+       GROUP BY o.uid_orden
+       ORDER BY o.ord_fecha DESC
+       LIMIT 200`,
+      params
+    );
+    conn.release();
+    res.json(rows);
+  } catch (e) {
+    console.error('Error en /orders/by-estado:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Órdenes asignadas al técnico logueado
 router.get('/orders/mis-ordenes-tecnico', async (req, res) => {
   try {
