@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
-const { generateText } = require('../utils/ia');
 
 // Catálogo de repuestos
 router.get('/quote/catalog', async (req, res) => {
@@ -217,70 +216,17 @@ router.post('/quotes/order/:orderId/generate-message', async (req, res) => {
       return res.status(400).json({ success: false, error: 'No hay cotizaciones guardadas para esta orden.' });
     }
 
-    const [items] = await conn.execute(
-      `SELECT uid_herramienta_orden, nombre, cantidad, precio, subtotal
-       FROM b2c_cotizacion_item
-       WHERE uid_orden = ?
-       ORDER BY uid_herramienta_orden, id`,
-      [order.uid_orden]
-    );
-
     const machineSubtotal = machines.reduce((s, m) => s + Number(m.subtotal || 0), 0);
     const IVA_RATE = parseFloat(process.env.IVA_RATE || '0');
     const iva = machineSubtotal * IVA_RATE;
     const total = machineSubtotal + iva;
 
-    const itemsByMachine = new Map();
-    for (const it of items) {
-      const key = String(it.uid_herramienta_orden);
-      if (!itemsByMachine.has(key)) itemsByMachine.set(key, []);
-      itemsByMachine.get(key).push(it);
-    }
+    const clientName = order.cli_razon_social || order.cli_contacto || 'Cliente';
+    const machineLines = machines
+      .map(m => `• ${m.her_nombre || 'Máquina'}${m.her_marca ? ' (' + m.her_marca + ')' : ''} — $${Number(m.subtotal || 0).toLocaleString('es-CO')}`)
+      .join('\n');
 
-    const machineBlocks = machines.map((m, idx) => {
-      const key = String(m.uid_herramienta_orden);
-      const list = itemsByMachine.get(key) || [];
-      const rep = list.length
-        ? list.map((x) => `- ${x.nombre} x${x.cantidad} @ $${Number(x.precio || 0).toLocaleString('es-CO')}`).join('\n')
-        : '- (Sin repuestos)';
-      const title = `${idx + 1}) ${m.her_nombre || 'Máquina'} (${m.her_marca || '-'})${m.her_serial ? ' / ' + m.her_serial : ''}`;
-      return `${title}
-Mano de obra: $${Number(m.mano_obra || 0).toLocaleString('es-CO')}
-Trabajo: ${m.descripcion_trabajo || '(Sin descripción)'}
-Repuestos:
-${rep}
-Subtotal máquina: $${Number(m.subtotal || 0).toLocaleString('es-CO')}`;
-    }).join('\n\n');
-
-    const prompt = `Eres un agente especializado en generar cotizaciones para una empresa de reparación de herramientas en Colombia.
-
-INFORMACIÓN DE LA ORDEN:
-- Número: #${order.ord_consecutivo}
-- Cliente: ${order.cli_razon_social}
-- Contacto: ${order.cli_contacto || 'No especificado'}
-- Teléfono: ${order.cli_telefono}
-
-COTIZACIÓN (POR MÁQUINA):
-${machineBlocks}
-
-RESUMEN:
-Subtotal: $${machineSubtotal.toLocaleString('es-CO')}
-IVA: No aplica
-TOTAL: $${total.toLocaleString('es-CO')}
-
-INSTRUCCIONES:
-1) Redacta UN SOLO mensaje de WhatsApp, profesional y cercano.
-2) El mensaje DEBE comenzar con una presentación: "Hola, le saluda *Su Herramienta CST*" (o variación natural).
-3) Debe incluir TODAS las máquinas (lista corta y clara).
-4) Incluye total final SIN IVA.
-5) Cierra con una frase breve invitando a responder (ej: "Por favor indíquenos su decisión:"). NO incluyas las opciones numeradas.
-6) Máximo 550 caracteres (las opciones se agregan automáticamente aparte).
-7) Usa emojis moderadamente (máximo 3).
-8) No inventes datos que no estén arriba.
-
-Genera SOLO el mensaje, sin explicaciones adicionales.`;
-
-    const generated = await generateText(prompt, 400);
+    const generated = `Hola, le saluda *Su Herramienta CST* 🔧\n\nCotización orden #${order.ord_consecutivo} para ${clientName}:\n\n${machineLines}\n\n*Total: $${total.toLocaleString('es-CO')}*\n\nPuede ver el detalle completo de repuestos y trabajos en su portal de seguimiento. Por favor indíquenos su decisión:`;
 
     // Agregar menú de autorización de forma determinista
     const advisorNumber = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
