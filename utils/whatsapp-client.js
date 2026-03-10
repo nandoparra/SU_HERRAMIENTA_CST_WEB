@@ -1,5 +1,24 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
+const fs = require('fs');
+const path = require('path');
+
+// Eliminar lock files de Chromium al arrancar — evita error "profile in use"
+// cuando Railway reinicia el contenedor mientras Chromium estaba corriendo
+function removeChromeLocksRecursive(dir) {
+  try {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        removeChromeLocksRecursive(full);
+      } else if (['SingletonLock', 'SingletonCookie', 'SingletonSocket'].includes(entry.name)) {
+        try { fs.unlinkSync(full); console.log('🔓 Lock Chromium eliminado:', full); } catch {}
+      }
+    }
+  } catch {}
+}
+removeChromeLocksRecursive(process.env.WA_AUTH_PATH || './.wwebjs_auth');
 
 const waClient = new Client({
   authStrategy: new LocalAuth({
