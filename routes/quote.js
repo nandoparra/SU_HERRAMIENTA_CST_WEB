@@ -216,17 +216,44 @@ router.post('/quotes/order/:orderId/generate-message', async (req, res) => {
       return res.status(400).json({ success: false, error: 'No hay cotizaciones guardadas para esta orden.' });
     }
 
+    const [items] = await conn.execute(
+      `SELECT uid_herramienta_orden, nombre, cantidad, precio, subtotal
+       FROM b2c_cotizacion_item
+       WHERE uid_orden = ?
+       ORDER BY uid_herramienta_orden, id`,
+      [order.uid_orden]
+    );
+
     const machineSubtotal = machines.reduce((s, m) => s + Number(m.subtotal || 0), 0);
     const IVA_RATE = parseFloat(process.env.IVA_RATE || '0');
     const iva = machineSubtotal * IVA_RATE;
     const total = machineSubtotal + iva;
 
-    const clientName = order.cli_razon_social || order.cli_contacto || 'Cliente';
-    const machineLines = machines
-      .map(m => `• ${m.her_nombre || 'Máquina'}${m.her_marca ? ' (' + m.her_marca + ')' : ''} — $${Number(m.subtotal || 0).toLocaleString('es-CO')}`)
-      .join('\n');
+    const itemsByMachine = new Map();
+    for (const it of items) {
+      const key = String(it.uid_herramienta_orden);
+      if (!itemsByMachine.has(key)) itemsByMachine.set(key, []);
+      itemsByMachine.get(key).push(it);
+    }
 
-    const generated = `Hola, le saluda *Su Herramienta CST* 🔧\n\nCotización orden #${order.ord_consecutivo} para ${clientName}:\n\n${machineLines}\n\n*Total: $${total.toLocaleString('es-CO')}*\n\nPuede ver el detalle completo de repuestos y trabajos en su portal de seguimiento. Por favor indíquenos su decisión:`;
+    const clientName = order.cli_razon_social || order.cli_contacto || 'Cliente';
+    const machineLines = machines.map(m => {
+      const nombre = `*${m.her_nombre || 'Máquina'}${m.her_marca ? ' (' + m.her_marca + ')' : ''}*`;
+      const manoObra = Number(m.mano_obra || 0);
+      const repuestos = itemsByMachine.get(String(m.uid_herramienta_orden)) || [];
+      const repuestosTotal = repuestos.reduce((s, it) => s + Number(it.subtotal || 0), 0);
+      const lines = [`  • Mano de obra: $${manoObra.toLocaleString('es-CO')}`];
+      if (repuestos.length) {
+        lines.push(`  • Repuestos: $${repuestosTotal.toLocaleString('es-CO')}`);
+        for (const it of repuestos) {
+          lines.push(`    - ${it.nombre} x${it.cantidad} = $${Number(it.subtotal || 0).toLocaleString('es-CO')}`);
+        }
+      }
+      lines.push(`  Subtotal: $${Number(m.subtotal || 0).toLocaleString('es-CO')}`);
+      return `${nombre}\n${lines.join('\n')}`;
+    }).join('\n\n');
+
+    const generated = `Hola, le saluda *Su Herramienta CST* 🔧\n\nCotización orden #${order.ord_consecutivo} para ${clientName}:\n\n${machineLines}\n\n*Total: $${total.toLocaleString('es-CO')}*\n\nPor favor indíquenos su decisión:`;
 
     // Agregar menú de autorización de forma determinista
     const advisorNumber = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
