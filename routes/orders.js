@@ -483,7 +483,7 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
     if (status === 'reparada' && isReady()) {
       try {
         const [[maqRow]] = await conn.execute(
-          `SELECT h.her_nombre, h.her_marca, c.cli_telefono, c.cli_razon_social, c.cli_contacto
+          `SELECT h.her_nombre, h.her_marca, c.cli_telefono, c.cli_razon_social, c.cli_contacto, o.ord_consecutivo
            FROM b2c_herramienta_orden ho
            JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
            JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
@@ -495,7 +495,7 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
           const chatIds = parseColombianPhones(maqRow.cli_telefono);
           const nombre = maqRow.cli_razon_social || maqRow.cli_contacto || 'cliente';
           const maquina = [maqRow.her_nombre, maqRow.her_marca].filter(Boolean).join(' ');
-          const msg = `Hola ${nombre}, le informamos que su *${maquina}* está *reparada y lista para recoger* 🔧\n\n📍 Calle 21 No 10 02, Pereira\n📞 3104650437\n— SU HERRAMIENTA CST`;
+          const msg = `Hola ${nombre}, le informamos que su *${maquina}* de la orden *#${maqRow.ord_consecutivo}* está *reparada y lista para recoger* 🔧\n\n📍 Calle 21 No 10 02, Pereira\n📞 3104650437\n— SU HERRAMIENTA CST`;
           for (const chatId of chatIds) {
             sendWAMessage(chatId, msg).catch(e => console.error('Error WA notif reparada:', e.message));
           }
