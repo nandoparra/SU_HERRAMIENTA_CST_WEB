@@ -479,6 +479,32 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
       [equipmentOrderId]
     );
 
+    // Notificar al cliente automáticamente cuando la máquina pasa a "reparada"
+    if (status === 'reparada' && isReady()) {
+      try {
+        const [[maqRow]] = await conn.execute(
+          `SELECT h.her_nombre, h.her_marca, c.cli_telefono, c.cli_razon_social, c.cli_contacto
+           FROM b2c_herramienta_orden ho
+           JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+           JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
+           JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+           WHERE ho.uid_herramienta_orden = ?`,
+          [equipmentOrderId]
+        );
+        if (maqRow) {
+          const chatIds = parseColombianPhones(maqRow.cli_telefono);
+          const nombre = maqRow.cli_razon_social || maqRow.cli_contacto || 'cliente';
+          const maquina = [maqRow.her_nombre, maqRow.her_marca].filter(Boolean).join(' ');
+          const msg = `Hola ${nombre}, le informamos que su *${maquina}* está *reparada y lista para recoger* 🔧\n\n📍 Calle 21 No 10 02, Pereira\n📞 3104650437\n— SU HERRAMIENTA CST`;
+          for (const chatId of chatIds) {
+            sendWAMessage(chatId, msg).catch(e => console.error('Error WA notif reparada:', e.message));
+          }
+        }
+      } catch (e) {
+        console.error('Error enviando notificación reparada:', e.message);
+      }
+    }
+
     conn.release();
     res.json({ success: true, status, changed_at: logRow?.changed_at || null });
   } catch (e) {
