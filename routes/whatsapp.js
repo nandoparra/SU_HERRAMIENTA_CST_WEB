@@ -27,7 +27,7 @@ router.get('/whatsapp/qr', requireInterno, async (req, res) => {
 });
 
 // Enviar WhatsApp usando el mensaje guardado de la orden
-router.post('/quotes/order/:orderId/send-whatsapp', async (req, res) => {
+router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, async (req, res) => {
   try {
     if (!isReady()) {
       return res.status(503).json({
@@ -90,7 +90,7 @@ router.post('/quotes/order/:orderId/send-whatsapp', async (req, res) => {
 });
 
 // Envío genérico de WhatsApp
-router.post('/whatsapp/send', async (req, res) => {
+router.post('/whatsapp/send', requireInterno, async (req, res) => {
   try {
     const { orderId, message } = req.body;
 
