@@ -136,7 +136,7 @@ function getPhone(order) {
 }
 
 // ─── DESCARGAR cotizaci\u00f3n PDF ─────────────────────────────────────────────
-router.get('/orders/:orderId/pdf/quote', async (req, res) => {
+router.get('/orders/:orderId/pdf/quote', requireInterno, async (req, res) => {
   try {
     const conn  = await db.getConnection();
     const order = await resolveOrder(conn, req.params.orderId);
@@ -157,7 +157,7 @@ router.get('/orders/:orderId/pdf/quote', async (req, res) => {
 });
 
 // ─── DESCARGAR informe de mantenimiento PDF ───────────────────────────────────
-router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', async (req, res) => {
+router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireInterno, async (req, res) => {
   try {
     const conn  = await db.getConnection();
     const order = await resolveOrder(conn, req.params.orderId);
@@ -191,7 +191,7 @@ router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', async (req, res
 });
 
 // ─── ENVIAR cotizaci\u00f3n PDF por WhatsApp ──────────────────────────────────
-router.post('/orders/:orderId/send-pdf/quote', async (req, res) => {
+router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) => {
   try {
     if (!isReady()) return res.status(503).json({ success: false, error: 'WhatsApp no est\u00e1 conectado.' });
 
@@ -217,7 +217,7 @@ router.post('/orders/:orderId/send-pdf/quote', async (req, res) => {
 });
 
 // ─── ENVIAR informe de mantenimiento PDF por WhatsApp ────────────────────────
-router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', async (req, res) => {
+router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireInterno, async (req, res) => {
   try {
     if (!isReady()) return res.status(503).json({ success: false, error: 'WhatsApp no est\u00e1 conectado.' });
 
@@ -326,7 +326,7 @@ function printHtml(pdfUrl) {
 }
 
 // ─── DESCARGAR / IMPRIMIR orden completa (todas las máquinas) ─────────────────
-router.get('/orders/:orderId/pdf/orden', async (req, res) => {
+router.get('/orders/:orderId/pdf/orden', requireInterno, async (req, res) => {
   try {
     const conn  = await db.getConnection();
     const order = await resolveOrder(conn, req.params.orderId);
@@ -352,7 +352,7 @@ router.get('/orders/:orderId/pdf/orden', async (req, res) => {
   }
 });
 
-router.get('/orders/:orderId/print/orden', async (req, res) => {
+router.get('/orders/:orderId/print/orden', requireInterno, async (req, res) => {
   const conn  = await db.getConnection();
   const order = await resolveOrder(conn, req.params.orderId);
   conn.release();
@@ -361,7 +361,7 @@ router.get('/orders/:orderId/print/orden', async (req, res) => {
 });
 
 // ─── ENVIAR orden completa PDF por WhatsApp ───────────────────────────────────
-router.post('/orders/:orderId/send-pdf/orden', async (req, res) => {
+router.post('/orders/:orderId/send-pdf/orden', requireInterno, async (req, res) => {
   try {
     if (!isReady()) return res.status(503).json({ success: false, error: 'WhatsApp no est\u00e1 conectado.' });
 
