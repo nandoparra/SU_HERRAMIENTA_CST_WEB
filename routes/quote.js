@@ -2,6 +2,11 @@ const express = require('express');
 const router = express.Router();
 const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
+const { requireInterno } = require('../middleware/auth');
+
+// Todos los endpoints de cotización son exclusivamente internos (admin/F/T).
+// El portal cliente recibe datos de cotización a través de /api/cliente/mis-ordenes.
+router.use(requireInterno);
 
 // Catálogo de repuestos
 router.get('/quote/catalog', async (req, res) => {
