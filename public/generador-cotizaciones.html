@@ -124,6 +124,12 @@
     .preview-box{background:#f7f9fb;border:1px solid #e2e8f0;border-radius:8px;padding:14px;min-height:100px;}
     .preview-content{color:#333;line-height:1.6;font-size:12px;white-space:pre-wrap;word-wrap:break-word;font-family:'Courier New',monospace;}
 
+    /* Modo modal — abierto desde iframe con ?maquina=X */
+    body.modal-mode header{display:none;}
+    body.modal-mode .panel-left{display:none;}
+    body.modal-mode .panel-right{padding:14px;}
+    body.modal-mode .acciones-extras{display:none;}
+
     @media(max-width:768px){
       .main{flex-direction:column;}
       .panel-left{width:100%;min-width:unset;border-right:none;border-bottom:1px solid #e2e8f0;max-height:50vh;overflow-y:auto;}
@@ -282,26 +288,28 @@
         <div class="card-title">⚡ Acciones</div>
         <div class="btn-group">
           <button class="btn btn-save" onclick="saveMachineQuote()" id="saveBtn">💾 Guardar máquina</button>
-          <button class="btn btn-gen" onclick="generateFinalMessage()" id="genFinalBtn">🤖 Mensaje final</button>
-          <button class="btn btn-send" onclick="sendFinalWhatsApp()" id="sendFinalBtn" disabled>📱 Enviar WA final</button>
+          <button class="btn btn-gen acciones-extras" onclick="generateFinalMessage()" id="genFinalBtn">🤖 Mensaje final</button>
+          <button class="btn btn-send acciones-extras" onclick="sendFinalWhatsApp()" id="sendFinalBtn" disabled>📱 Enviar WA final</button>
           <button class="btn btn-reset" onclick="resetMachineForm()">🔄 Limpiar</button>
         </div>
 
-        <div class="muted" style="margin-top:14px;">📄 Cotización PDF (toda la orden)</div>
-        <div class="btn-group" style="margin-top:4px;">
-          <button class="btn btn-pdf" onclick="downloadQuotePDF()">📄 Descargar PDF</button>
-          <button class="btn btn-pdf" onclick="sendQuotePDF()" id="sendQuotePDFBtn">📤 Enviar por WA</button>
-        </div>
+        <div class="acciones-extras">
+          <div class="muted" style="margin-top:14px;">📄 Cotización PDF (toda la orden)</div>
+          <div class="btn-group" style="margin-top:4px;">
+            <button class="btn btn-pdf" onclick="downloadQuotePDF()">📄 Descargar PDF</button>
+            <button class="btn btn-pdf" onclick="sendQuotePDF()" id="sendQuotePDFBtn">📤 Enviar por WA</button>
+          </div>
 
-        <div class="muted" style="margin-top:10px;">🔧 Informe de mantenimiento (máquina seleccionada)</div>
-        <div class="btn-group" style="margin-top:4px;">
-          <button class="btn btn-pdf" onclick="downloadMaintenancePDF()">📄 Descargar Informe</button>
-          <button class="btn btn-pdf" onclick="sendMaintenancePDF()" id="sendMaintPDFBtn">📤 Enviar Informe WA</button>
+          <div class="muted" style="margin-top:10px;">🔧 Informe de mantenimiento (máquina seleccionada)</div>
+          <div class="btn-group" style="margin-top:4px;">
+            <button class="btn btn-pdf" onclick="downloadMaintenancePDF()">📄 Descargar Informe</button>
+            <button class="btn btn-pdf" onclick="sendMaintenancePDF()" id="sendMaintPDFBtn">📤 Enviar Informe WA</button>
+          </div>
         </div>
       </div>
 
       <!-- Vista previa WhatsApp -->
-      <div class="card">
+      <div class="card acciones-extras">
         <div class="card-title">👀 Vista previa WhatsApp (cotización completa)</div>
         <div class="preview-box">
           <div class="preview-content" id="messagePreview">Aquí aparecerá el mensaje FINAL (todas las máquinas)...</div>
@@ -325,6 +333,7 @@
     const params = new URLSearchParams(window.location.search);
     const ordenParam   = params.get('orden');
     const maquinaParam = params.get('maquina');
+    if (maquinaParam) document.body.classList.add('modal-mode');
     if (ordenParam) {
       await loadOrder({ uid_orden: ordenParam });
       // Pre-seleccionar máquina específica si viene el parámetro

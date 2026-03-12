@@ -416,7 +416,7 @@
     <div class="nav-item" data-view="ordenes" onclick="navigate('ordenes')">
       <span class="ni">📋</span><span>Órdenes</span>
     </div>
-    <div class="nav-item" data-view="cotizaciones" onclick="if(Views.cotizaciones)Views.cotizaciones._state.fromOrden=null;navigate('cotizaciones')">
+    <div class="nav-item" data-view="cotizaciones" onclick="navigate('cotizaciones')">
       <span class="ni">💰</span><span>Cotizaciones</span>
     </div>
     <div class="nav-item" data-view="clientes" onclick="navigate('clientes')">
@@ -813,9 +813,10 @@ Views.ordenes = {
             </div>
             <div class="maq-actions">
               <select class="estado-select" data-prev="${m.her_estado||'pendiente_revision'}"
-                      onchange="ord_cambiarEstado(${m.uid_herramienta_orden},this)">${opts}</select>
+                      onchange="ord_cambiarEstado(${m.uid_herramienta_orden},${orden.uid_orden},this)">${opts}</select>
               <button class="btn btn-sm btn-mid" onclick="ord_abrirCotizar(${orden.uid_orden},${m.uid_herramienta_orden})">✏️ Cotizar</button>
               <button class="btn btn-sm btn-teal" onclick="ord_verInforme(${orden.uid_orden},${m.uid_herramienta_orden})">📋 Informe</button>
+              ${m.informes?.length?`<button class="btn btn-sm btn-green" onclick="ord_enviarInformeWA(${orden.uid_orden},${m.uid_herramienta_orden},this)">📤 WA Informe</button>`:''}
             </div>
             ${m.hor_observaciones?`<div class="maq-obs"><div class="maq-obs-lbl">Observaciones</div>${esc(m.hor_observaciones)}</div>`:''}
             <div class="fotos-seccion">
@@ -866,14 +867,17 @@ Views.ordenes = {
           ${totalHtml}
           <div class="ord-acciones">
             <a class="btn btn-dark" href="${API}/orders/${orden.uid_orden}/print/orden" target="_blank">🖨️ Imprimir orden</a>
-            <button class="btn btn-green" onclick="Views.cotizaciones._state.fromOrden=${orden.uid_orden};navigate('cotizaciones');setTimeout(()=>cot_loadById(${orden.uid_orden}),80)">
-              ${tieneCotizacion?'✏️ Editar cotización':'✏️ Cotizar'}
-            </button>
-            ${tieneCotizacion?`<a class="btn btn-purple" href="${API}/orders/${orden.uid_orden}/pdf/quote" target="_blank">📄 PDF Cotización</a>`:''}
+            ${tieneCotizacion?`
+            <a class="btn btn-purple" href="${API}/orders/${orden.uid_orden}/pdf/quote" target="_blank">📄 PDF Cotización</a>
+            <button class="btn btn-mid" onclick="ord_enviarPDFCotWA(${orden.uid_orden},this)">📤 PDF Cotización WA</button>
+            <button class="btn btn-orange" onclick="ord_generarMsgCot(${orden.uid_orden},this)">🤖 Generar mensaje</button>
+            <button class="btn btn-orange" id="btnSendCotWA-${orden.uid_orden}" onclick="ord_enviarCotWA(${orden.uid_orden},this)" disabled>📱 Enviar WA</button>
+            <div id="msgPreview-${orden.uid_orden}" style="display:none;margin:8px 0;padding:10px 12px;background:#f1f8e9;border-left:3px solid #66bb6a;border-radius:4px;white-space:pre-wrap;font-size:13px;line-height:1.5;max-height:220px;overflow-y:auto;"></div>
+            `:''}
           </div>
         </div>`;
     };
-    window.ord_cambiarEstado = async (uid, sel) => {
+    window.ord_cambiarEstado = async (uid, uidOrden, sel) => {
       const nuevo = sel.value; const prev = sel.dataset.prev||nuevo;
       sel.disabled = true;
       try {
@@ -883,9 +887,59 @@ Views.ordenes = {
           sel.dataset.prev = nuevo;
           const b = document.getElementById(`badge-${uid}`);
           if (b) { b.className='badge b-'+nuevo; b.textContent=ELBL[nuevo]||nuevo; }
+          // WA automático según estado
+          if (nuevo === 'autorizada') {
+            try {
+              const rp = await fetch(`${API}/orders/${uidOrden}/notify-parts`,{method:'POST'}).then(r=>r.json());
+              showToast(rp.success ? '✅ Lista repuestos enviada al encargado' : '⚠️ '+(rp.error||'Error'));
+            } catch(e) { showToast('⚠️ WA repuestos: '+e.message); }
+          } else if (nuevo === 'reparada') {
+            showToast('✅ Estado actualizado — WA enviado automáticamente al cliente');
+          } else if (nuevo === 'entregada') {
+            try {
+              const rd = await fetch(`${API}/orders/${uidOrden}/notify-delivered`,{method:'POST'}).then(r=>r.json());
+              showToast(rd.success ? '✅ Entrega confirmada por WA al cliente' : '⚠️ '+(rd.error||'Error'));
+            } catch(e) { showToast('⚠️ WA entrega: '+e.message); }
+          }
         } else { alert('Error: '+(d.error||'desconocido')); sel.value=prev; }
       } catch(e) { alert(e.message); sel.value=prev; }
       sel.disabled = false;
+    };
+    window._cotMsgs = {};
+    window.ord_generarMsgCot = async (uidOrden, btn) => {
+      const orig=btn.textContent; btn.disabled=true; btn.textContent='⏳ Generando...';
+      try {
+        const r = await fetch(`${API}/quotes/order/${uidOrden}/generate-message`,{method:'POST'}).then(r=>r.json());
+        if (!r.success) throw new Error(r.error||'Error generando mensaje');
+        window._cotMsgs[uidOrden] = r.message || '';
+        const preview = document.getElementById(`msgPreview-${uidOrden}`);
+        if (preview) { preview.textContent = window._cotMsgs[uidOrden]; preview.style.display='block'; }
+        const sendBtn = document.getElementById(`btnSendCotWA-${uidOrden}`);
+        if (sendBtn) sendBtn.disabled = false;
+        showToast('✅ Mensaje generado — revísalo y envíalo');
+      } catch(e) { alert('⚠️ '+e.message); }
+      btn.disabled=false; btn.textContent=orig;
+    };
+    window.ord_enviarCotWA = async (uidOrden, btn) => {
+      const orig=btn.textContent; btn.disabled=true; btn.textContent='⏳ Enviando...';
+      try {
+        const r = await fetch(`${API}/quotes/order/${uidOrden}/send-whatsapp`,{method:'POST'}).then(r=>r.json());
+        if (!r.success) throw new Error(r.error||'Error enviando');
+        showToast('✅ Mensaje WA enviado');
+        const preview = document.getElementById(`msgPreview-${uidOrden}`);
+        if (preview) preview.style.display='none';
+        btn.disabled=true;
+      } catch(e) { alert('⚠️ '+e.message); btn.disabled=false; }
+      btn.textContent=orig;
+    };
+    window.ord_enviarPDFCotWA = async (uidOrden, btn) => {
+      const orig=btn.textContent; btn.disabled=true; btn.textContent='⏳...';
+      try {
+        const d = await fetch(`${API}/orders/${uidOrden}/send-pdf/quote`,{method:'POST'}).then(r=>r.json());
+        if (!d.success) throw new Error(d.error||'Error');
+        showToast('✅ PDF cotización enviado por WA');
+      } catch(e) { alert('⚠️ '+e.message); }
+      btn.disabled=false; btn.textContent=orig;
     };
     window.ord_uploadFoto = async (uidOrden, uidHo, input) => {
       if (!input.files[0]) return;
@@ -923,6 +977,15 @@ Views.ordenes = {
       const blob = await r.blob();
       const url  = URL.createObjectURL(blob);
       window.open(url, '_blank');
+    };
+    window.ord_enviarInformeWA = async (uidOrden, uidHo, btn) => {
+      const orig=btn.textContent; btn.disabled=true; btn.textContent='⏳...';
+      try {
+        const d = await fetch(`${API}/orders/${uidOrden}/send-pdf/maintenance/${uidHo}`,{method:'POST'}).then(r=>r.json());
+        if (!d.success) throw new Error(d.error||'Error');
+        showToast('✅ Informe enviado por WA');
+      } catch(e) { alert('⚠️ '+e.message); }
+      btn.disabled=false; btn.textContent=orig;
     };
   }
 };
@@ -2239,17 +2302,19 @@ async function tec_verDetalle(uid, rightId, panelId) {
         <div class="maq-actions">
           ${m.her_estado === 'revisada'
             ? `<span class="badge b-revisada">✓ Revisada</span>`
-            : `<button class="btn btn-sm btn-mid" id="tec-btn-${m.uid_herramienta_orden}"
-                 onclick="tec_marcarRevisada(${m.uid_herramienta_orden})">Marcar revisada</button>`}
+            : ''}
           <button class="btn btn-sm btn-teal" onclick="ord_verInforme(${orden.uid_orden},${m.uid_herramienta_orden})">📋 Informe</button>
         </div>
         <div style="margin-top:8px;">
-          <div class="maq-obs-lbl">Observaciones del técnico</div>
+          <div class="maq-obs-lbl">Descripción del trabajo</div>
           <textarea id="tec-obs-${m.uid_herramienta_orden}" rows="3"
             style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical;margin-top:4px;"
             placeholder="Describe el trabajo realizado...">${esc(m.hor_observaciones||'')}</textarea>
-          <button class="btn btn-sm btn-mid" style="margin-top:4px;"
-            onclick="tec_guardarObs(${m.uid_herramienta_orden})">💾 Guardar observaciones</button>
+          ${m.her_estado !== 'revisada'
+            ? `<button class="btn btn-sm btn-mid" style="margin-top:4px;" id="tec-btn-${m.uid_herramienta_orden}"
+                onclick="tec_guardarYRevisar(${m.uid_herramienta_orden})">💾 Guardar y marcar revisada</button>`
+            : `<button class="btn btn-sm" style="margin-top:4px;background:#f0f4f8;color:#555;"
+                onclick="tec_guardarObs(${m.uid_herramienta_orden})">💾 Guardar observaciones</button>`}
         </div>
         <div class="fotos-seccion">
           <div class="fotos-lbl">Recepción</div>${fotosRec}
@@ -2285,26 +2350,28 @@ async function tec_verDetalle(uid, rightId, panelId) {
     </div>`;
 }
 
-window.tec_marcarRevisada = async (uid) => {
+window.tec_guardarYRevisar = async (uid) => {
   const btn = document.getElementById(`tec-btn-${uid}`);
-  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+  const obs = document.getElementById(`tec-obs-${uid}`)?.value || '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Guardando...'; }
   try {
-    const r = await fetch(`${API}/equipment-order/${uid}/status`, {
+    // 1. Guardar observaciones
+    const r1 = await fetch(`${API}/equipment-order/${uid}/observaciones`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({observaciones:obs})
+    }).then(r=>r.json());
+    if (!r1.success) throw new Error(r1.error||'Error guardando observaciones');
+    // 2. Cambiar estado a revisada
+    const r2 = await fetch(`${API}/equipment-order/${uid}/status`, {
       method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status:'revisada'})
-    });
-    const d = await r.json();
-    if (d.success) {
-      const b = document.getElementById(`tec-badge-${uid}`);
-      if (b) { b.className='badge b-revisada'; b.textContent='Revisada'; }
-      // Reemplazar botón por badge permanente
-      if (btn) btn.outerHTML = `<span class="badge b-revisada">✓ Revisada</span>`;
-    } else {
-      alert('Error: ' + (d.error||'desconocido'));
-      if (btn) { btn.disabled = false; btn.textContent = 'Marcar revisada'; }
-    }
+    }).then(r=>r.json());
+    if (!r2.success) throw new Error(r2.error||'Error actualizando estado');
+    // Reemplazar botón por badge + botón editar
+    if (btn) btn.outerHTML = `<button class="btn btn-sm" style="margin-top:4px;background:#f0f4f8;color:#555;"
+      onclick="tec_guardarObs(${uid})">💾 Guardar observaciones</button>`;
+    showToast('✅ Guardado — máquina marcada como revisada');
   } catch(e) {
-    alert(e.message);
-    if (btn) { btn.disabled = false; btn.textContent = 'Marcar revisada'; }
+    alert('⚠️ ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar y marcar revisada'; }
   }
 };
 
