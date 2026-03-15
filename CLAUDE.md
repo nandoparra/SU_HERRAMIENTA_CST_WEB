@@ -32,6 +32,7 @@ utils/whatsapp-client.js           Singleton waClient + parche LID + validación
 utils/wa-handler.js                Listener mensajes entrantes WA — flujo autorización cotizaciones
                                      └─ resuelve LID vía msg.getContact() antes de buscar pendiente
 utils/pdf-generator.js             Generación PDFs (quote, maintenance, orden de servicio)
+utils/dias-habiles.js              addDiasHabiles(fecha, n) + esNoHabil + toISODate — festivos colombianos algorítmicos
 utils/phones.js                    parseColombianPhones() — separa múltiples números
 routes/auth.js                     GET/POST /login (rate limit 10/15min), /logout, /me
                                      └─ POST /login redirige a /dashboard.html (internos) o /seguimiento.html (C)
@@ -51,8 +52,9 @@ routes/pdf.js                      GET descargar/POST enviar PDFs
                                      └─ /pdf/orden — PDF con todas las máquinas de la orden
                                      └─ /print/orden — HTML wrapper con auto-print
                                      └─ /informes/:uid — requireInterno
-routes/crear-orden.js              POST crear cliente/herramienta/orden + fotos
+routes/crear-orden.js              POST crear cliente/herramienta/orden + fotos + factura garantía
                                      └─ todos los endpoints con requireInterno
+                                     └─ POST /crear-orden/factura/:uid_orden — upload PDF factura garantía → public/uploads/facturas-garantia/
 routes/dashboard.js                KPIs + CRUD clientes, funcionarios, inventario (requireInterno)
                                      └─ GET /dashboard?mes=YYYY-MM — KPIs + alertas reparadas + revisadas sin cotizar
                                      └─ GET /clientes/search, GET /clientes/:id (incluye usu_login del usuario)
@@ -214,6 +216,7 @@ estado ENUM('esperando_opcion','esperando_maquinas'), created_at). UNIQUE KEY en
 - `b2c_orden.ord_tipo` VARCHAR(20) DEFAULT 'normal' — valores: 'normal' | 'garantia'
 - `b2c_orden.ord_factura` VARCHAR(255) NULL — nombre de archivo del PDF de factura de compra
 - `b2c_orden.ord_garantia_vence` DATE NULL — fecha de vencimiento de garantía (obligatoria si ord_tipo='garantia')
+- `b2c_orden.ord_revision_limite` DATE NULL — fecha límite revisión interna (48h hábiles desde recepción, solo garantías)
 
 ---
 
@@ -244,11 +247,35 @@ Flujo especial para equipos en período de garantía del fabricante.
 - Órdenes garantía aparecen primero (`ORDER BY o.ord_tipo DESC`)
 - Búsqueda (`/orders/search`) y filtro por estado (`/orders/by-estado`) incluyen ord_tipo, ord_factura, ord_garantia_vence
 
+### Fechas automáticas (utils/dias-habiles.js)
+- `ord_garantia_vence` — auto-calculado en frontend: hoy + 30 días hábiles colombianos (editable)
+- `ord_revision_limite` — calculado en backend (`crear-orden.js`): hoy + 2 días hábiles colombianos
+
+#### utils/dias-habiles.js
+Módulo Node.js con algoritmo colombiano puro (sin fechas hardcodeadas):
+- `addDiasHabiles(desde, n)` — suma n días hábiles saltando fines de semana y festivos
+- `esNoHabil(date)` — true si es festivo o fin de semana
+- `toISODate(date)` — convierte Date a string YYYY-MM-DD
+- Festivos fijos: 12 fechas que no se mueven (Año Nuevo, navidad, etc.)
+- Festivos Ley Emiliani (7): si caen entre lunes y sábado, se mueven al próximo lunes
+- Festivos religiosos variables: calculados desde Semana Santa con algoritmo Meeus/Jones/Butcher
+  - Semana Santa: Jueves y Viernes Santo (no Emiliani)
+  - Ascensión, Corpus Christi, Sagrado Corazón, San Pedro/Pablo, Inmaculada (Emiliani)
+
+El mismo algoritmo está inlinado como IIFE en dashboard.html y crear-orden.html para el frontend.
+
+### Badges de garantía en UI
+`ord_garantiaBadges(o)` en dashboard.html retorna HTML con:
+- Badge "GARANTÍA" (azul oscuro)
+- Badge vencimiento: 🔴 si ya venció | ⚠️ si vence en ≤7 días | fecha normal
+- Badge revisión (`ord_revision_limite`): 🔴 Revisión vencida | 🔔 Revisar hoy | "Revisar antes: DD/MM/AA"
+- Badge "⚠️ Sin factura" si `ord_factura` es null/vacío
+
 ### Rutas modificadas para incluir campos de garantía
-- `GET /api/orders/search` — incluye ord_tipo, ord_factura, ord_garantia_vence
+- `GET /api/orders/search` — incluye ord_tipo, ord_factura, ord_garantia_vence, ord_revision_limite
 - `GET /api/orders/by-estado` — incluye idem, ORDER BY ord_tipo DESC primero
 - `GET /api/orders/mis-ordenes-tecnico` — incluye idem, ORDER BY ord_tipo DESC primero
-- `GET /api/dashboard` — incluye garantiasActivas[] en respuesta
+- `GET /api/dashboard` — incluye garantiasActivas[] en respuesta (con ord_revision_limite)
 
 ---
 

@@ -566,10 +566,38 @@ function renderResumen() {
       </div>`).join('')}`;
 }
 
+// ── Días hábiles colombianos (inline, mismo algoritmo que dashboard) ──────────
+(function() {
+  function pascua(y) {
+    const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,
+          f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),
+          h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,
+          l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),
+          mo=Math.floor((h+l-7*m+114)/31),dy=((h+l-7*m+114)%31)+1;
+    return new Date(y,mo-1,dy);
+  }
+  function proxLunes(d){const r=new Date(d),dow=r.getDay();if(dow===1)return r;r.setDate(r.getDate()+(dow===0?1:8-dow));return r;}
+  const _cf={};
+  function getFestivos(y){
+    if(_cf[y])return _cf[y];const s=new Set();
+    const add=d=>s.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+    [[1,1],[5,1],[7,20],[8,7],[12,8],[12,25]].forEach(([m,d])=>add(new Date(y,m-1,d)));
+    [[1,6],[3,19],[6,29],[8,15],[10,12],[11,1],[11,11]].forEach(([m,d])=>add(proxLunes(new Date(y,m-1,d))));
+    const p=pascua(y);[-3,-2].forEach(o=>{const d=new Date(p);d.setDate(d.getDate()+o);add(d);});
+    [39,60,68].forEach(o=>{const d=new Date(p);d.setDate(d.getDate()+o);add(proxLunes(d));});
+    return(_cf[y]=s);
+  }
+  function esNoHabil(d){const dow=d.getDay();if(dow===0||dow===6)return true;const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;return getFestivos(d.getFullYear()).has(k);}
+  window.addDiasHabiles=function(desde,n){const d=new Date(desde);d.setHours(0,0,0,0);let c=0;while(c<n){d.setDate(d.getDate()+1);if(!esNoHabil(d))c++;}return d;};
+  window.toInputDate=function(d){return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+})();
+
 // ── Toggle garantía ───────────────────────────────────────────────────────────
 function toggleGarantia(checked) {
   document.getElementById('garantiaFields').style.display = checked ? 'block' : 'none';
-  if (!checked) {
+  if (checked) {
+    document.getElementById('inputGarantiaVence').value = toInputDate(addDiasHabiles(new Date(), 30));
+  } else {
     document.getElementById('inputGarantiaVence').value = '';
     document.getElementById('inputFacturaPDF').value = '';
     document.getElementById('facturaLabel').firstChild.textContent = '📄 Seleccionar PDF';

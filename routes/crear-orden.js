@@ -7,6 +7,7 @@ const multer  = require('multer');
 const path    = require('path');
 const fs      = require('fs');
 const { requireInterno } = require('../middleware/auth');
+const { addDiasHabiles, toISODate } = require('../utils/dias-habiles');
 
 // Todas las rutas de crear-orden requieren rol interno
 router.use(requireInterno);
@@ -195,6 +196,7 @@ router.post('/crear-orden/orden', async (req, res) => {
     }
 
     const tipo = es_garantia ? 'garantia' : 'normal';
+    const revisionLimite = es_garantia ? toISODate(addDiasHabiles(new Date(), 2)) : null;
     const conn = await db.getConnection();
 
     // Consecutivo siguiente
@@ -203,9 +205,9 @@ router.post('/crear-orden/orden', async (req, res) => {
 
     // Insertar orden
     const [ordRes] = await conn.execute(
-      `INSERT INTO b2c_orden (ord_consecutivo, uid_cliente, ord_estado, ord_total, ord_impuestos, ord_valor_total, ord_fecha, ord_tipo, ord_garantia_vence)
-       VALUES (?, ?, 'A', 0, 0, 0, ?, ?, ?)`,
-      [consecutivo, uid_cliente, fechaHoy(), tipo, ord_garantia_vence || null]
+      `INSERT INTO b2c_orden (ord_consecutivo, uid_cliente, ord_estado, ord_total, ord_impuestos, ord_valor_total, ord_fecha, ord_tipo, ord_garantia_vence, ord_revision_limite)
+       VALUES (?, ?, 'A', 0, 0, 0, ?, ?, ?, ?)`,
+      [consecutivo, uid_cliente, fechaHoy(), tipo, ord_garantia_vence || null, revisionLimite]
     );
     const uid_orden = ordRes.insertId;
 

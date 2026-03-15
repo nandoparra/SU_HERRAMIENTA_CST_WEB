@@ -69,7 +69,7 @@ router.get('/dashboard', async (req, res) => {
     // Garantías activas (todas las órdenes de garantía no entregadas)
     const [garantiasActivas] = await conn.execute(`
       SELECT o.uid_orden, o.ord_consecutivo, o.ord_fecha, o.ord_factura,
-             o.ord_garantia_vence,
+             o.ord_garantia_vence, o.ord_revision_limite,
              COALESCE(c.cli_razon_social, c.cli_contacto, '') AS cliente,
              GROUP_CONCAT(h.her_nombre ORDER BY h.her_nombre SEPARATOR ', ') AS maquinas
       FROM b2c_orden o

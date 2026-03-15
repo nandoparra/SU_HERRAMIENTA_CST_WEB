@@ -477,6 +477,51 @@
 const API = '/api';
 let _currentUser = null;
 
+// ── Días hábiles colombianos ──────────────────────────────────────────────────
+(function() {
+  function pascua(y) {
+    const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,
+          f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),
+          h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,
+          l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),
+          mo=Math.floor((h+l-7*m+114)/31),dy=((h+l-7*m+114)%31)+1;
+    return new Date(y,mo-1,dy);
+  }
+  function proxLunes(d) {
+    const r=new Date(d), dow=r.getDay();
+    if(dow===1) return r;
+    r.setDate(r.getDate()+(dow===0?1:8-dow));
+    return r;
+  }
+  const _cacheF={};
+  function getFestivos(y) {
+    if(_cacheF[y]) return _cacheF[y];
+    const s=new Set();
+    const add=d=>s.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+    [[1,1],[5,1],[7,20],[8,7],[12,8],[12,25]].forEach(([m,d])=>add(new Date(y,m-1,d)));
+    [[1,6],[3,19],[6,29],[8,15],[10,12],[11,1],[11,11]].forEach(([m,d])=>add(proxLunes(new Date(y,m-1,d))));
+    const p=pascua(y);
+    [-3,-2].forEach(o=>{const d=new Date(p);d.setDate(d.getDate()+o);add(d);});
+    [39,60,68].forEach(o=>{const d=new Date(p);d.setDate(d.getDate()+o);add(proxLunes(d));});
+    return (_cacheF[y]=s);
+  }
+  function esNoHabil(d) {
+    const dow=d.getDay();
+    if(dow===0||dow===6) return true;
+    const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return getFestivos(d.getFullYear()).has(k);
+  }
+  window.addDiasHabiles = function(desde, n) {
+    const d=new Date(desde); d.setHours(0,0,0,0);
+    let c=0;
+    while(c<n){d.setDate(d.getDate()+1);if(!esNoHabil(d))c++;}
+    return d;
+  };
+  window.toInputDate = function(d) {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+})();
+
 // ── Shared utilities ──────────────────────────────────────────────────────────
 function fmtFecha(raw) {
   const m = String(raw || '').match(/^(\d{4})(\d{2})(\d{2})$/);
@@ -490,22 +535,38 @@ function esc(s)   { return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<'
 
 // ── Badge de garantía para result-cards ───────────────────────────────────────
 function ord_garantiaBadges(o) {
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+
+  // Badge vencimiento garantía
   let venceBadge = '';
   if (o.ord_garantia_vence) {
-    const hoy = new Date(); hoy.setHours(0,0,0,0);
     const vence = new Date(o.ord_garantia_vence); vence.setHours(0,0,0,0);
     const dias = Math.round((vence - hoy) / 86400000);
     if (dias < 0)
-      venceBadge = `<span style="background:#c0392b;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;margin-left:4px;">🔴 Vencida</span>`;
+      venceBadge = `<span style="background:#c0392b;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">🔴 Garantía vencida</span>`;
     else if (dias <= 7)
-      venceBadge = `<span style="background:#e67e22;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;margin-left:4px;">⚠️ Vence en ${dias}d</span>`;
+      venceBadge = `<span style="background:#e67e22;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">⚠️ Vence en ${dias}d</span>`;
   }
+
+  // Badge límite de revisión (48h hábiles)
+  let revBadge = '';
+  if (o.ord_revision_limite) {
+    const rev = new Date(o.ord_revision_limite); rev.setHours(0,0,0,0);
+    const dias = Math.round((rev - hoy) / 86400000);
+    if (dias < 0)
+      revBadge = `<span style="background:#922b21;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">⚠️ Revisión vencida</span>`;
+    else if (dias === 0)
+      revBadge = `<span style="background:#e67e22;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">🔔 Revisar hoy</span>`;
+    else
+      revBadge = `<span style="background:#2980b9;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">Revisar antes: ${fmtFecha(o.ord_revision_limite)}</span>`;
+  }
+
   const sinFactura = !o.ord_factura
-    ? `<span style="background:#fff3cd;color:#856404;border:1px solid #ffc107;font-size:10px;padding:1px 6px;border-radius:4px;margin-left:4px;">⚠️ Sin factura</span>`
+    ? `<span style="background:#fff3cd;color:#856404;border:1px solid #ffc107;font-size:10px;padding:1px 6px;border-radius:4px;">⚠️ Sin factura</span>`
     : '';
-  return `<div style="margin:2px 0 3px;display:flex;flex-wrap:wrap;gap:2px;align-items:center;">
+  return `<div style="margin:2px 0 3px;display:flex;flex-wrap:wrap;gap:3px;align-items:center;">
     <span style="background:#c0392b;color:#fff;font-size:10px;padding:1px 7px;border-radius:4px;font-weight:700;">GARANTÍA</span>
-    ${venceBadge}${sinFactura}
+    ${revBadge}${venceBadge}${sinFactura}
   </div>`;
 }
 function showToast(msg, ms=3000) {
@@ -719,39 +780,54 @@ Views.inicio = {
         } else {
           garSec.style.display = 'block';
           garLst.innerHTML = garantias.map(g => {
-            const venceBadge = ini_venceBadge(g.ord_garantia_vence);
+            const hoy = new Date(); hoy.setHours(0,0,0,0);
+
+            // Badge vencimiento garantía (30 días hábiles)
+            let venceBadge = '';
+            if (g.ord_garantia_vence) {
+              const vence = new Date(g.ord_garantia_vence); vence.setHours(0,0,0,0);
+              const dias = Math.round((vence - hoy) / 86400000);
+              if (dias < 0)
+                venceBadge = `<span class="dias-badge" style="background:#c0392b;color:#fff;">🔴 Garantía vencida</span>`;
+              else if (dias <= 7)
+                venceBadge = `<span class="dias-badge" style="background:#e67e22;color:#fff;">⚠️ Vence en ${dias}d</span>`;
+              else
+                venceBadge = `<span class="dias-badge" style="background:#27ae60;color:#fff;">Vence: ${fmtFecha(g.ord_garantia_vence)}</span>`;
+            }
+
+            // Badge límite de revisión (48h hábiles)
+            let revBadge = '';
+            if (g.ord_revision_limite) {
+              const rev = new Date(g.ord_revision_limite); rev.setHours(0,0,0,0);
+              const dias = Math.round((rev - hoy) / 86400000);
+              if (dias < 0)
+                revBadge = `<span class="dias-badge" style="background:#922b21;color:#fff;">⚠️ Revisión vencida</span>`;
+              else if (dias === 0)
+                revBadge = `<span class="dias-badge" style="background:#e67e22;color:#fff;">🔔 Revisar hoy</span>`;
+              else
+                revBadge = `<span class="dias-badge" style="background:#2980b9;color:#fff;">Revisar antes: ${fmtFecha(g.ord_revision_limite)}</span>`;
+            }
+
             const sinFactura = !g.ord_factura
-              ? `<span style="display:inline-block;margin-top:4px;font-size:11px;background:#fff3cd;color:#856404;border:1px solid #ffc107;border-radius:4px;padding:1px 7px;">⚠️ Sin factura adjunta</span>`
+              ? `<span style="display:inline-block;font-size:11px;background:#fff3cd;color:#856404;border:1px solid #ffc107;border-radius:4px;padding:1px 7px;">⚠️ Sin factura adjunta</span>`
               : '';
             return `
-              <div class="alerta-row alerta-rojo" onclick="navigate('ordenes');setTimeout(()=>ord_verDetalle(${g.uid_orden}),50)" style="cursor:pointer;flex-direction:column;align-items:flex-start;gap:4px;">
-                <div style="display:flex;justify-content:space-between;width:100%;align-items:center;">
-                  <div class="alerta-info" style="flex:1;">
-                    <div class="alerta-maq" style="display:flex;align-items:center;gap:6px;">
-                      <span class="badge" style="background:#c0392b;color:#fff;font-size:11px;padding:1px 7px;border-radius:4px;">GARANTÍA</span>
-                      ${esc(g.maquinas||'')}
-                    </div>
-                    <div class="alerta-cli">${esc(g.cliente)}</div>
-                    <div class="alerta-orden">Orden #${g.ord_consecutivo} · Ingreso: ${fmtFecha(g.ord_fecha)}</div>
-                    ${sinFactura}
+              <div class="alerta-row alerta-rojo" onclick="navigate('ordenes');setTimeout(()=>ord_verDetalle(${g.uid_orden}),50)" style="cursor:pointer;">
+                <div class="alerta-info" style="flex:1;">
+                  <div class="alerta-maq" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                    <span style="background:#c0392b;color:#fff;font-size:11px;padding:1px 7px;border-radius:4px;font-weight:700;">GARANTÍA</span>
+                    ${esc(g.maquinas||'')}
                   </div>
-                  <div>${venceBadge}</div>
+                  <div class="alerta-cli">${esc(g.cliente)}</div>
+                  <div class="alerta-orden">Orden #${g.ord_consecutivo} · Ingreso: ${fmtFecha(g.ord_fecha)}</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;">
+                    ${revBadge}${venceBadge}${sinFactura}
+                  </div>
                 </div>
               </div>`;
           }).join('');
         }
       }
-    };
-
-    window.ini_venceBadge = (fecha) => {
-      if (!fecha) return '<span class="dias-badge" style="background:#aaa;color:#fff;">Sin fecha</span>';
-      const hoy = new Date(); hoy.setHours(0,0,0,0);
-      const vence = new Date(fecha); vence.setHours(0,0,0,0);
-      const dias = Math.round((vence - hoy) / 86400000);
-      if (dias < 0) return `<span class="dias-badge" style="background:#c0392b;color:#fff;">🔴 Vencida<br><small>${Math.abs(dias)}d</small></span>`;
-      if (dias <= 7) return `<span class="dias-badge" style="background:#e67e22;color:#fff;">⚠️ Vence en ${dias}d</span>`;
-      const d = new Date(fecha);
-      return `<span class="dias-badge" style="background:#2980b9;color:#fff;">${d.toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric'})}</span>`;
     };
 
     await window.ini_load();
@@ -2237,7 +2313,11 @@ Views.nuevaOrden = {
 
     window.no_toggleGarantia = (checked) => {
       document.getElementById('no_garantiaFields').style.display = checked ? 'block' : 'none';
-      if (!checked) {
+      if (checked) {
+        // Auto-calcular fecha de vencimiento: hoy + 30 días hábiles colombianos
+        const vence = addDiasHabiles(new Date(), 30);
+        document.getElementById('no_inputGarantiaVence').value = toInputDate(vence);
+      } else {
         document.getElementById('no_inputGarantiaVence').value = '';
         document.getElementById('no_inputFacturaPDF').value = '';
         const lbl = document.getElementById('no_facturaLabel');

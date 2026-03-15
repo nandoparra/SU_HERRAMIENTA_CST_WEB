@@ -230,6 +230,9 @@ async function ensureStatusTables() {
     try {
       await conn.execute(`ALTER TABLE b2c_orden ADD COLUMN ord_garantia_vence DATE NULL`);
     } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    try {
+      await conn.execute(`ALTER TABLE b2c_orden ADD COLUMN ord_revision_limite DATE NULL`);
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
 
     // Tabla de historial de cambios de estado
     await conn.execute(`
