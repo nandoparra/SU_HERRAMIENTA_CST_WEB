@@ -1903,8 +1903,10 @@ Views.nuevaOrden = {
             </div>
             <div class="no-fgroup" style="margin-top:10px;">
               <label class="no-lbl">Factura de compra (PDF) <span class="no-muted">— opcional</span></label>
-              <input type="file" id="no_inputFacturaPDF" accept=".pdf"
-                style="font-size:13px;padding:6px 0;color:var(--dark);">
+              <label class="upload-foto-btn" id="no_facturaLabel">📄 Seleccionar PDF
+                <input type="file" id="no_inputFacturaPDF" accept=".pdf" style="display:none"
+                  onchange="no_onFacturaChange(this)">
+              </label>
               <div class="no-muted" style="margin-top:4px;">Si no la tiene ahora, recuerde pedirla al cliente.</div>
             </div>
           </div>
@@ -2238,7 +2240,14 @@ Views.nuevaOrden = {
       if (!checked) {
         document.getElementById('no_inputGarantiaVence').value = '';
         document.getElementById('no_inputFacturaPDF').value = '';
+        const lbl = document.getElementById('no_facturaLabel');
+        if (lbl) lbl.firstChild.textContent = '📄 Seleccionar PDF';
       }
+    };
+
+    window.no_onFacturaChange = (input) => {
+      const lbl = document.getElementById('no_facturaLabel');
+      if (lbl) lbl.firstChild.textContent = input.files?.[0]?.name ? '✅ ' + input.files[0].name : '📄 Seleccionar PDF';
     };
 
     window.no_crearOrden = async () => {
