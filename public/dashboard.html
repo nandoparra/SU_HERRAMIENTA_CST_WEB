@@ -1889,29 +1889,23 @@ Views.nuevaOrden = {
           <div id="no_resumenOrden"></div>
 
           <!-- Bloque garantía -->
-          <div style="margin-top:18px;padding:14px 16px;background:#fff8e1;border:1px solid #ffe082;border-radius:8px;">
-            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;font-size:14px;">
-              <input type="checkbox" id="no_chkGarantia" onchange="no_toggleGarantia(this.checked)"
-                style="width:17px;height:17px;cursor:pointer;">
-              🔴 Esta orden es una <strong>garantía</strong>
-            </label>
-            <div id="no_garantiaFields" style="display:none;margin-top:14px;">
-              <div style="margin-bottom:12px;">
-                <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px;">
-                  Fecha de vencimiento de garantía <span style="color:#e74c3c;">*</span>
-                </label>
-                <input type="date" id="no_inputGarantiaVence"
-                  style="padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;width:100%;max-width:240px;">
-              </div>
-              <div>
-                <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px;">
-                  Factura de compra (PDF) <span style="color:#888;font-weight:400;">— opcional</span>
-                </label>
-                <input type="file" id="no_inputFacturaPDF" accept=".pdf" style="font-size:13px;">
-                <div style="font-size:12px;color:#888;margin-top:4px;">
-                  ⚠️ Si no adjunta la factura ahora, recuerde pedirla al cliente.
-                </div>
-              </div>
+          <hr class="no-divider">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+            <input type="checkbox" id="no_chkGarantia" onchange="no_toggleGarantia(this.checked)"
+              style="width:16px;height:16px;cursor:pointer;accent-color:var(--dark);">
+            <span style="font-size:14px;font-weight:600;color:var(--dark);">Esta orden es una garantía</span>
+            <span style="font-size:11px;font-weight:700;background:#c0392b;color:#fff;padding:1px 7px;border-radius:4px;letter-spacing:.3px;">GARANTÍA</span>
+          </label>
+          <div id="no_garantiaFields" style="display:none;margin-top:14px;">
+            <div class="no-fgroup">
+              <label class="no-lbl">Fecha de vencimiento <span class="no-req">*</span></label>
+              <input type="date" id="no_inputGarantiaVence" class="no-input" style="max-width:220px;">
+            </div>
+            <div class="no-fgroup" style="margin-top:10px;">
+              <label class="no-lbl">Factura de compra (PDF) <span class="no-muted">— opcional</span></label>
+              <input type="file" id="no_inputFacturaPDF" accept=".pdf"
+                style="font-size:13px;padding:6px 0;color:var(--dark);">
+              <div class="no-muted" style="margin-top:4px;">Si no la tiene ahora, recuerde pedirla al cliente.</div>
             </div>
           </div>
 
