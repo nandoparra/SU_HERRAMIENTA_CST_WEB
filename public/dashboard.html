@@ -487,6 +487,27 @@ function fmtFecha(raw) {
 }
 function money(n) { return '$' + Number(n || 0).toLocaleString('es-CO', {maximumFractionDigits:0}); }
 function esc(s)   { return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ── Badge de garantía para result-cards ───────────────────────────────────────
+function ord_garantiaBadges(o) {
+  let venceBadge = '';
+  if (o.ord_garantia_vence) {
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    const vence = new Date(o.ord_garantia_vence); vence.setHours(0,0,0,0);
+    const dias = Math.round((vence - hoy) / 86400000);
+    if (dias < 0)
+      venceBadge = `<span style="background:#c0392b;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;margin-left:4px;">🔴 Vencida</span>`;
+    else if (dias <= 7)
+      venceBadge = `<span style="background:#e67e22;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;margin-left:4px;">⚠️ Vence en ${dias}d</span>`;
+  }
+  const sinFactura = !o.ord_factura
+    ? `<span style="background:#fff3cd;color:#856404;border:1px solid #ffc107;font-size:10px;padding:1px 6px;border-radius:4px;margin-left:4px;">⚠️ Sin factura</span>`
+    : '';
+  return `<div style="margin:2px 0 3px;display:flex;flex-wrap:wrap;gap:2px;align-items:center;">
+    <span style="background:#c0392b;color:#fff;font-size:10px;padding:1px 7px;border-radius:4px;font-weight:700;">GARANTÍA</span>
+    ${venceBadge}${sinFactura}
+  </div>`;
+}
 function showToast(msg, ms=3000) {
   const t = document.getElementById('_toast');
   t.textContent = msg; t.style.opacity = '1';
@@ -580,6 +601,12 @@ Views.inicio = {
           <div class="kpi-card kc-grey" style="grid-column:1/-1;justify-content:center;align-items:center;min-height:80px;">
             <span style="color:#aaa;font-size:13px;">Cargando...</span>
           </div>
+        </div>
+        <div class="alertas-section" id="garantiasSection" style="display:none">
+          <div class="alertas-header">
+            <h3>🔴 Órdenes de garantía activas</h3>
+          </div>
+          <div id="garantiasList"></div>
         </div>
         <div class="alertas-section" id="alertasSection" style="display:none">
           <div class="alertas-header">
@@ -681,7 +708,52 @@ Views.inicio = {
             </div>`).join('');
         }
       }
+
+      // Garantías activas
+      const garantias = data.garantiasActivas || [];
+      const garSec = document.getElementById('garantiasSection');
+      const garLst = document.getElementById('garantiasList');
+      if (garSec && garLst) {
+        if (!garantias.length) {
+          garSec.style.display = 'none';
+        } else {
+          garSec.style.display = 'block';
+          garLst.innerHTML = garantias.map(g => {
+            const venceBadge = ini_venceBadge(g.ord_garantia_vence);
+            const sinFactura = !g.ord_factura
+              ? `<span style="display:inline-block;margin-top:4px;font-size:11px;background:#fff3cd;color:#856404;border:1px solid #ffc107;border-radius:4px;padding:1px 7px;">⚠️ Sin factura adjunta</span>`
+              : '';
+            return `
+              <div class="alerta-row alerta-rojo" onclick="navigate('ordenes');setTimeout(()=>ord_verDetalle(${g.uid_orden}),50)" style="cursor:pointer;flex-direction:column;align-items:flex-start;gap:4px;">
+                <div style="display:flex;justify-content:space-between;width:100%;align-items:center;">
+                  <div class="alerta-info" style="flex:1;">
+                    <div class="alerta-maq" style="display:flex;align-items:center;gap:6px;">
+                      <span class="badge" style="background:#c0392b;color:#fff;font-size:11px;padding:1px 7px;border-radius:4px;">GARANTÍA</span>
+                      ${esc(g.maquinas||'')}
+                    </div>
+                    <div class="alerta-cli">${esc(g.cliente)}</div>
+                    <div class="alerta-orden">Orden #${g.ord_consecutivo} · Ingreso: ${fmtFecha(g.ord_fecha)}</div>
+                    ${sinFactura}
+                  </div>
+                  <div>${venceBadge}</div>
+                </div>
+              </div>`;
+          }).join('');
+        }
+      }
     };
+
+    window.ini_venceBadge = (fecha) => {
+      if (!fecha) return '<span class="dias-badge" style="background:#aaa;color:#fff;">Sin fecha</span>';
+      const hoy = new Date(); hoy.setHours(0,0,0,0);
+      const vence = new Date(fecha); vence.setHours(0,0,0,0);
+      const dias = Math.round((vence - hoy) / 86400000);
+      if (dias < 0) return `<span class="dias-badge" style="background:#c0392b;color:#fff;">🔴 Vencida<br><small>${Math.abs(dias)}d</small></span>`;
+      if (dias <= 7) return `<span class="dias-badge" style="background:#e67e22;color:#fff;">⚠️ Vence en ${dias}d</span>`;
+      const d = new Date(fecha);
+      return `<span class="dias-badge" style="background:#2980b9;color:#fff;">${d.toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric'})}</span>`;
+    };
+
     await window.ini_load();
   }
 };
@@ -751,6 +823,7 @@ Views.ordenes = {
             <span class="rc-num">Orden #${o.ord_consecutivo}</span>
             <span class="rc-fecha">${fmtFecha(o.ord_fecha)}</span>
           </div>
+          ${o.ord_tipo==='garantia' ? ord_garantiaBadges(o) : ''}
           <div class="rc-cliente">${esc(o.cli_razon_social||'')}</div>
           <div class="rc-maq">${esc(o.maquinas_resumen||(o.maquinas?o.maquinas+' máquina(s)':''))}</div>
         </div>`).join('');
@@ -1014,6 +1087,7 @@ async function ord_filtrarPorEstado(estado, label, mes) {
           <span class="rc-num">Orden #${o.ord_consecutivo}</span>
           <span class="rc-fecha">${fmtFecha(o.ord_fecha)}</span>
         </div>
+        ${o.ord_tipo==='garantia' ? ord_garantiaBadges(o) : ''}
         <div class="rc-cliente">${esc(o.cli_razon_social||'')}</div>
         <div class="rc-maq">${esc(o.maquinas_resumen||'')}</div>
       </div>`).join('');
@@ -1813,7 +1887,35 @@ Views.nuevaOrden = {
         <div class="card">
           <h2 style="font-size:16px;color:var(--dark);margin-bottom:12px;">Confirmar orden</h2>
           <div id="no_resumenOrden"></div>
-          <div id="no_step3Error" class="no-alert-err" style="display:none;"></div>
+
+          <!-- Bloque garantía -->
+          <div style="margin-top:18px;padding:14px 16px;background:#fff8e1;border:1px solid #ffe082;border-radius:8px;">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;font-size:14px;">
+              <input type="checkbox" id="no_chkGarantia" onchange="no_toggleGarantia(this.checked)"
+                style="width:17px;height:17px;cursor:pointer;">
+              🔴 Esta orden es una <strong>garantía</strong>
+            </label>
+            <div id="no_garantiaFields" style="display:none;margin-top:14px;">
+              <div style="margin-bottom:12px;">
+                <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px;">
+                  Fecha de vencimiento de garantía <span style="color:#e74c3c;">*</span>
+                </label>
+                <input type="date" id="no_inputGarantiaVence"
+                  style="padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;width:100%;max-width:240px;">
+              </div>
+              <div>
+                <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px;">
+                  Factura de compra (PDF) <span style="color:#888;font-weight:400;">— opcional</span>
+                </label>
+                <input type="file" id="no_inputFacturaPDF" accept=".pdf" style="font-size:13px;">
+                <div style="font-size:12px;color:#888;margin-top:4px;">
+                  ⚠️ Si no adjunta la factura ahora, recuerde pedirla al cliente.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="no_step3Error" class="no-alert-err" style="display:none;margin-top:12px;"></div>
         </div>
         <div class="no-nav-row">
           <button class="btn btn-grey" onclick="no_goStep2()">← Atrás</button>
@@ -2137,10 +2239,27 @@ Views.nuevaOrden = {
           </div>`).join('')}`;
     }
 
+    window.no_toggleGarantia = (checked) => {
+      document.getElementById('no_garantiaFields').style.display = checked ? 'block' : 'none';
+      if (!checked) {
+        document.getElementById('no_inputGarantiaVence').value = '';
+        document.getElementById('no_inputFacturaPDF').value = '';
+      }
+    };
+
     window.no_crearOrden = async () => {
       const btn   = document.getElementById('no_btnCrear');
       const errEl = document.getElementById('no_step3Error');
       if (errEl) errEl.style.display = 'none';
+
+      // Validar garantía
+      const esGarantia   = document.getElementById('no_chkGarantia').checked;
+      const garantiaVence = document.getElementById('no_inputGarantiaVence').value;
+      if (esGarantia && !garantiaVence) {
+        if (errEl) { errEl.textContent = 'La fecha de vencimiento es obligatoria para órdenes de garantía.'; errEl.style.display = 'block'; }
+        return;
+      }
+
       if (btn) { btn.disabled = true; btn.textContent = 'Creando...'; }
 
       const res = await fetch(`${API}/crear-orden/orden`, {
@@ -2149,6 +2268,8 @@ Views.nuevaOrden = {
         body: JSON.stringify({
           uid_cliente: no_cliente.uid_cliente,
           maquinas: no_maquinas.map(m => ({ uid_herramienta: m.uid_herramienta, observaciones: m.observaciones })),
+          es_garantia: esGarantia,
+          ord_garantia_vence: esGarantia ? garantiaVence : null,
         }),
       }).then(r=>r.json()).catch(()=>({success:false,error:'Error de red'}));
 
@@ -2169,8 +2290,19 @@ Views.nuevaOrden = {
           await fetch(`${API}/crear-orden/foto/${res.herramientas[i].uid_herramienta_orden}`, { method:'POST', body:fd });
         }
       }
-      if (btn) { btn.disabled = false; btn.textContent = '✓ Crear Orden'; }
 
+      // Subir factura PDF si se adjuntó
+      if (esGarantia) {
+        const facturaFile = document.getElementById('no_inputFacturaPDF').files?.[0];
+        if (facturaFile) {
+          if (btn) btn.textContent = 'Subiendo factura...';
+          const fd = new FormData();
+          fd.append('factura', facturaFile);
+          await fetch(`${API}/crear-orden/factura/${res.uid_orden}`, { method:'POST', body:fd });
+        }
+      }
+
+      if (btn) { btn.disabled = false; btn.textContent = '✓ Crear Orden'; }
       no_mostrarExito();
     };
 
@@ -2365,7 +2497,10 @@ window.tec_guardarYRevisar = async (uid) => {
       method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status:'revisada'})
     }).then(r=>r.json());
     if (!r2.success) throw new Error(r2.error||'Error actualizando estado');
-    // Reemplazar botón por badge + botón editar
+    // Actualizar badge de estado
+    const badge = document.getElementById(`tec-badge-${uid}`);
+    if (badge) { badge.className = 'badge b-revisada'; badge.textContent = 'Revisada'; }
+    // Reemplazar botón
     if (btn) btn.outerHTML = `<button class="btn btn-sm" style="margin-top:4px;background:#f0f4f8;color:#555;"
       onclick="tec_guardarObs(${uid})">💾 Guardar observaciones</button>`;
     showToast('✅ Guardado — máquina marcada como revisada');
@@ -2454,6 +2589,7 @@ Views.misOrdenes = {
             <span class="rc-num">Orden #${o.ord_consecutivo}</span>
             <span class="rc-fecha">${fmtFecha(o.ord_fecha)}</span>
           </div>
+          ${o.ord_tipo==='garantia' ? ord_garantiaBadges(o) : ''}
           <div class="rc-cliente">${esc(o.cli_razon_social||'')}</div>
           <div class="rc-maq">${esc(o.maquinas_resumen||'')}</div>
         </div>`).join('');
@@ -2512,6 +2648,7 @@ Views.buscarOrden = {
             <span class="rc-num">Orden #${o.ord_consecutivo}</span>
             <span class="rc-fecha">${fmtFecha(o.ord_fecha)}</span>
           </div>
+          ${o.ord_tipo==='garantia' ? ord_garantiaBadges(o) : ''}
           <div class="rc-cliente">${esc(o.cli_razon_social||'')}</div>
           <div class="rc-maq">${esc(o.maquinas_resumen||(o.maquinas?o.maquinas+' máquina(s)':''))}</div>
         </div>`).join('');

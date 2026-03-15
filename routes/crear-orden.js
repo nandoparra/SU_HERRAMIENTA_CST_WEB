@@ -11,7 +11,7 @@ const { requireInterno } = require('../middleware/auth');
 // Todas las rutas de crear-orden requieren rol interno
 router.use(requireInterno);
 
-// ── Multer — almacenamiento de fotos ─────────────────────────────────────────
+// ── Multer — almacenamiento de fotos de recepción ────────────────────────────
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = path.join(__dirname, '..', 'public', 'uploads', 'fotos-recepcion');
@@ -29,6 +29,26 @@ const upload = multer({
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) cb(null, true);
     else cb(new Error('Solo se permiten imágenes'));
+  },
+});
+
+// ── Multer — almacenamiento de facturas de garantía (PDF) ────────────────────
+const storageFactura = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(__dirname, '..', 'public', 'uploads', 'facturas-garantia');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, `factura_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
+  },
+});
+const uploadFactura = multer({
+  storage: storageFactura,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') cb(null, true);
+    else cb(new Error('Solo se permiten archivos PDF'));
   },
 });
 
@@ -163,14 +183,18 @@ router.post('/crear-orden/herramienta', async (req, res) => {
 });
 
 // ── Crear orden completa ───────────────────────────────────────────────────────
-// Body: { uid_cliente, maquinas: [{ uid_herramienta, observaciones }] }
+// Body: { uid_cliente, maquinas: [{ uid_herramienta, observaciones }], es_garantia, ord_garantia_vence }
 router.post('/crear-orden/orden', async (req, res) => {
   try {
-    const { uid_cliente, maquinas } = req.body;
+    const { uid_cliente, maquinas, es_garantia, ord_garantia_vence } = req.body;
     if (!uid_cliente || !Array.isArray(maquinas) || !maquinas.length) {
       return res.status(400).json({ success: false, error: 'Cliente y al menos una máquina son requeridos' });
     }
+    if (es_garantia && !ord_garantia_vence) {
+      return res.status(400).json({ success: false, error: 'La fecha de vencimiento es obligatoria para órdenes de garantía' });
+    }
 
+    const tipo = es_garantia ? 'garantia' : 'normal';
     const conn = await db.getConnection();
 
     // Consecutivo siguiente
@@ -179,9 +203,9 @@ router.post('/crear-orden/orden', async (req, res) => {
 
     // Insertar orden
     const [ordRes] = await conn.execute(
-      `INSERT INTO b2c_orden (ord_consecutivo, uid_cliente, ord_estado, ord_total, ord_impuestos, ord_valor_total, ord_fecha)
-       VALUES (?, ?, 'A', 0, 0, 0, ?)`,
-      [consecutivo, uid_cliente, fechaHoy()]
+      `INSERT INTO b2c_orden (ord_consecutivo, uid_cliente, ord_estado, ord_total, ord_impuestos, ord_valor_total, ord_fecha, ord_tipo, ord_garantia_vence)
+       VALUES (?, ?, 'A', 0, 0, 0, ?, ?, ?)`,
+      [consecutivo, uid_cliente, fechaHoy(), tipo, ord_garantia_vence || null]
     );
     const uid_orden = ordRes.insertId;
 
@@ -221,6 +245,24 @@ router.post('/crear-orden/foto/:herramientaOrdenId', upload.single('foto'), asyn
     );
     conn.release();
     res.json({ success: true, filename: req.file.filename, url: `/uploads/fotos-recepcion/${req.file.filename}` });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ── Subir factura de garantía (PDF) ───────────────────────────────────────────
+router.post('/crear-orden/factura/:uid_orden', uploadFactura.single('factura'), async (req, res) => {
+  try {
+    const { uid_orden } = req.params;
+    if (!req.file) return res.status(400).json({ success: false, error: 'No se recibió ningún PDF' });
+
+    const conn = await db.getConnection();
+    await conn.execute(
+      `UPDATE b2c_orden SET ord_factura = ? WHERE uid_orden = ?`,
+      [req.file.filename, uid_orden]
+    );
+    conn.release();
+    res.json({ success: true, filename: req.file.filename });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }

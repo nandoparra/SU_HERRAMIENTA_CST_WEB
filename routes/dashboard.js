@@ -66,6 +66,22 @@ router.get('/dashboard', async (req, res) => {
       ORDER BY o.ord_fecha ASC
     `);
 
+    // Garantías activas (todas las órdenes de garantía no entregadas)
+    const [garantiasActivas] = await conn.execute(`
+      SELECT o.uid_orden, o.ord_consecutivo, o.ord_fecha, o.ord_factura,
+             o.ord_garantia_vence,
+             COALESCE(c.cli_razon_social, c.cli_contacto, '') AS cliente,
+             GROUP_CONCAT(h.her_nombre ORDER BY h.her_nombre SEPARATOR ', ') AS maquinas
+      FROM b2c_orden o
+      JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+      JOIN b2c_herramienta_orden ho ON ho.uid_orden = o.uid_orden
+      JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+      WHERE o.ord_tipo = 'garantia'
+        AND ho.her_estado NOT IN ('entregada')
+      GROUP BY o.uid_orden
+      ORDER BY o.ord_fecha ASC
+    `);
+
     const hoy = Date.now();
     const alertas = reparadas.map(r => {
       const s = String(r.ord_fecha);
@@ -99,6 +115,7 @@ router.get('/dashboard', async (req, res) => {
       },
       alertas,
       revisadasSinCotizar,
+      garantiasActivas,
     });
   } catch (e) {
     console.error('Error /api/dashboard:', e);

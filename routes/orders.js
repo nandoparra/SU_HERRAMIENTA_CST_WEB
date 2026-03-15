@@ -88,6 +88,7 @@ router.get('/orders/search', async (req, res) => {
     if (isOnlyDigits && digits.length <= 8) {
       const [exact] = await conn.execute(
         `SELECT o.uid_orden, o.ord_consecutivo, o.ord_estado, o.ord_fecha,
+                o.ord_tipo, o.ord_factura, o.ord_garantia_vence,
                 c.uid_cliente, c.cli_razon_social, c.cli_telefono, c.cli_contacto,
                 c.cli_identificacion, c.cli_direccion,
                 COUNT(ho.uid_herramienta_orden) AS maquinas,
@@ -118,6 +119,7 @@ router.get('/orders/search', async (req, res) => {
 
     const [rows] = await conn.execute(
       `SELECT o.uid_orden, o.ord_consecutivo, o.ord_estado, o.ord_fecha,
+              o.ord_tipo, o.ord_factura, o.ord_garantia_vence,
               c.uid_cliente, c.cli_razon_social, c.cli_telefono, c.cli_contacto,
               c.cli_identificacion, c.cli_direccion,
               COUNT(ho.uid_herramienta_orden) AS maquinas,
@@ -172,6 +174,7 @@ router.get('/orders/by-estado', async (req, res) => {
     const conn = await db.getConnection();
     const [rows] = await conn.execute(
       `SELECT o.uid_orden, o.ord_consecutivo, o.ord_estado, o.ord_fecha,
+              o.ord_tipo, o.ord_factura, o.ord_garantia_vence,
               COALESCE(c.cli_razon_social, c.cli_contacto, '') AS cli_razon_social,
               GROUP_CONCAT(
                 CONCAT(
@@ -185,7 +188,7 @@ router.get('/orders/by-estado', async (req, res) => {
        LEFT JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
        WHERE 1=1 ${estadoClause}
        GROUP BY o.uid_orden
-       ORDER BY o.ord_fecha DESC
+       ORDER BY o.ord_tipo DESC, o.ord_fecha DESC
        LIMIT 200`,
       params
     );
@@ -228,6 +231,7 @@ router.get('/orders/mis-ordenes-tecnico', async (req, res) => {
 
     const [rows] = await conn.execute(
       `SELECT DISTINCT o.uid_orden, o.ord_consecutivo, o.ord_estado, o.ord_fecha,
+              o.ord_tipo, o.ord_factura, o.ord_garantia_vence,
               c.cli_razon_social, c.cli_telefono,
               GROUP_CONCAT(
                 TRIM(CONCAT(IFNULL(h.her_nombre,''),' ',IFNULL(h.her_marca,'')))
@@ -238,8 +242,8 @@ router.get('/orders/mis-ordenes-tecnico', async (req, res) => {
        JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
        JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
        WHERE ho.\`${techCol}\` = ?
-       GROUP BY o.uid_orden, o.ord_consecutivo, o.ord_estado, o.ord_fecha, c.cli_razon_social, c.cli_telefono
-       ORDER BY o.ord_fecha DESC
+       GROUP BY o.uid_orden, o.ord_consecutivo, o.ord_estado, o.ord_fecha, o.ord_tipo, o.ord_factura, o.ord_garantia_vence, c.cli_razon_social, c.cli_telefono
+       ORDER BY o.ord_tipo DESC, o.ord_fecha DESC
        LIMIT 50`,
       [techValue]
     );

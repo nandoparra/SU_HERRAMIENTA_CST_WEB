@@ -220,6 +220,17 @@ async function ensureStatusTables() {
       );
     } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
 
+    // Columnas para órdenes de garantía
+    try {
+      await conn.execute(`ALTER TABLE b2c_orden ADD COLUMN ord_tipo VARCHAR(20) NOT NULL DEFAULT 'normal'`);
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    try {
+      await conn.execute(`ALTER TABLE b2c_orden ADD COLUMN ord_factura VARCHAR(255) NULL`);
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    try {
+      await conn.execute(`ALTER TABLE b2c_orden ADD COLUMN ord_garantia_vence DATE NULL`);
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+
     // Tabla de historial de cambios de estado
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS b2c_herramienta_status_log (
