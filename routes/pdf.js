@@ -138,8 +138,9 @@ function getPhone(order) {
 // ─── DESCARGAR cotizaci\u00f3n PDF ─────────────────────────────────────────────
 router.get('/orders/:orderId/pdf/quote', requireInterno, async (req, res) => {
   try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn  = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId);
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
 
     const { machines, items } = await getAllMachinesWithItems(conn, order.uid_orden);
@@ -159,8 +160,9 @@ router.get('/orders/:orderId/pdf/quote', requireInterno, async (req, res) => {
 // ─── DESCARGAR informe de mantenimiento PDF ───────────────────────────────────
 router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireInterno, async (req, res) => {
   try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn  = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId);
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
 
     // Si ya existe informe para esta máquina, devolver el guardado sin regenerar
@@ -193,10 +195,11 @@ router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireInterno,
 // ─── ENVIAR cotizaci\u00f3n PDF por WhatsApp ──────────────────────────────────
 router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) => {
   try {
-    if (!isReady()) return res.status(503).json({ success: false, error: 'WhatsApp no est\u00e1 conectado.' });
+    if (!isReady()) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn  = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId);
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
 
     const { machines, items } = await getAllMachinesWithItems(conn, order.uid_orden);
@@ -219,10 +222,11 @@ router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) 
 // ─── ENVIAR informe de mantenimiento PDF por WhatsApp ────────────────────────
 router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireInterno, async (req, res) => {
   try {
-    if (!isReady()) return res.status(503).json({ success: false, error: 'WhatsApp no est\u00e1 conectado.' });
+    if (!isReady()) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn  = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId);
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
 
     const fname = 'mantenimiento-' + order.ord_consecutivo + '.pdf';
@@ -328,8 +332,9 @@ function printHtml(pdfUrl) {
 // ─── DESCARGAR / IMPRIMIR orden completa (todas las máquinas) ─────────────────
 router.get('/orders/:orderId/pdf/orden', requireInterno, async (req, res) => {
   try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn  = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId);
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
 
     const data = await getOrdenServicioDataCompleta(conn, order.uid_orden);
@@ -353,8 +358,9 @@ router.get('/orders/:orderId/pdf/orden', requireInterno, async (req, res) => {
 });
 
 router.get('/orders/:orderId/print/orden', requireInterno, async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
   const conn  = await db.getConnection();
-  const order = await resolveOrder(conn, req.params.orderId);
+  const order = await resolveOrder(conn, req.params.orderId, tenantId);
   conn.release();
   if (!order) return res.status(404).send('Orden no encontrada');
   res.send(printHtml(`/api/orders/${order.uid_orden}/pdf/orden`));
@@ -363,10 +369,11 @@ router.get('/orders/:orderId/print/orden', requireInterno, async (req, res) => {
 // ─── ENVIAR orden completa PDF por WhatsApp ───────────────────────────────────
 router.post('/orders/:orderId/send-pdf/orden', requireInterno, async (req, res) => {
   try {
-    if (!isReady()) return res.status(503).json({ success: false, error: 'WhatsApp no est\u00e1 conectado.' });
+    if (!isReady()) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn  = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId);
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
 
     const data = await getOrdenServicioDataCompleta(conn, order.uid_orden);

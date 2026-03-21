@@ -36,16 +36,17 @@ router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, async (req, 
       });
     }
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId);
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) {
       conn.release();
       return res.status(404).json({ success: false, error: 'Orden no encontrada' });
     }
 
     const [[hdr]] = await conn.execute(
-      `SELECT mensaje_whatsapp FROM b2c_cotizacion_orden WHERE uid_orden = ?`,
-      [order.uid_orden]
+      `SELECT mensaje_whatsapp FROM b2c_cotizacion_orden WHERE uid_orden = ? AND tenant_id = ?`,
+      [order.uid_orden, tenantId]
     );
 
     const msg = hdr?.mensaje_whatsapp ? String(hdr.mensaje_whatsapp) : '';
@@ -71,13 +72,13 @@ router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, async (req, 
     for (const chatId of chatIds) {
       const phone = chatId.replace(/@[a-z.]+$/, '');
       await conn.execute(
-        `INSERT INTO b2c_wa_autorizacion_pendiente (uid_orden, wa_phone, estado)
-         VALUES (?, ?, 'esperando_opcion')
+        `INSERT INTO b2c_wa_autorizacion_pendiente (uid_orden, wa_phone, estado, tenant_id)
+         VALUES (?, ?, 'esperando_opcion', ?)
          ON DUPLICATE KEY UPDATE
            uid_orden = VALUES(uid_orden),
            estado    = 'esperando_opcion',
            created_at = CURRENT_TIMESTAMP`,
-        [order.uid_orden, phone]
+        [order.uid_orden, phone, tenantId]
       );
     }
 
@@ -101,8 +102,9 @@ router.post('/whatsapp/send', requireInterno, async (req, res) => {
       });
     }
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
-    const order = await resolveOrder(conn, orderId);
+    const order = await resolveOrder(conn, orderId, tenantId);
     if (!order) {
       conn.release();
       return res.status(404).json({ success: false, error: 'Orden no encontrada' });
