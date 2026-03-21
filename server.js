@@ -6,7 +6,7 @@ const path    = require('path');
 const session = require('express-session');
 
 const db      = require('./utils/db');
-const { waClient } = require('./utils/whatsapp-client');
+const { initTenantClient } = require('./utils/whatsapp-client');
 require('./utils/wa-handler'); // Listener de mensajes entrantes (autorización por WA)
 const apiKey  = require('./middleware/apiKey');
 const { requireLogin, requireInterno } = require('./middleware/auth');
@@ -405,7 +405,5 @@ app.listen(PORT, async () => {
   await ensureQuoteTables();
   await ensureStatusTables();
   await ensureTenantColumns();  // Fase 1b — tenant_id en todas las tablas
-  waClient.initialize().catch(e => {
-    console.warn('⚠️ WhatsApp Web no disponible:', e.message);
-  });
+  initTenantClient(1); // inicializa cliente WA del tenant por defecto
 });
