@@ -4,6 +4,7 @@ const router   = express.Router();
 const multer   = require('multer');
 const path     = require('path');
 const fs       = require('fs');
+const bcrypt   = require('bcrypt');
 const db       = require('../utils/db');
 const { requireSuperadmin } = require('../middleware/requireSuperadmin');
 const { invalidateTenantCache } = require('../middleware/tenant');
@@ -186,6 +187,73 @@ router.post('/tenants/:id/logo', requireSuperadmin, (req, res, next) => {
       conn.release();
     }
   });
+});
+
+// ── Usuarios por tenant ───────────────────────────────────────────────────────
+
+router.get('/tenants/:id/usuarios', requireSuperadmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const conn = await db.getConnection();
+  try {
+    const [rows] = await conn.execute(
+      `SELECT uid_usuario, usu_nombre, usu_login, usu_tipo, usu_estado
+       FROM b2c_usuario WHERE tenant_id = ? ORDER BY uid_usuario`,
+      [id]
+    );
+    res.json(rows);
+  } finally {
+    conn.release();
+  }
+});
+
+router.post('/tenants/:id/usuarios', requireSuperadmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const { usu_nombre, usu_login, usu_clave, usu_tipo } = req.body;
+
+  if (!usu_nombre || !usu_login || !usu_clave) {
+    return res.status(400).json({ error: 'nombre, login y clave son obligatorios' });
+  }
+  if (!['A', 'F', 'T'].includes(usu_tipo)) {
+    return res.status(400).json({ error: 'Tipo inválido — usar A, F o T' });
+  }
+
+  const hash = await bcrypt.hash(usu_clave, 10);
+  const conn = await db.getConnection();
+  try {
+    const [result] = await conn.execute(
+      `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado, tenant_id)
+       VALUES (?, ?, ?, ?, 'A', ?)`,
+      [usu_nombre, usu_login, hash, usu_tipo, id]
+    );
+    res.status(201).json({ success: true, uid_usuario: result.insertId });
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'Ese login ya existe' });
+    }
+    throw e;
+  } finally {
+    conn.release();
+  }
+});
+
+router.patch('/usuarios/:uid', requireSuperadmin, async (req, res) => {
+  const uid = Number(req.params.uid);
+  const allowed = ['usu_nombre', 'usu_tipo', 'usu_estado'];
+  const fields  = Object.keys(req.body).filter(k => allowed.includes(k));
+  if (!fields.length) return res.status(400).json({ error: 'Sin campos a actualizar' });
+
+  const conn = await db.getConnection();
+  try {
+    const set    = fields.map(f => `${f} = ?`).join(', ');
+    const values = fields.map(f => req.body[f]);
+    await conn.execute(
+      `UPDATE b2c_usuario SET ${set} WHERE uid_usuario = ?`,
+      [...values, uid]
+    );
+    res.json({ success: true });
+  } finally {
+    conn.release();
+  }
 });
 
 // ── Inicializar WhatsApp del tenant ───────────────────────────────────────────

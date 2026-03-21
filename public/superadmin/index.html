@@ -65,6 +65,22 @@
     .btn-wa:hover    { background: #15803d; }
     .btn-logo  { background: #7c3aed; color: #fff; }
     .btn-logo:hover  { background: #6d28d9; }
+    .btn-users { background: #0e7490; color: #fff; }
+    .btn-users:hover { background: #0c687f; }
+
+    /* ── Tabla usuarios ── */
+    .users-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 8px; }
+    .users-table th { padding: 8px 10px; text-align: left; color: #94a3b8; font-weight: 600;
+                      border-bottom: 1px solid #334155; }
+    .users-table td { padding: 8px 10px; border-bottom: 1px solid #1e293b55; vertical-align: middle; }
+    .badge-A { background: #1e3a5f; color: #93c5fd; }
+    .badge-F { background: #1c2f1c; color: #86efac; }
+    .badge-T { background: #2d1b4e; color: #c4b5fd; }
+    .badge-activo-u  { background: #064e3b; color: #6ee7b7; }
+    .badge-inactivo-u{ background: #1c1917; color: #a8a29e; }
+    .create-user-form { background: #0f172a; border-radius: 8px; padding: 16px; margin: 12px 0; }
+    .create-user-form .form-grid input,
+    .create-user-form .form-grid select { background: #1e293b; }
 
     /* ── Tabla tenants ── */
     .table-wrap { overflow-x: auto; }
@@ -216,6 +232,52 @@
   </div>
 </div>
 
+<!-- ── Modal usuarios ── -->
+<div class="overlay" id="usersOverlay">
+  <div class="modal" style="max-width:660px">
+    <h2 id="usersTitle">Usuarios del tenant</h2>
+
+    <!-- Tabla de usuarios existentes -->
+    <div id="usersTableWrap" style="margin-bottom:16px">
+      <p style="color:#64748b;font-size:13px">Cargando...</p>
+    </div>
+
+    <!-- Formulario crear usuario -->
+    <div class="create-user-form">
+      <p style="font-size:13px;font-weight:700;color:#a78bfa;margin-bottom:12px">+ Crear usuario</p>
+      <div class="form-grid">
+        <div>
+          <label>Nombre completo *</label>
+          <input id="u_nombre" placeholder="Juan Pérez">
+        </div>
+        <div>
+          <label>Login *</label>
+          <input id="u_login" placeholder="jperez">
+        </div>
+        <div>
+          <label>Contraseña *</label>
+          <input id="u_clave" type="password" placeholder="••••••••">
+        </div>
+        <div>
+          <label>Tipo</label>
+          <select id="u_tipo">
+            <option value="A">A — Admin</option>
+            <option value="F">F — Funcionario</option>
+            <option value="T">T — Técnico</option>
+          </select>
+        </div>
+      </div>
+      <div style="text-align:right;margin-top:12px">
+        <button class="btn btn-primary" id="createUserBtn" onclick="createUser()">Crear usuario</button>
+      </div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:12px">
+      <button class="btn btn-cancel" onclick="closeUsers()">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Modal logo ── -->
 <div class="overlay" id="logoOverlay">
   <div class="modal" style="max-width:400px">
@@ -320,9 +382,10 @@ async function loadTenants() {
         <td style="font-size:12px;color:#64748b">${t.ten_wa_number || '—'}</td>
         <td>
           <div class="td-actions">
-            <button class="btn-sm btn-edit" onclick="openEdit(${t.uid_tenant})">✏️ Editar</button>
-            <button class="btn-sm btn-logo" onclick="openLogo(${t.uid_tenant})">🖼 Logo</button>
-            <button class="btn-sm btn-wa"   onclick="initWA(${t.uid_tenant})">📱 Init WA</button>
+            <button class="btn-sm btn-edit"  onclick="openEdit(${t.uid_tenant})">✏️ Editar</button>
+            <button class="btn-sm btn-users" onclick="openUsers(${t.uid_tenant}, '${esc(t.ten_nombre)}')">👤 Usuarios</button>
+            <button class="btn-sm btn-logo"  onclick="openLogo(${t.uid_tenant})">🖼 Logo</button>
+            <button class="btn-sm btn-wa"    onclick="initWA(${t.uid_tenant})">📱 Init WA</button>
           </div>
         </td>
       </tr>
@@ -438,6 +501,96 @@ async function uploadLogo() {
     showToast('Logo subido correctamente');
     closeLogo();
     loadTenants();
+  } catch (e) {
+    showToast(e.message, true);
+  }
+}
+
+// ── Usuarios ──────────────────────────────────────────────────────────────────
+let _usersId = null;
+
+async function openUsers(id, nombre) {
+  _usersId = id;
+  document.getElementById('usersTitle').textContent = `Usuarios — ${nombre}`;
+  document.getElementById('u_nombre').value = '';
+  document.getElementById('u_login').value  = '';
+  document.getElementById('u_clave').value  = '';
+  document.getElementById('u_tipo').value   = 'A';
+  document.getElementById('usersOverlay').classList.add('open');
+  await loadUsers();
+}
+
+function closeUsers() {
+  document.getElementById('usersOverlay').classList.remove('open');
+  _usersId = null;
+}
+
+async function loadUsers() {
+  const wrap = document.getElementById('usersTableWrap');
+  try {
+    const users = await api('GET', `/tenants/${_usersId}/usuarios`);
+    if (!users.length) {
+      wrap.innerHTML = '<p style="color:#64748b;font-size:13px">Sin usuarios aún.</p>';
+      return;
+    }
+    const tipoLabel = { A: 'Admin', F: 'Funcionario', T: 'Técnico' };
+    wrap.innerHTML = `
+      <table class="users-table">
+        <thead><tr><th>#</th><th>Nombre</th><th>Login</th><th>Tipo</th><th>Estado</th></tr></thead>
+        <tbody>
+          ${users.map(u => `
+            <tr>
+              <td style="color:#64748b">${u.uid_usuario}</td>
+              <td style="color:#f1f5f9">${esc(u.usu_nombre)}</td>
+              <td><code style="color:#a78bfa;font-size:12px">${esc(u.usu_login)}</code></td>
+              <td><span class="badge badge-${u.usu_tipo}">${esc(tipoLabel[u.usu_tipo] || u.usu_tipo)}</span></td>
+              <td>
+                <button class="btn-sm ${u.usu_estado === 'A' ? 'btn-wa' : 'btn-edit'}"
+                  onclick="toggleUser(${u.uid_usuario}, '${u.usu_estado}')">
+                  ${u.usu_estado === 'A' ? '✅ Activo' : '⛔ Inactivo'}
+                </button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    wrap.innerHTML = `<p style="color:#f87171;font-size:13px">${esc(e.message)}</p>`;
+  }
+}
+
+async function createUser() {
+  const nombre = document.getElementById('u_nombre').value.trim();
+  const login  = document.getElementById('u_login').value.trim();
+  const clave  = document.getElementById('u_clave').value;
+  const tipo   = document.getElementById('u_tipo').value;
+
+  if (!nombre || !login || !clave) return showToast('Nombre, login y clave son obligatorios', true);
+
+  const btn = document.getElementById('createUserBtn');
+  btn.disabled = true;
+  try {
+    await api('POST', `/tenants/${_usersId}/usuarios`, {
+      usu_nombre: nombre, usu_login: login, usu_clave: clave, usu_tipo: tipo,
+    });
+    showToast('Usuario creado');
+    document.getElementById('u_nombre').value = '';
+    document.getElementById('u_login').value  = '';
+    document.getElementById('u_clave').value  = '';
+    await loadUsers();
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function toggleUser(uid, estadoActual) {
+  const nuevo = estadoActual === 'A' ? 'I' : 'A';
+  try {
+    await api('PATCH', `/usuarios/${uid}`, { usu_estado: nuevo });
+    showToast(nuevo === 'A' ? 'Usuario activado' : 'Usuario desactivado');
+    await loadUsers();
   } catch (e) {
     showToast(e.message, true);
   }
