@@ -10,7 +10,7 @@
 
     /* ── Header ── */
     header {
-      background: #1d3557;
+      background: var(--color-primary, #1d3557);
       color: #fff;
       padding: 14px 20px;
       display: flex;
@@ -35,7 +35,7 @@
 
     /* ── Layout ── */
     .container { max-width: 680px; margin: 24px auto; padding: 0 14px 40px; }
-    .page-title { font-size: 16px; color: #1d3557; font-weight: 700; margin-bottom: 18px; }
+    .page-title { font-size: 16px; color: var(--color-primary, #1d3557); font-weight: 700; margin-bottom: 18px; }
     .loading { text-align: center; color: #888; padding: 40px; font-size: 14px; }
     .empty { text-align: center; color: #aaa; padding: 48px 20px; font-size: 14px; }
 
@@ -55,7 +55,7 @@
       gap: 6px 16px;
       align-items: baseline;
     }
-    .orden-num { font-weight: 700; font-size: 15px; color: #1d3557; }
+    .orden-num { font-weight: 700; font-size: 15px; color: var(--color-primary, #1d3557); }
     .orden-meta { font-size: 12px; color: #888; }
     .orden-entrega {
       font-size: 12px; font-weight: 600; color: #1d6a3a;
@@ -155,12 +155,12 @@
     .cot-table .td-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
     .cot-table .td-lbl { color: #666; }
     .cot-table tr.cot-sep td { border-top: 1px solid #eee; }
-    .cot-table tr.cot-total td { font-weight: 700; color: #1d3557; }
+    .cot-table tr.cot-total td { font-weight: 700; color: var(--color-primary, #1d3557); }
     .cot-table tr.cot-total .td-num { font-size: 14px; }
     .no-cot { font-size: 12px; color: #aaa; }
     .btn-informe {
       display: inline-block;
-      background: #1d3557; color: #fff;
+      background: var(--color-primary, #1d3557); color: #fff;
       padding: 7px 14px; border-radius: 6px;
       font-size: 13px; font-weight: 600;
       text-decoration: none;
@@ -182,7 +182,7 @@
     .btn-autorizar:disabled, .btn-no-autorizar:disabled { opacity:.5; cursor:not-allowed; }
     .auth-global { margin:8px 0 4px; }
     .btn-autorizar-todas {
-      background:#1d3557; color:#fff; border:none; padding:7px 16px;
+      background:var(--color-primary, #1d3557); color:#fff; border:none; padding:7px 16px;
       border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; width:100%;
     }
     .btn-autorizar-todas:hover { background:#16294a; }
@@ -214,6 +214,7 @@
       header { gap: 6px; }
     }
   </style>
+  <script src="/assets/tenant-init.js"></script>
 </head>
 <body>
   <header>
@@ -221,7 +222,7 @@
       <div class="logo-wrap">
         <img src="/assets/logo.png" alt="Logo">
       </div>
-      <h1>SU HERRAMIENTA CST<br><span style="font-weight:400;opacity:.8;font-size:13px;">Seguimiento de órdenes</span></h1>
+      <h1 data-tenant-name>SU HERRAMIENTA CST<br><span style="font-weight:400;opacity:.8;font-size:13px;">Seguimiento de órdenes</span></h1>
     </div>
     <div class="hdr-right">
       <span class="hdr-user" id="userName"></span>

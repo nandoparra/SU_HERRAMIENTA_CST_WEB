@@ -400,14 +400,15 @@
     .no-nav-row{display:flex;justify-content:space-between;margin-top:8px;}
     @media(max-width:600px){.no-grid2,.no-grid3{grid-template-columns:1fr;}}
   </style>
+  <script src="/assets/tenant-init.js"></script>
 </head>
 <body>
 
 <!-- ── Sidebar ── -->
 <aside class="sidebar" id="sidebar">
   <div class="sb-logo">
-    <div class="sb-logo-img"><img src="/assets/logo.png" alt="Logo"></div>
-    <div class="sb-logo-text">SU HERRAMIENTA CST</div>
+    <div class="sb-logo-img"><img src="/assets/logo.png" alt="Logo" class="logo-wrap-img"></div>
+    <div class="sb-logo-text" data-tenant-name>SU HERRAMIENTA CST</div>
   </div>
   <nav class="sb-nav">
     <div class="nav-item active" data-view="inicio" onclick="navigate('inicio')">

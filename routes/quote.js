@@ -12,13 +12,14 @@ router.use(requireInterno);
 router.get('/quote/catalog', async (req, res) => {
   try {
     const type = req.query.type || 'R';
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     const [rows] = await conn.execute(
       `SELECT uid_concepto_costo, cco_descripcion, cco_valor, cco_impuesto
        FROM b2c_concepto_costos
-       WHERE cco_tipo = ? AND cco_estado = 'A'
+       WHERE cco_tipo = ? AND cco_estado = 'A' AND tenant_id = ?
        ORDER BY cco_descripcion`,
-      [type]
+      [type, tenantId]
     );
     conn.release();
     res.json(rows);
@@ -36,21 +37,22 @@ router.get('/quotes/machine', async (req, res) => {
     if (!orderId || !equipmentOrderId)
       return res.status(400).json({ error: 'orderId y equipmentOrderId son requeridos' });
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
 
     const [mq] = await conn.execute(
       `SELECT uid_orden, uid_herramienta_orden, tecnico_id, mano_obra, descripcion_trabajo, subtotal
        FROM b2c_cotizacion_maquina
-       WHERE uid_orden = ? AND uid_herramienta_orden = ?`,
-      [orderId, equipmentOrderId]
+       WHERE uid_orden = ? AND uid_herramienta_orden = ? AND tenant_id = ?`,
+      [orderId, equipmentOrderId, tenantId]
     );
 
     const [items] = await conn.execute(
       `SELECT id, nombre, cantidad, precio, subtotal
        FROM b2c_cotizacion_item
-       WHERE uid_orden = ? AND uid_herramienta_orden = ?
+       WHERE uid_orden = ? AND uid_herramienta_orden = ? AND tenant_id = ?
        ORDER BY id`,
-      [orderId, equipmentOrderId]
+      [orderId, equipmentOrderId, tenantId]
     );
 
     conn.release();
@@ -75,25 +77,26 @@ router.post('/quotes/machine', async (req, res) => {
     const itemsSubtotal = items.reduce((sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.price) || 0), 0);
     const subtotal = manoObra + itemsSubtotal;
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
 
       await conn.execute(
-        `INSERT INTO b2c_cotizacion_maquina (uid_orden, uid_herramienta_orden, tecnico_id, mano_obra, descripcion_trabajo, subtotal)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO b2c_cotizacion_maquina (uid_orden, uid_herramienta_orden, tecnico_id, mano_obra, descripcion_trabajo, subtotal, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            tecnico_id = VALUES(tecnico_id),
            mano_obra = VALUES(mano_obra),
            descripcion_trabajo = VALUES(descripcion_trabajo),
            subtotal = VALUES(subtotal),
            updated_at = CURRENT_TIMESTAMP`,
-        [String(orderId), String(equipmentOrderId), technicianId ? String(technicianId) : null, manoObra, workDescription || null, subtotal]
+        [String(orderId), String(equipmentOrderId), technicianId ? String(technicianId) : null, manoObra, workDescription || null, subtotal, tenantId]
       );
 
       await conn.execute(
-        `DELETE FROM b2c_cotizacion_item WHERE uid_orden = ? AND uid_herramienta_orden = ?`,
-        [String(orderId), String(equipmentOrderId)]
+        `DELETE FROM b2c_cotizacion_item WHERE uid_orden = ? AND uid_herramienta_orden = ? AND tenant_id = ?`,
+        [String(orderId), String(equipmentOrderId), tenantId]
       );
 
       for (const it of items) {
@@ -102,15 +105,15 @@ router.post('/quotes/machine', async (req, res) => {
         const precio = Number(it.price) || 0;
         const lineSubtotal = cantidad * precio;
         await conn.execute(
-          `INSERT INTO b2c_cotizacion_item (uid_orden, uid_herramienta_orden, nombre, cantidad, precio, subtotal)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [String(orderId), String(equipmentOrderId), nombre, cantidad, precio, lineSubtotal]
+          `INSERT INTO b2c_cotizacion_item (uid_orden, uid_herramienta_orden, nombre, cantidad, precio, subtotal, tenant_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [String(orderId), String(equipmentOrderId), nombre, cantidad, precio, lineSubtotal, tenantId]
         );
       }
 
       const [[sumRow]] = await conn.execute(
-        `SELECT COALESCE(SUM(subtotal),0) AS s FROM b2c_cotizacion_maquina WHERE uid_orden = ?`,
-        [String(orderId)]
+        `SELECT COALESCE(SUM(subtotal),0) AS s FROM b2c_cotizacion_maquina WHERE uid_orden = ? AND tenant_id = ?`,
+        [String(orderId), tenantId]
       );
       const orderSubtotal = Number(sumRow?.s || 0);
       const IVA_RATE = parseFloat(process.env.IVA_RATE || '0');
@@ -118,14 +121,14 @@ router.post('/quotes/machine', async (req, res) => {
       const total = orderSubtotal + iva;
 
       await conn.execute(
-        `INSERT INTO b2c_cotizacion_orden (uid_orden, subtotal, iva, total)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO b2c_cotizacion_orden (uid_orden, subtotal, iva, total, tenant_id)
+         VALUES (?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            subtotal = VALUES(subtotal),
            iva = VALUES(iva),
            total = VALUES(total),
            updated_at = CURRENT_TIMESTAMP`,
-        [String(orderId), orderSubtotal, iva, total]
+        [String(orderId), orderSubtotal, iva, total, tenantId]
       );
 
       // Cambiar estado a 'cotizada' automáticamente si no está ya más avanzado
@@ -163,21 +166,22 @@ router.post('/quotes/machine', async (req, res) => {
 router.get('/quotes/order/:orderId', async (req, res) => {
   try {
     const orderId = String(req.params.orderId || '').trim();
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
 
     const [machines] = await conn.execute(
       `SELECT uid_herramienta_orden, tecnico_id, mano_obra, descripcion_trabajo, subtotal, updated_at
        FROM b2c_cotizacion_maquina
-       WHERE uid_orden = ?
+       WHERE uid_orden = ? AND tenant_id = ?
        ORDER BY uid_herramienta_orden`,
-      [orderId]
+      [orderId, tenantId]
     );
 
     const [[hdr]] = await conn.execute(
       `SELECT uid_orden, subtotal, iva, total, whatsapp_enviado, whatsapp_enviado_at
        FROM b2c_cotizacion_orden
-       WHERE uid_orden = ?`,
-      [orderId]
+       WHERE uid_orden = ? AND tenant_id = ?`,
+      [orderId, tenantId]
     );
 
     conn.release();
@@ -198,8 +202,9 @@ router.post('/quotes/order/:orderId/generate-message', async (req, res) => {
   try {
     const orderId = String(req.params.orderId || '').trim();
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
-    const order = await resolveOrder(conn, orderId);
+    const order = await resolveOrder(conn, orderId, tenantId);
     if (!order) {
       conn.release();
       return res.status(404).json({ success: false, error: 'Orden no encontrada' });
@@ -271,15 +276,15 @@ router.post('/quotes/order/:orderId/generate-message', async (req, res) => {
     const fullMessage = generated + menu;
 
     await conn.execute(
-      `INSERT INTO b2c_cotizacion_orden (uid_orden, subtotal, iva, total, mensaje_whatsapp)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO b2c_cotizacion_orden (uid_orden, subtotal, iva, total, mensaje_whatsapp, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          subtotal = VALUES(subtotal),
          iva = VALUES(iva),
          total = VALUES(total),
          mensaje_whatsapp = VALUES(mensaje_whatsapp),
          updated_at = CURRENT_TIMESTAMP`,
-      [order.uid_orden, machineSubtotal, iva, total, fullMessage]
+      [order.uid_orden, machineSubtotal, iva, total, fullMessage, tenantId]
     );
 
     conn.release();

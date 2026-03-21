@@ -20,20 +20,21 @@ router.get('/dashboard', async (req, res) => {
     const month = raw.slice(5, 7)  || String(now.getMonth() + 1).padStart(2, '0');
     const prefix = `${year}${month}`;
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
 
     const [[totalRow]] = await conn.execute(
-      `SELECT COUNT(*) AS total FROM b2c_orden WHERE ord_fecha LIKE ?`,
-      [`${prefix}%`]
+      `SELECT COUNT(*) AS total FROM b2c_orden WHERE ord_fecha LIKE ? AND tenant_id = ?`,
+      [`${prefix}%`, tenantId]
     );
 
     const [estadoRows] = await conn.execute(
       `SELECT COALESCE(ho.her_estado,'pendiente_revision') AS estado, COUNT(*) AS cant
        FROM b2c_herramienta_orden ho
        JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
-       WHERE o.ord_fecha LIKE ?
+       WHERE o.ord_fecha LIKE ? AND o.tenant_id = ?
        GROUP BY ho.her_estado`,
-      [`${prefix}%`]
+      [`${prefix}%`, tenantId]
     );
     const em = {};
     estadoRows.forEach(r => { em[r.estado] = Number(r.cant); });
@@ -47,9 +48,9 @@ router.get('/dashboard', async (req, res) => {
       JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
       JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
       JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
-      WHERE ho.her_estado = 'reparada'
+      WHERE ho.her_estado = 'reparada' AND o.tenant_id = ?
       ORDER BY o.ord_fecha ASC
-    `);
+    `, [tenantId]);
 
     const [revisadasSinCotizar] = await conn.execute(`
       SELECT ho.uid_herramienta_orden, ho.uid_orden,
@@ -63,8 +64,9 @@ router.get('/dashboard', async (req, res) => {
       LEFT JOIN b2c_cotizacion_maquina cm ON cm.uid_herramienta_orden = ho.uid_herramienta_orden
       WHERE ho.her_estado = 'revisada'
         AND cm.uid_herramienta_orden IS NULL
+        AND o.tenant_id = ?
       ORDER BY o.ord_fecha ASC
-    `);
+    `, [tenantId]);
 
     // Garantías activas (todas las órdenes de garantía no entregadas)
     const [garantiasActivas] = await conn.execute(`
@@ -78,9 +80,10 @@ router.get('/dashboard', async (req, res) => {
       JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
       WHERE o.ord_tipo = 'garantia'
         AND ho.her_estado NOT IN ('entregada')
+        AND o.tenant_id = ?
       GROUP BY o.uid_orden
       ORDER BY o.ord_fecha ASC
-    `);
+    `, [tenantId]);
 
     const hoy = Date.now();
     const alertas = reparadas.map(r => {
@@ -131,19 +134,21 @@ router.get('/clientes/search', async (req, res) => {
     const like   = `%${q}%`;
     const digits = q.replace(/\D/g, '');
     const conn   = await db.getConnection();
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const params = digits
-      ? [like, like, like, `%${digits}%`]
-      : [like, like, like];
+      ? [tenantId, like, like, like, `%${digits}%`]
+      : [tenantId, like, like, like];
     const [rows] = await conn.execute(
       `SELECT c.uid_cliente, c.cli_razon_social, c.cli_identificacion,
               c.cli_telefono, c.cli_contacto, c.cli_estado,
               COUNT(o.uid_orden) AS total_ordenes
        FROM b2c_cliente c
        LEFT JOIN b2c_orden o ON o.uid_cliente = c.uid_cliente
-       WHERE c.cli_razon_social  LIKE ?
+       WHERE c.tenant_id = ?
+         AND (c.cli_razon_social  LIKE ?
           OR c.cli_identificacion LIKE ?
           OR c.cli_contacto       LIKE ?
-          ${digits ? 'OR c.cli_telefono LIKE ?' : ''}
+          ${digits ? 'OR c.cli_telefono LIKE ?' : ''})
        GROUP BY c.uid_cliente
        ORDER BY c.cli_razon_social
        LIMIT 30`,
@@ -158,20 +163,21 @@ router.get('/clientes/search', async (req, res) => {
 
 router.get('/clientes/:id', async (req, res) => {
   try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     const [[cliente]] = await conn.execute(
       `SELECT c.*, u.usu_login
        FROM b2c_cliente c
        LEFT JOIN b2c_usuario u ON u.uid_usuario = c.uid_usuario
-       WHERE c.uid_cliente = ?`,
-      [req.params.id]
+       WHERE c.uid_cliente = ? AND c.tenant_id = ?`,
+      [req.params.id, tenantId]
     );
     if (!cliente) { conn.release(); return res.status(404).json({ error: 'No encontrado' }); }
     const [ordenes] = await conn.execute(
       `SELECT uid_orden, ord_consecutivo, ord_fecha, ord_estado
-       FROM b2c_orden WHERE uid_cliente = ?
+       FROM b2c_orden WHERE uid_cliente = ? AND tenant_id = ?
        ORDER BY ord_fecha DESC LIMIT 50`,
-      [cliente.uid_cliente]
+      [cliente.uid_cliente, tenantId]
     );
     conn.release();
     res.json({ cliente, ordenes });
@@ -187,18 +193,19 @@ router.post('/clientes/:id/crear-acceso', async (req, res) => {
     const { login, clave } = req.body;
     if (!login || !clave)
       return res.status(400).json({ error: 'Login y clave son requeridos' });
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     const [[c]] = await conn.execute(
-      `SELECT uid_cliente, cli_razon_social, uid_usuario FROM b2c_cliente WHERE uid_cliente = ?`,
-      [req.params.id]
+      `SELECT uid_cliente, cli_razon_social, uid_usuario FROM b2c_cliente WHERE uid_cliente = ? AND tenant_id = ?`,
+      [req.params.id, tenantId]
     );
     if (!c) { conn.release(); return res.status(404).json({ error: 'Cliente no encontrado' }); }
     if (c.uid_usuario) { conn.release(); return res.status(400).json({ error: 'Este cliente ya tiene acceso creado' }); }
     const hash = await bcrypt.hash(String(clave), 10);
     const [uRes] = await conn.execute(
-      `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado)
-       VALUES (?, ?, ?, 'C', 'A')`,
-      [c.cli_razon_social, login, hash]
+      `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado, tenant_id)
+       VALUES (?, ?, ?, 'C', 'A', ?)`,
+      [c.cli_razon_social, login, hash, tenantId]
     );
     await conn.execute(
       `UPDATE b2c_cliente SET uid_usuario = ? WHERE uid_cliente = ?`,
@@ -216,12 +223,14 @@ router.post('/clientes/:id/crear-acceso', async (req, res) => {
 // ── Funcionarios ───────────────────────────────────────────────────────────────
 router.get('/funcionarios', async (req, res) => {
   try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     const [rows] = await conn.execute(
       `SELECT uid_usuario, usu_nombre, usu_login, usu_tipo, usu_estado
        FROM b2c_usuario
-       WHERE usu_tipo IN ('A','F','T')
-       ORDER BY usu_tipo, usu_nombre`
+       WHERE usu_tipo IN ('A','F','T') AND tenant_id = ?
+       ORDER BY usu_tipo, usu_nombre`,
+      [tenantId]
     );
     conn.release();
     res.json(rows);
@@ -237,12 +246,13 @@ router.post('/funcionarios', async (req, res) => {
     const { nombre, login, clave, tipo } = req.body;
     if (!nombre || !login || !clave || !['A','F','T'].includes(tipo))
       return res.status(400).json({ error: 'Datos incompletos o tipo inválido' });
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const hash = await bcrypt.hash(String(clave), 10);
     const conn = await db.getConnection();
     const [r] = await conn.execute(
-      `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado)
-       VALUES (?, ?, ?, ?, 'A')`,
-      [nombre, login, hash, tipo]
+      `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado, tenant_id)
+       VALUES (?, ?, ?, ?, 'A', ?)`,
+      [nombre, login, hash, tipo, tenantId]
     );
     conn.release();
     res.json({ success: true, uid_usuario: r.insertId });
@@ -264,9 +274,10 @@ router.patch('/funcionarios/:id', async (req, res) => {
     if (estado && ['A','I'].includes(estado))     { sets.push('usu_estado = ?'); params.push(estado); }
     if (clave)  { const h = await bcrypt.hash(String(clave), 10); sets.push('usu_clave = ?'); params.push(h); }
     if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
-    params.push(req.params.id);
+    const tenantId = req.tenant?.uid_tenant ?? 1;
+    params.push(req.params.id, tenantId);
     const conn = await db.getConnection();
-    await conn.execute(`UPDATE b2c_usuario SET ${sets.join(', ')} WHERE uid_usuario = ?`, params);
+    await conn.execute(`UPDATE b2c_usuario SET ${sets.join(', ')} WHERE uid_usuario = ? AND tenant_id = ?`, params);
     conn.release();
     res.json({ success: true });
   } catch (e) {
@@ -277,11 +288,14 @@ router.patch('/funcionarios/:id', async (req, res) => {
 // ── Inventario ─────────────────────────────────────────────────────────────────
 router.get('/inventario', async (req, res) => {
   try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     const [rows] = await conn.execute(
       `SELECT uid_concepto_costo, cco_descripcion, cco_valor, cco_tipo, cco_estado
        FROM b2c_concepto_costos
-       ORDER BY cco_tipo, cco_descripcion`
+       WHERE tenant_id = ?
+       ORDER BY cco_tipo, cco_descripcion`,
+      [tenantId]
     );
     conn.release();
     res.json(rows);
@@ -297,11 +311,12 @@ router.post('/inventario', async (req, res) => {
     const { descripcion, valor, tipo } = req.body;
     if (!descripcion || !tipo)
       return res.status(400).json({ error: 'Descripción y tipo son requeridos' });
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     const [r] = await conn.execute(
-      `INSERT INTO b2c_concepto_costos (cco_descripcion, cco_valor, cco_tipo, cco_estado)
-       VALUES (?, ?, ?, 'A')`,
-      [descripcion, Number(valor) || 0, tipo]
+      `INSERT INTO b2c_concepto_costos (cco_descripcion, cco_valor, cco_tipo, cco_estado, tenant_id)
+       VALUES (?, ?, ?, 'A', ?)`,
+      [descripcion, Number(valor) || 0, tipo, tenantId]
     );
     conn.release();
     res.json({ success: true, uid_concepto_costo: r.insertId });
@@ -320,9 +335,10 @@ router.patch('/inventario/:id', async (req, res) => {
     if (valor !== undefined){ sets.push('cco_valor = ?');       params.push(Number(valor) || 0); }
     if (estado && ['A','I'].includes(estado)) { sets.push('cco_estado = ?'); params.push(estado); }
     if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
-    params.push(req.params.id);
+    const tenantId = req.tenant?.uid_tenant ?? 1;
+    params.push(req.params.id, tenantId);
     const conn = await db.getConnection();
-    await conn.execute(`UPDATE b2c_concepto_costos SET ${sets.join(', ')} WHERE uid_concepto_costo = ?`, params);
+    await conn.execute(`UPDATE b2c_concepto_costos SET ${sets.join(', ')} WHERE uid_concepto_costo = ? AND tenant_id = ?`, params);
     conn.release();
     res.json({ success: true });
   } catch (e) {

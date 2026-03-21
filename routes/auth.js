@@ -4,6 +4,7 @@ const router     = express.Router();
 const bcrypt     = require('bcrypt');
 const rateLimit  = require('express-rate-limit');
 const db         = require('../utils/db');
+const { invalidateTenantCache } = require('../middleware/tenant');
 
 // Máximo 10 intentos de login por IP en 15 minutos
 const loginLimiter = rateLimit({
@@ -30,12 +31,13 @@ router.post('/login', loginLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Usuario y contraseña requeridos' });
     }
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     const [[user]] = await conn.execute(
       `SELECT uid_usuario, usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado
        FROM b2c_usuario
-       WHERE usu_login = ? LIMIT 1`,
-      [username.trim()]
+       WHERE usu_login = ? AND tenant_id = ? LIMIT 1`,
+      [username.trim(), tenantId]
     );
 
     if (!user) {
@@ -67,19 +69,30 @@ router.post('/login', loginLimiter, async (req, res) => {
       }
     }
 
-    conn.release();
-
     if (!passwordOk) {
+      conn.release();
       return res.status(401).json({ success: false, error: 'Usuario o contraseña incorrectos' });
     }
 
+    // Lock del slug tras el primer login exitoso del tenant
+    if (req.tenant && !req.tenant.ten_slug_locked) {
+      await conn.execute(
+        `UPDATE b2c_tenant SET ten_slug_locked = 1 WHERE uid_tenant = ?`,
+        [tenantId]
+      );
+      invalidateTenantCache(req.hostname);
+    }
+
+    conn.release();
+
     const tipo = String(user.usu_tipo || '').toUpperCase();
     req.session.user = {
-      id:     user.uid_usuario,
-      nombre: user.usu_nombre,
-      login:  user.usu_login,
+      id:        user.uid_usuario,
+      nombre:    user.usu_nombre,
+      login:     user.usu_login,
       tipo,
-      rol:    ROLES[tipo] || 'funcionario',
+      rol:       ROLES[tipo] || 'funcionario',
+      tenant_id: tenantId,
     };
 
     const redirect = tipo === 'C' ? '/seguimiento.html' : '/dashboard.html';
@@ -98,6 +111,13 @@ router.post('/logout', (req, res) => {
 // GET /me — datos del usuario logueado (para el frontend)
 router.get('/me', (req, res) => {
   if (!req.session.user) return res.status(401).json({ authenticated: false });
+  // Verificar que la sesión pertenece al tenant activo (cross-tenant protection)
+  const sessionTenant = req.session.user.tenant_id ?? 1;
+  const reqTenant     = req.tenant?.uid_tenant ?? 1;
+  if (sessionTenant !== reqTenant) {
+    req.session.destroy(() => {});
+    return res.status(401).json({ authenticated: false, redirect: '/login' });
+  }
   res.json({ authenticated: true, user: req.session.user });
 });
 
