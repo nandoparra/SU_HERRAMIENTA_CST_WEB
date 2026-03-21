@@ -7,7 +7,7 @@ const fs           = require('fs');
 const { resolveOrder } = require('../utils/schema');
 const { generateQuotePDF, generateMaintenancePDF, generateOrdenServicioPDF } = require('../utils/pdf-generator');
 const { generateText }  = require('../utils/ia');
-const { waClient, isReady, sendWAMessage } = require('../utils/whatsapp-client');
+const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { MessageMedia }  = require('whatsapp-web.js');
 const { requireInterno } = require('../middleware/auth');
 
@@ -195,9 +195,9 @@ router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireInterno,
 // ─── ENVIAR cotizaci\u00f3n PDF por WhatsApp ──────────────────────────────────
 router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) => {
   try {
-    if (!isReady()) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
-
     const tenantId = req.tenant?.uid_tenant ?? 1;
+    if (!isReady(tenantId)) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
+
     const conn  = await db.getConnection();
     const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
@@ -210,7 +210,7 @@ router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) 
     const pdf    = await generateQuotePDF({ order, machines, items, quoteNumber: order.ord_consecutivo });
     const fname  = 'cotizacion-' + order.ord_consecutivo + '.pdf';
     const media  = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
-    await sendWAMessage(getPhone(order), media);
+    await sendWAMessage(tenantId, getPhone(order), media);
 
     res.json({ success: true, filename: fname });
   } catch (e) {
@@ -222,9 +222,9 @@ router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) 
 // ─── ENVIAR informe de mantenimiento PDF por WhatsApp ────────────────────────
 router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireInterno, async (req, res) => {
   try {
-    if (!isReady()) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
-
     const tenantId = req.tenant?.uid_tenant ?? 1;
+    if (!isReady(tenantId)) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
+
     const conn  = await db.getConnection();
     const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
@@ -237,7 +237,7 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireIn
       conn.release();
       const pdfBuf = fs.readFileSync(existing.fpath);
       const media  = new MessageMedia('application/pdf', pdfBuf.toString('base64'), fname);
-      await sendWAMessage(getPhone(order), media);
+      await sendWAMessage(tenantId, getPhone(order), media);
       return res.json({ success: true, filename: fname });
     }
 
@@ -250,7 +250,7 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireIn
     conn.release();
 
     const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
-    await sendWAMessage(getPhone(order), media);
+    await sendWAMessage(tenantId, getPhone(order), media);
     res.json({ success: true, filename: fname });
   } catch (e) {
     console.error('Error enviando PDF mantenimiento:', e);
@@ -369,9 +369,8 @@ router.get('/orders/:orderId/print/orden', requireInterno, async (req, res) => {
 // ─── ENVIAR orden completa PDF por WhatsApp ───────────────────────────────────
 router.post('/orders/:orderId/send-pdf/orden', requireInterno, async (req, res) => {
   try {
-    if (!isReady()) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
-
     const tenantId = req.tenant?.uid_tenant ?? 1;
+    if (!isReady(tenantId)) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
     const conn  = await db.getConnection();
     const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
@@ -390,12 +389,12 @@ router.post('/orders/:orderId/send-pdf/orden', requireInterno, async (req, res) 
     const fname = 'orden-' + ordenRow.ord_consecutivo + '.pdf';
     const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
     const phone = getPhone({ cli_telefono: ordenRow.cli_telefono });
-    await sendWAMessage(phone, media);
+    await sendWAMessage(tenantId, phone, media);
 
     const clientName = ordenRow.cli_razon_social || 'Cliente';
     const machineList = maquinas.map(m => `• ${m.her_nombre || 'Máquina'}${m.her_marca ? ' (' + m.her_marca + ')' : ''}`).join('\n');
     const textMsg = `Hola, le saluda *Su Herramienta CST* 🔧\n\nHemos recibido su(s) equipo(s) para revisión. Orden #${ordenRow.ord_consecutivo}:\n\n${machineList}\n\nLe notificaremos cuando la revisión esté lista. ¡Gracias por confiar en nosotros!`;
-    await sendWAMessage(phone, textMsg);
+    await sendWAMessage(tenantId, phone, textMsg);
 
     res.json({ success: true, filename: fname });
   } catch (e) {

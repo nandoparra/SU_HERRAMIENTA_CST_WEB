@@ -7,7 +7,7 @@
  */
 
 const db = require('./db');
-const { waClient, sendWAMessage } = require('./whatsapp-client');
+const { registerMessageHandler, sendWAMessage } = require('./whatsapp-client');
 
 function formatCOP(amount) {
   return `$${Number(amount || 0).toLocaleString('es-CO')}`;
@@ -20,7 +20,7 @@ function normalizePhone(raw) {
 
 console.log('✅ wa-handler: listener de mensajes entrantes registrado');
 
-waClient.on('message', async (msg) => {
+registerMessageHandler(async (tenantId, msg) => {
   // Solo chats individuales con texto
   if (msg.from.endsWith('@g.us')) return;
   const text = String(msg.body || '').trim();
@@ -71,7 +71,7 @@ waClient.on('message', async (msg) => {
 
     // Audio, imagen u otro mensaje sin texto — responder con aviso
     if (!text) {
-      await sendWAMessage(senderPhone,
+      await sendWAMessage(tenantId, senderPhone,
         'Este número es exclusivo para notificaciones automáticas y no permite conversación.\n\n' +
         'Si desea responder a su cotización, por favor indique únicamente *1*, *2*, *3* o *4*.\n\n' +
         'Para cualquier otra consulta comuníquese con nosotros al *3104650437*. — SU HERRAMIENTA CST'
@@ -80,9 +80,9 @@ waClient.on('message', async (msg) => {
     }
 
     if (pendiente.estado === 'esperando_opcion') {
-      await handleOpcion(conn, pendiente, text, senderPhone, pendiente.tenant_id);
+      await handleOpcion(conn, pendiente, text, senderPhone, tenantId);
     } else if (pendiente.estado === 'esperando_maquinas') {
-      await handleSeleccionMaquinas(conn, pendiente, text, senderPhone, pendiente.tenant_id);
+      await handleSeleccionMaquinas(conn, pendiente, text, senderPhone, tenantId);
     }
   } catch (e) {
     console.error('❌ wa-handler error:', e.message, e.stack);
@@ -117,8 +117,8 @@ async function handleOpcion(conn, pendiente, text, senderPhone, tenantId = 1) {
       `DELETE FROM b2c_wa_autorizacion_pendiente WHERE uid_autorizacion = ?`,
       [uid_autorizacion]
     );
-    await enviarListaRepuestos(conn, uid_orden);
-    await sendWAMessage(senderPhone,
+    await enviarListaRepuestos(conn, uid_orden, tenantId);
+    await sendWAMessage(tenantId, senderPhone,
       '✅ *¡Cotización autorizada!* Gracias, procederemos con la reparación de todas sus herramientas. Le avisaremos cuando estén listas. — SU HERRAMIENTA CST'
     );
 
@@ -142,7 +142,7 @@ async function handleOpcion(conn, pendiente, text, senderPhone, tenantId = 1) {
       `DELETE FROM b2c_wa_autorizacion_pendiente WHERE uid_autorizacion = ?`,
       [uid_autorizacion]
     );
-    await sendWAMessage(senderPhone,
+    await sendWAMessage(tenantId, senderPhone,
       'Entendido, hemos registrado que *no autoriza* la reparación en este momento. Si cambia de opinión no dude en contactarnos. — SU HERRAMIENTA CST'
     );
 
@@ -167,7 +167,7 @@ async function handleOpcion(conn, pendiente, text, senderPhone, tenantId = 1) {
       return `${i + 1}. ${nombre}${serial}${precio}`;
     }).join('\n');
 
-    await sendWAMessage(senderPhone,
+    await sendWAMessage(tenantId, senderPhone,
       `Seleccione las máquinas a *autorizar* enviando sus números separados por coma (ej: 1,3):\n\n${lista}`
     );
     await conn.execute(
@@ -194,18 +194,18 @@ async function handleOpcion(conn, pendiente, text, senderPhone, tenantId = 1) {
       const nombre = orderRow?.cli_razon_social || orderRow?.cli_contacto || 'Cliente';
       let phone = advisorNumber;
       if (!phone.startsWith('57')) phone = '57' + phone.slice(-10);
-      await sendWAMessage(`${phone}@c.us`,
+      await sendWAMessage(tenantId, `${phone}@c.us`,
         `📞 *ATENCIÓN REQUERIDA*\nEl cliente *${nombre}* (Orden #${orderRow?.ord_consecutivo || uid_orden}) solicita hablar con un asesor sobre su cotización.`
       );
     }
     // Confirmar al cliente
-    await sendWAMessage(senderPhone,
+    await sendWAMessage(tenantId, senderPhone,
       `Le comunicamos con nuestro asesor: *${advisorNumber}* — SU HERRAMIENTA CST`
     );
 
   } else {
     // Opción no reconocida
-    await sendWAMessage(senderPhone,
+    await sendWAMessage(tenantId, senderPhone,
       'Este número es exclusivo para notificaciones automáticas y no permite conversación.\n\n' +
       'Si desea responder a su cotización, por favor indique únicamente *1*, *2*, *3* o *4*.\n\n' +
       'Para cualquier otra consulta comuníquese con nosotros al *3104650437*. — SU HERRAMIENTA CST'
@@ -258,7 +258,7 @@ async function handleSeleccionMaquinas(conn, pendiente, text, senderPhone, tenan
   );
 
   try {
-    await enviarListaRepuestos(conn, uid_orden);
+    await enviarListaRepuestos(conn, uid_orden, tenantId);
   } catch (e) {
     console.error('⚠️ wa-handler: error enviando repuestos:', e.message);
   }
@@ -276,14 +276,14 @@ async function handleSeleccionMaquinas(conn, pendiente, text, senderPhone, tenan
   if (noAutorizadas) confirmacion += '\n\n*No autorizadas:*\n' + noAutorizadas;
   confirmacion += '\n\nProcederemos con las herramientas autorizadas. Le avisaremos cuando estén listas. — SU HERRAMIENTA CST';
 
-  await sendWAMessage(senderPhone, confirmacion);
+  await sendWAMessage(tenantId, senderPhone, confirmacion);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Enviar lista de repuestos al encargado (máquinas con her_estado='autorizada')
 // Misma lógica que POST /api/orders/:orderId/notify-parts
 // ─────────────────────────────────────────────────────────────────────────────
-async function enviarListaRepuestos(conn, uid_orden) {
+async function enviarListaRepuestos(conn, uid_orden, tenantId = 1) {
   const partsNumber = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
   if (!partsNumber) {
     console.warn('⚠️ wa-handler: PARTS_WHATSAPP_NUMBER no configurado, se omite envío al encargado');
@@ -327,7 +327,7 @@ async function enviarListaRepuestos(conn, uid_orden) {
 
   let phone = partsNumber;
   if (!phone.startsWith('57')) phone = '57' + phone.slice(-10);
-  await sendWAMessage(`${phone}@c.us`, msg);
+  await sendWAMessage(tenantId, `${phone}@c.us`, msg);
 }
 
 module.exports = {};
