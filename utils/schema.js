@@ -71,10 +71,12 @@ async function getTechnicianWhereClause(connection, usrCols) {
   return TECH_FILTER_CACHE;
 }
 
-async function resolveOrder(connection, orderKeyRaw) {
+async function resolveOrder(connection, orderKeyRaw, tenantId) {
   const orderKey = String(orderKeyRaw || '').trim();
   if (!orderKey) return null;
   const isNum = /^\d+$/.test(orderKey);
+  const tid = tenantId ?? 1;
+  const tenantClause = `AND o.tenant_id = ${Number(tid)}`;
 
   // 1) uid_orden
   {
@@ -86,7 +88,7 @@ async function resolveOrder(connection, orderKeyRaw) {
         c.cli_telefono, c.cli_contacto, c.cli_direccion
       FROM b2c_orden o
       JOIN b2c_cliente c ON o.uid_cliente = c.uid_cliente
-      WHERE o.uid_orden = ?
+      WHERE o.uid_orden = ? ${tenantClause}
       LIMIT 1
       `,
       [orderKey]
@@ -104,7 +106,7 @@ async function resolveOrder(connection, orderKeyRaw) {
         c.cli_telefono, c.cli_contacto, c.cli_direccion
       FROM b2c_orden o
       JOIN b2c_cliente c ON o.uid_cliente = c.uid_cliente
-      WHERE CAST(o.ord_consecutivo AS CHAR) = ?
+      WHERE CAST(o.ord_consecutivo AS CHAR) = ? ${tenantClause}
       LIMIT 1
       `,
       [orderKey]
@@ -122,7 +124,7 @@ async function resolveOrder(connection, orderKeyRaw) {
         c.cli_telefono, c.cli_contacto, c.cli_direccion
       FROM b2c_orden o
       JOIN b2c_cliente c ON o.uid_cliente = c.uid_cliente
-      WHERE CAST(o.ord_consecutivo AS CHAR) LIKE ?
+      WHERE CAST(o.ord_consecutivo AS CHAR) LIKE ? ${tenantClause}
       ORDER BY o.ord_fecha DESC
       LIMIT 1
       `,

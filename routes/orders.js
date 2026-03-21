@@ -56,12 +56,14 @@ const ESTADOS_VALIDOS = [
 router.get('/orders', async (req, res) => {
   try {
     const limit = Math.max(1, Math.min(50, parseInt(req.query.limit || '10', 10)));
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     const [rows] = await conn.execute(
       `SELECT o.uid_orden, o.ord_consecutivo, o.ord_estado, o.ord_fecha,
               c.cli_razon_social, c.cli_telefono
        FROM b2c_orden o
        JOIN b2c_cliente c ON o.uid_cliente = c.uid_cliente
+       WHERE o.tenant_id = ${tenantId}
        ORDER BY o.ord_fecha DESC
        LIMIT ${limit}`
     );
@@ -82,6 +84,7 @@ router.get('/orders/search', async (req, res) => {
     const digits = qRaw.replace(/\D/g, '');
     const isOnlyDigits = digits.length > 0 && digits === qRaw;
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
 
     if (isOnlyDigits && digits.length <= 8) {
@@ -101,11 +104,11 @@ router.get('/orders/search', async (req, res) => {
          JOIN b2c_cliente c ON o.uid_cliente = c.uid_cliente
          LEFT JOIN b2c_herramienta_orden ho ON ho.uid_orden = o.uid_orden
          LEFT JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
-         WHERE CAST(o.ord_consecutivo AS CHAR) = ?
+         WHERE CAST(o.ord_consecutivo AS CHAR) = ? AND o.tenant_id = ?
          GROUP BY o.uid_orden
          ORDER BY o.ord_fecha DESC
          LIMIT 20`,
-        [digits]
+        [digits, tenantId]
       );
       if (exact.length) {
         conn.release();
@@ -132,15 +135,16 @@ router.get('/orders/search', async (req, res) => {
        JOIN b2c_cliente c ON o.uid_cliente = c.uid_cliente
        LEFT JOIN b2c_herramienta_orden ho ON ho.uid_orden = o.uid_orden
        LEFT JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
-       WHERE CAST(o.ord_consecutivo AS CHAR) LIKE ?
+       WHERE o.tenant_id = ?
+         AND (CAST(o.ord_consecutivo AS CHAR) LIKE ?
          OR c.cli_identificacion LIKE ?
          OR c.cli_razon_social LIKE ?
          OR c.cli_contacto LIKE ?
-         OR REPLACE(REPLACE(REPLACE(c.cli_telefono,' ',''),'-',''),'+','') LIKE ?
+         OR REPLACE(REPLACE(REPLACE(c.cli_telefono,' ',''),'-',''),'+','') LIKE ?)
        GROUP BY o.uid_orden
        ORDER BY o.ord_fecha DESC
        LIMIT 20`,
-      [likeText, likeDigits, likeText, likeText, digits ? likeDigits : likeText]
+      [tenantId, likeText, likeDigits, likeText, likeText, digits ? likeDigits : likeText]
     );
 
     conn.release();
@@ -157,7 +161,8 @@ router.get('/orders/by-estado', async (req, res) => {
     const estado = String(req.query.estado || '');
     const mes    = String(req.query.mes    || '');
 
-    const params = [];
+    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const params = [tenantId];
     let estadoClause = '';
     if (estado === 'pendiente_revision') {
       estadoClause = `AND ho.her_estado IN ('pendiente_revision','revisada')`;
@@ -185,7 +190,7 @@ router.get('/orders/by-estado', async (req, res) => {
        JOIN b2c_orden o  ON o.uid_orden    = ho.uid_orden
        JOIN b2c_cliente c ON c.uid_cliente  = o.uid_cliente
        LEFT JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
-       WHERE 1=1 ${estadoClause}
+       WHERE o.tenant_id = ? ${estadoClause}
        GROUP BY o.uid_orden
        ORDER BY o.ord_tipo DESC, o.ord_fecha DESC
        LIMIT 200`,
@@ -228,6 +233,7 @@ router.get('/orders/mis-ordenes-tecnico', async (req, res) => {
       }
     }
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const [rows] = await conn.execute(
       `SELECT DISTINCT o.uid_orden, o.ord_consecutivo, o.ord_estado, o.ord_fecha,
               o.ord_tipo, o.ord_factura, o.ord_garantia_vence, o.ord_revision_limite,
@@ -240,11 +246,11 @@ router.get('/orders/mis-ordenes-tecnico', async (req, res) => {
        JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
        JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
        JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
-       WHERE ho.\`${techCol}\` = ?
+       WHERE ho.\`${techCol}\` = ? AND o.tenant_id = ?
        GROUP BY o.uid_orden, o.ord_consecutivo, o.ord_estado, o.ord_fecha, o.ord_tipo, o.ord_factura, o.ord_garantia_vence, o.ord_revision_limite, c.cli_razon_social, c.cli_telefono
        ORDER BY o.ord_tipo DESC, o.ord_fecha DESC
        LIMIT 50`,
-      [techValue]
+      [techValue, tenantId]
     );
 
     conn.release();
@@ -258,9 +264,10 @@ router.get('/orders/mis-ordenes-tecnico', async (req, res) => {
 // Orden completa + máquinas + técnicos
 router.get('/orders/:orderId', async (req, res) => {
   try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
 
-    const order = await resolveOrder(conn, req.params.orderId);
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) {
       conn.release();
       return res.status(404).json({ error: 'Orden no encontrada' });
@@ -537,8 +544,9 @@ router.patch('/equipment-order/:equipmentOrderId/observaciones', async (req, res
 // Enviar lista consolidada de repuestos (máquinas autorizadas) al encargado
 router.post('/orders/:orderId/notify-parts', async (req, res) => {
   try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId);
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) { conn.release(); return res.status(404).json({ success: false, error: 'Orden no encontrada' }); }
 
     const partsNumber = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
@@ -592,8 +600,9 @@ router.post('/orders/:orderId/notify-parts', async (req, res) => {
 // Notificar al cliente que sus máquinas están reparadas
 router.post('/orders/:orderId/notify-ready', async (req, res) => {
   try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId);
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) { conn.release(); return res.status(404).json({ success: false, error: 'Orden no encontrada' }); }
     if (!isReady()) { conn.release(); return res.status(400).json({ success: false, error: 'WhatsApp no está conectado' }); }
 
@@ -636,8 +645,9 @@ router.post('/orders/:orderId/notify-ready', async (req, res) => {
 // Confirmar entrega al cliente
 router.post('/orders/:orderId/notify-delivered', async (req, res) => {
   try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId);
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) { conn.release(); return res.status(404).json({ success: false, error: 'Orden no encontrada' }); }
     if (!isReady()) { conn.release(); return res.status(400).json({ success: false, error: 'WhatsApp no está conectado' }); }
 
@@ -680,8 +690,9 @@ router.post('/orders/:orderId/notify-delivered', async (req, res) => {
 // Vista de detalle para la página de consulta de órdenes
 router.get('/orders/:orderId/detalle', async (req, res) => {
   try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn  = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId);
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
 
     // Orden + cliente
@@ -798,6 +809,7 @@ router.get('/cliente/informe/:uid_herramienta_orden', async (req, res) => {
   const user = req.session?.user;
   if (!user || user.tipo !== 'C') return res.status(403).json({ error: 'Acceso denegado' });
   try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     const [[row]] = await conn.execute(
       `SELECT i.inf_archivo
@@ -805,9 +817,9 @@ router.get('/cliente/informe/:uid_herramienta_orden', async (req, res) => {
        JOIN b2c_herramienta_orden ho ON ho.uid_herramienta_orden = i.uid_herramienta_orden
        JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
        JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
-       WHERE i.uid_herramienta_orden = ? AND c.uid_usuario = ?
+       WHERE i.uid_herramienta_orden = ? AND c.uid_usuario = ? AND o.tenant_id = ?
        LIMIT 1`,
-      [req.params.uid_herramienta_orden, user.id]
+      [req.params.uid_herramienta_orden, user.id, tenantId]
     );
     conn.release();
     if (!row) return res.status(404).json({ error: 'Informe no encontrado' });
@@ -837,15 +849,16 @@ router.patch('/cliente/maquina/:uid_herramienta_orden/autorizar', async (req, re
   try {
     conn = await db.getConnection();
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     // Verificar propiedad: la máquina debe pertenecer a una orden del cliente logueado
     const [[maq]] = await conn.execute(
       `SELECT ho.uid_herramienta_orden, ho.uid_orden, ho.her_estado
        FROM b2c_herramienta_orden ho
        JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
        JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
-       WHERE ho.uid_herramienta_orden = ? AND c.uid_usuario = ?
+       WHERE ho.uid_herramienta_orden = ? AND c.uid_usuario = ? AND o.tenant_id = ?
        LIMIT 1`,
-      [uid, user.id]
+      [uid, user.id, tenantId]
     );
     if (!maq) return res.status(403).json({ error: 'No autorizado o máquina no encontrada' });
     if (maq.her_estado !== 'cotizada') {
@@ -931,19 +944,20 @@ router.get('/cliente/mis-ordenes', async (req, res) => {
     const user = req.session?.user;
     if (!user || user.tipo !== 'C') return res.status(403).json([]);
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
 
     const [[cli]] = await conn.execute(
-      `SELECT uid_cliente FROM b2c_cliente WHERE uid_usuario = ? LIMIT 1`,
-      [user.id]
+      `SELECT uid_cliente FROM b2c_cliente WHERE uid_usuario = ? AND tenant_id = ? LIMIT 1`,
+      [user.id, tenantId]
     );
     if (!cli) { conn.release(); return res.json([]); }
 
     const [ordenes] = await conn.execute(
       `SELECT uid_orden, ord_consecutivo, ord_fecha, ord_estado
-       FROM b2c_orden WHERE uid_cliente = ?
+       FROM b2c_orden WHERE uid_cliente = ? AND tenant_id = ?
        ORDER BY ord_fecha DESC LIMIT 50`,
-      [cli.uid_cliente]
+      [cli.uid_cliente, tenantId]
     );
 
     if (!ordenes.length) { conn.release(); return res.json([]); }
