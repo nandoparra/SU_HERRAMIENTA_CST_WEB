@@ -65,8 +65,8 @@ router.get('/orders', async (req, res) => {
        JOIN b2c_cliente c ON o.uid_cliente = c.uid_cliente
        WHERE o.tenant_id = ?
        ORDER BY o.ord_fecha DESC
-       LIMIT ?`,
-      [tenantId, limit]
+       LIMIT ${limit}`,
+      [tenantId]
     );
     conn.release();
     res.json(rows);

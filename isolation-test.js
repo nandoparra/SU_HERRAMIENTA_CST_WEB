@@ -153,7 +153,7 @@ async function setup() {
     const [ord] = await conn.execute(
       `INSERT INTO b2c_orden
          (uid_cliente, ord_consecutivo, ord_estado, ord_fecha, tenant_id)
-       VALUES (?, 'T2-TEST-9999', 'abierta', ?, ?)`,
+       VALUES (?, 9999999, 'A', ?, ?)`,
       [t2ClienteId, today, t2TenantId]
     );
     t2OrdenId = ord.insertId;
@@ -315,7 +315,7 @@ async function testT2CannotSeeT1Data() {
     return;
   }
 
-  // Órdenes: tenant 2 ve 0 órdenes (su única orden T2-TEST-9999 aún no está en
+  // Órdenes: tenant 2 ve 0 órdenes (su única orden 9999999 aún no está en
   // b2c_cotizacion_maquina, así que /api/orders busca en b2c_orden con tenant_id=2)
   const orders = await httpReq('GET', '/api/orders?search=&page=1', null, cookiesT2Admin, T2_SLUG);
   if (orders.status === 200) {
@@ -391,7 +391,7 @@ async function testT1CannotSeeT2Data() {
   }
 
   // Verificar que la orden T2 no aparece en búsqueda de T1
-  const orders = await httpReq('GET', '/api/orders?search=T2-TEST-9999&page=1', null, cookiesT1Admin, 'localhost');
+  const orders = await httpReq('GET', '/api/orders?search=9999999&page=1', null, cookiesT1Admin, 'localhost');
   if (orders.status === 200) {
     const list  = Array.isArray(orders.json) ? orders.json : (orders.json?.orders || []);
     const found = list.find(o => String(o.uid_orden) === String(t2OrdenId));
