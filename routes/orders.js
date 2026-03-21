@@ -11,7 +11,7 @@ const {
   getTechnicianWhereClause,
   resolveOrder,
 } = require('../utils/schema');
-const { waClient, isReady, sendWAMessage } = require('../utils/whatsapp-client');
+const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 const { requireInterno } = require('../middleware/auth');
 
@@ -460,6 +460,7 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
   try {
     const { status } = req.body;
     const equipmentOrderId = String(req.params.equipmentOrderId);
+    const tenantId = req.tenant?.uid_tenant ?? 1;
 
     if (!status || !ESTADOS_VALIDOS.includes(status)) {
       return res.status(400).json({ success: false, error: `Estado inválido. Valores permitidos: ${ESTADOS_VALIDOS.join(', ')}` });
@@ -475,8 +476,8 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
 
     // Registrar en historial
     await conn.execute(
-      `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado) VALUES (?, ?)`,
-      [equipmentOrderId, status]
+      `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, ?, ?)`,
+      [equipmentOrderId, status, tenantId]
     );
     const [[logRow]] = await conn.execute(
       `SELECT changed_at FROM b2c_herramienta_status_log WHERE uid_herramienta_orden = ? ORDER BY id DESC LIMIT 1`,
@@ -484,7 +485,7 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
     );
 
     // Notificar al cliente automáticamente cuando la máquina pasa a "reparada"
-    if (status === 'reparada' && isReady()) {
+    if (status === 'reparada' && isReady(tenantId)) {
       try {
         const [[maqRow]] = await conn.execute(
           `SELECT h.her_nombre, h.her_marca, c.cli_telefono, c.cli_razon_social, c.cli_contacto, o.ord_consecutivo
@@ -501,7 +502,7 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
           const maquina = [maqRow.her_nombre, maqRow.her_marca].filter(Boolean).join(' ');
           const msg = `Hola ${nombre}, le informamos que su *${maquina}* de la orden *#${maqRow.ord_consecutivo}* está *reparada y lista para recoger* 🔧\n\n📍 Calle 21 No 10 02, Pereira\n📞 3104650437\n— SU HERRAMIENTA CST`;
           for (const chatId of chatIds) {
-            sendWAMessage(chatId, msg).catch(e => console.error('Error WA notif reparada:', e.message));
+            sendWAMessage(tenantId, chatId, msg).catch(e => console.error('Error WA notif reparada:', e.message));
           }
         }
       } catch (e) {
@@ -544,7 +545,7 @@ router.post('/orders/:orderId/notify-parts', async (req, res) => {
 
     const partsNumber = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
     if (!partsNumber) { conn.release(); return res.status(400).json({ success: false, error: 'PARTS_WHATSAPP_NUMBER no configurado en .env' }); }
-    if (!isReady()) { conn.release(); return res.status(400).json({ success: false, error: 'WhatsApp no está conectado' }); }
+    if (!isReady(tenantId)) { conn.release(); return res.status(400).json({ success: false, error: 'WhatsApp no está conectado' }); }
 
     const [maquinas] = await conn.execute(`
       SELECT ho.uid_herramienta_orden, h.her_nombre, h.her_marca, h.her_serial
@@ -580,7 +581,7 @@ router.post('/orders/:orderId/notify-parts', async (req, res) => {
 
     let phone = partsNumber;
     if (!phone.startsWith('57')) phone = '57' + phone.slice(-10);
-    await sendWAMessage(`${phone}@c.us`, msg);
+    await sendWAMessage(tenantId, `${phone}@c.us`, msg);
 
     conn.release();
     res.json({ success: true, maquinas: maquinas.length });
@@ -596,7 +597,7 @@ router.post('/orders/:orderId/notify-ready', async (req, res) => {
     const conn = await db.getConnection();
     const order = await resolveOrder(conn, req.params.orderId);
     if (!order) { conn.release(); return res.status(404).json({ success: false, error: 'Orden no encontrada' }); }
-    if (!isReady()) { conn.release(); return res.status(400).json({ success: false, error: 'WhatsApp no está conectado' }); }
+    if (!isReady(tenantId)) { conn.release(); return res.status(400).json({ success: false, error: 'WhatsApp no está conectado' }); }
 
     const [[cliente]] = await conn.execute(
       `SELECT c.cli_razon_social, c.cli_telefono FROM b2c_orden o JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente WHERE o.uid_orden = ?`,
@@ -624,7 +625,7 @@ router.post('/orders/:orderId/notify-ready', async (req, res) => {
 
     const chatIds = parseColombianPhones(cliente?.cli_telefono);
     if (!chatIds.length) { conn.release(); return res.status(400).json({ success: false, error: 'No se encontró número móvil válido para el cliente' }); }
-    for (const chatId of chatIds) await sendWAMessage(chatId, msg);
+    for (const chatId of chatIds) await sendWAMessage(tenantId, chatId, msg);
 
     conn.release();
     res.json({ success: true, maquinas: maquinas.length, destinatarios: chatIds.length });
@@ -640,7 +641,7 @@ router.post('/orders/:orderId/notify-delivered', async (req, res) => {
     const conn = await db.getConnection();
     const order = await resolveOrder(conn, req.params.orderId);
     if (!order) { conn.release(); return res.status(404).json({ success: false, error: 'Orden no encontrada' }); }
-    if (!isReady()) { conn.release(); return res.status(400).json({ success: false, error: 'WhatsApp no está conectado' }); }
+    if (!isReady(tenantId)) { conn.release(); return res.status(400).json({ success: false, error: 'WhatsApp no está conectado' }); }
 
     const [[cliente]] = await conn.execute(
       `SELECT c.cli_razon_social, c.cli_telefono FROM b2c_orden o JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente WHERE o.uid_orden = ?`,
@@ -668,7 +669,7 @@ router.post('/orders/:orderId/notify-delivered', async (req, res) => {
 
     const chatIds = parseColombianPhones(cliente?.cli_telefono);
     if (!chatIds.length) { conn.release(); return res.status(400).json({ success: false, error: 'No se encontró número móvil válido para el cliente' }); }
-    for (const chatId of chatIds) await sendWAMessage(chatId, msg);
+    for (const chatId of chatIds) await sendWAMessage(tenantId, chatId, msg);
 
     conn.release();
     res.json({ success: true, maquinas: maquinas.length, destinatarios: chatIds.length });
@@ -874,7 +875,7 @@ router.patch('/cliente/maquina/:uid_herramienta_orden/autorizar', async (req, re
     if (decision === 'autorizada') {
       try {
         const partsNumber = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
-        if (partsNumber && isReady()) {
+        if (partsNumber && isReady(tenantId)) {
           const [[orderRow]] = await conn.execute(
             `SELECT ord_consecutivo FROM b2c_orden WHERE uid_orden = ?`,
             [maq.uid_orden]
@@ -907,7 +908,7 @@ router.patch('/cliente/maquina/:uid_herramienta_orden/autorizar', async (req, re
               `\n\n— SU HERRAMIENTA CST`;
             let phone = partsNumber;
             if (!phone.startsWith('57')) phone = '57' + phone.slice(-10);
-            await sendWAMessage(`${phone}@c.us`, msg);
+            await sendWAMessage(tenantId, `${phone}@c.us`, msg);
           }
         } else {
           console.warn('⚠️ orders: WA no listo o PARTS_WHATSAPP_NUMBER no configurado, se omite notificación');
