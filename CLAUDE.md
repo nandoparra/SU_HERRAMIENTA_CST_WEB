@@ -569,6 +569,25 @@ b2c_herramienta_status_log, b2c_informe_mantenimiento, b2c_wa_autorizacion_pendi
 Los archivos PDF de informes se guardan en disco (`public/uploads/informes-mantenimiento/`) — no se borran con el sync.
 Si se corre sync sin reiniciar el servidor después, las tablas locales desaparecen hasta el próximo arranque.
 
+### Sync directo a Railway (MySQL 8.0)
+
+El cliente mysql.exe de XAMPP (MariaDB 10.4) **no puede conectar a Railway MySQL 8.0** por incompatibilidad de plugin `caching_sha2_password`. sync-db.js detecta automáticamente conexiones remotas (`DB_PORT !== 3306`) y usa Node.js mysql2 para todas las operaciones.
+
+Comando para sincronizar GoDaddy → Railway:
+```bash
+DB_HOST=switchback.proxy.rlwy.net DB_PORT=23534 DB_USER=root DB_PASSWORD=<pass> DB_NAME=railway node sync-db.js
+```
+
+Funciones Node.js para Railway:
+- `importSqlFileNode(file)` — DROP+CREATE BD + importa dump línea a línea (acumulador). Ignora `USE \`db\`` del dump. Ejecuta `/*!...*/` condicionales de MySQL.
+- `restoreSqlFileNode(file)` — restaura backup SIN hacer DROP/CREATE (para paso 6 cotizaciones)
+- `addColumnSafe(tabla, col, def)` — ALTER TABLE con try/catch ER_DUP_FIELDNAME (MySQL 8.0 no soporta `ADD COLUMN IF NOT EXISTS`)
+
+### Notas críticas sync Railway
+- `ADD COLUMN IF NOT EXISTS` es sintaxis MariaDB — NO funciona en MySQL 8.0. Usar `addColumnSafe()`.
+- El backup de cotizaciones se restaura con `restoreSqlFileNode`, NO con `importSqlFileNode` (esta última borra la BD).
+- El dump de GoDaddy trae `USE \`b2csuherramienta\`` — se ignora en el importador para no romper la conexión a `railway`.
+
 ---
 
 ## Responsive — feature/responsive (base: feature/dashboard)
@@ -623,6 +642,72 @@ if (process.env.BEHIND_PROXY === 'true') {
 - `trust proxy 1`: Express confía en `X-Forwarded-*` del primer proxy (nginx, Render, Railway…)
 - Sin efecto en desarrollo local (BEHIND_PROXY no configurado)
 - `upgradeInsecureRequests: null` en CSP evita conflicto con este redirect manual
+
+---
+
+## Producción — Railway
+
+- **URL**: `taller.suherramienta.com` (subdominio, no reemplaza www.suherramienta.com)
+- **Puerto app**: 8080 (Railway inyecta PORT=8080 — el custom domain debe apuntar a ese puerto)
+- **Deploy**: automático desde push a `main` en GitHub
+- **MySQL**: plugin Railway, acceso externo vía `switchback.proxy.rlwy.net:23534`
+- **Volumes**: `/app/.wwebjs_auth` (sesión WA) + `/app/public/uploads` (fotos/PDFs)
+- **Variables requeridas**: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `SESSION_SECRET`, `ANTHROPIC_API_KEY`, `PARTS_WHATSAPP_NUMBER`, `BEHIND_PROXY=true`, `NODE_ENV=production`, `WA_AUTH_PATH=/app/.wwebjs_auth`
+- **SSL**: provisionado automáticamente por Railway vía Let's Encrypt tras verificar DNS
+
+### DNS GoDaddy para taller.suherramienta.com
+| Tipo | Nombre | Valor |
+|------|--------|-------|
+| CNAME | taller | `h9aq1f8x.up.railway.app` |
+| TXT | `_railway-verify.taller` | `railway-verify=6d07895d4b64bd125af7a39e7104...` |
+
+---
+
+## Multi-tenant — feature/multitenant (en desarrollo)
+
+Arquitectura: esquema compartido con `tenant_id` en todas las tablas.
+
+### Tabla b2c_tenant
+| Columna | Tipo | Descripción |
+|---------|------|-------------|
+| `uid_tenant` | INT AI PK | Identificador del tenant |
+| `ten_nombre` | VARCHAR(100) | Nombre del taller |
+| `ten_slug` | VARCHAR(50) UNIQUE | Subdominio (ej: `suherramienta`) |
+| `ten_slug_locked` | TINYINT | 1 = inmutable después del primer login |
+| `ten_dominio_custom` | VARCHAR(100) NULL | Dominio propio del cliente |
+| `ten_logo` | VARCHAR(255) NULL | Ruta del logo |
+| `ten_color_primary` | VARCHAR(7) | Color primario (default `#1B2A6B`) |
+| `ten_color_accent` | VARCHAR(7) | Color acento (default `#E31E24`) |
+| `ten_wa_number` | VARCHAR(20) NULL | Número WhatsApp del taller |
+| `ten_wa_parts_number` | VARCHAR(20) NULL | Número encargado repuestos |
+| `ten_estado` | ENUM | `activo` \| `suspendido` \| `prueba` |
+| `ten_plan` | VARCHAR(20) | `mensual` \| `anual` |
+| `ten_vence` | DATE NULL | Fecha vencimiento suscripción |
+
+### Tenant por defecto
+- `uid_tenant=1`, `ten_slug='suherramienta'`, `ten_slug_locked=1`, `ten_estado='activo'`
+- Todos los datos existentes tienen `tenant_id=1`
+
+### Tablas con tenant_id (13 tablas)
+```
+b2c_usuario, b2c_cliente, b2c_orden, b2c_herramienta,
+b2c_herramienta_orden, b2c_foto_herramienta_orden, b2c_concepto_costos,
+b2c_cotizacion_orden, b2c_cotizacion_maquina, b2c_cotizacion_item,
+b2c_herramienta_status_log, b2c_wa_autorizacion_pendiente, b2c_informe_mantenimiento
+```
+Cada tabla: `tenant_id INT NOT NULL DEFAULT 1` + `INDEX idx_tenant(tenant_id)`.
+
+### Migraciones en server.js (auto al arrancar)
+1. `ensureTenantTable()` — CREATE TABLE b2c_tenant + INSERT IGNORE tenant default
+2. `ensureTenantColumns()` — ADD COLUMN tenant_id a las 13 tablas (try/catch ER_DUP_FIELDNAME)
+
+### Fases pendientes
+- **Fase 2**: `middleware/tenant.js` — resolve tenant por hostname
+- **Fase 3**: Auth multi-tenant — login filtra por tenant_id, lock slug primer login
+- **Fase 4**: Queries — todas las rutas + `AND tenant_id = req.tenant.uid_tenant`
+- **Fase 5**: WhatsApp pool — Map(tenant_id → waClient)
+- **Fase 6**: Frontend dinámico — CSS variables colores/logo por tenant
+- **Fase 7**: Panel superadmin
 
 ---
 
