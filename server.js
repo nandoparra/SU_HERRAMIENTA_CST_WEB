@@ -87,6 +87,10 @@ app.get('/', (req, res) => {
   res.redirect('/dashboard.html');
 });
 
+// Superadmin routes — antes del tenant middleware (no requieren tenant)
+app.use('/superadmin/api', require('./routes/superadmin'));
+app.get('/superadmin', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'superadmin', 'index.html')));
+
 // Tenant middleware — resuelve req.tenant por hostname (excluye /superadmin)
 app.use((req, res, next) => {
   if (req.path.startsWith('/superadmin')) return next();
