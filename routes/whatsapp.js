@@ -87,7 +87,7 @@ router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, async (req, 
     res.json({ success: true, destinatarios: chatIds.length, cliente: order.cli_razon_social || order.cli_contacto || '', status: 'Enviado' });
   } catch (e) {
     console.error('Error enviando WhatsApp final:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -122,7 +122,7 @@ router.post('/whatsapp/send', requireInterno, async (req, res) => {
     res.json({ success: true, destinatarios: chatIds.length, status: 'Enviado' });
   } catch (e) {
     console.error('Error enviando WhatsApp:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 

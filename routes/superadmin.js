@@ -274,7 +274,7 @@ router.post('/tenants/:id/init-wa', requireSuperadmin, (req, res) => {
     initTenantClient(id);
     res.json({ success: true, message: `Cliente WA del tenant ${id} inicializado. Escanea el QR en la terminal.` });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 

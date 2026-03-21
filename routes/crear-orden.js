@@ -82,7 +82,7 @@ router.get('/crear-orden/cliente/buscar', async (req, res) => {
     conn.release();
     res.json(rows);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -140,7 +140,7 @@ router.post('/crear-orden/cliente', async (req, res) => {
     });
   } catch (e) {
     console.error('Error creando cliente:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -159,7 +159,7 @@ router.get('/crear-orden/herramientas/:clienteId', async (req, res) => {
     conn.release();
     res.json(rows);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -183,7 +183,7 @@ router.post('/crear-orden/herramienta', async (req, res) => {
       herramienta: { uid_herramienta: r.insertId, her_nombre, her_marca, her_serial, her_referencia },
     });
   } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -234,7 +234,7 @@ router.post('/crear-orden/orden', async (req, res) => {
     res.json({ success: true, uid_orden, ord_consecutivo: consecutivo, herramientas: herramientasCreadas });
   } catch (e) {
     console.error('Error creando orden:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -254,7 +254,7 @@ router.post('/crear-orden/foto/:herramientaOrdenId', upload.single('foto'), asyn
     conn.release();
     res.json({ success: true, filename: req.file.filename, url: `/uploads/fotos-recepcion/${req.file.filename}` });
   } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -273,7 +273,7 @@ router.post('/crear-orden/factura/:uid_orden', uploadFactura.single('factura'), 
     conn.release();
     res.json({ success: true, filename: req.file.filename });
   } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 

@@ -153,7 +153,7 @@ router.get('/orders/:orderId/pdf/quote', requireInterno, async (req, res) => {
     res.send(pdf);
   } catch (e) {
     console.error('Error generando PDF cotizaci\u00f3n:', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -188,7 +188,7 @@ router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireInterno,
     res.send(pdf);
   } catch (e) {
     console.error('Error generando PDF mantenimiento:', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -215,7 +215,7 @@ router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) 
     res.json({ success: true, filename: fname });
   } catch (e) {
     console.error('Error enviando PDF cotizaci\u00f3n:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -254,7 +254,7 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireIn
     res.json({ success: true, filename: fname });
   } catch (e) {
     console.error('Error enviando PDF mantenimiento:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -276,7 +276,7 @@ router.get('/informes/:uid_informe', requireInterno, async (req, res) => {
     res.sendFile(fpath);
   } catch (e) {
     console.error('Error sirviendo informe:', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -353,7 +353,7 @@ router.get('/orders/:orderId/pdf/orden', requireInterno, async (req, res) => {
     res.send(pdf);
   } catch (e) {
     console.error('Error generando PDF orden:', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -399,7 +399,7 @@ router.post('/orders/:orderId/send-pdf/orden', requireInterno, async (req, res) 
     res.json({ success: true, filename: fname });
   } catch (e) {
     console.error('Error enviando PDF orden de servicio:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 

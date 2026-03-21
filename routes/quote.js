@@ -25,7 +25,7 @@ router.get('/quote/catalog', async (req, res) => {
     res.json(rows);
   } catch (e) {
     console.error('Error cargando catálogo:', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -59,7 +59,7 @@ router.get('/quotes/machine', async (req, res) => {
     res.json({ exists: mq.length > 0, machineQuote: mq[0] || null, items: items || [] });
   } catch (e) {
     console.error('Error consultando cotización máquina:', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -158,7 +158,7 @@ router.post('/quotes/machine', async (req, res) => {
     }
   } catch (e) {
     console.error('Error guardando cotización máquina:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -193,7 +193,7 @@ router.get('/quotes/order/:orderId', async (req, res) => {
     });
   } catch (e) {
     console.error('Error consultando cotización orden:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -291,7 +291,7 @@ router.post('/quotes/order/:orderId/generate-message', async (req, res) => {
     res.json({ success: true, message: fullMessage, totals: { subtotal: machineSubtotal, iva, total }, machinesCount: machines.length });
   } catch (e) {
     console.error('Error generando mensaje final:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
