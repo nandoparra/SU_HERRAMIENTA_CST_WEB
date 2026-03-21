@@ -10,6 +10,7 @@ const { waClient } = require('./utils/whatsapp-client');
 require('./utils/wa-handler'); // Listener de mensajes entrantes (autorización por WA)
 const apiKey  = require('./middleware/apiKey');
 const { requireLogin, requireInterno } = require('./middleware/auth');
+const { tenantMiddleware } = require('./middleware/tenant');
 
 // Validar SESSION_SECRET antes de arrancar
 if (!process.env.SESSION_SECRET) {
@@ -84,6 +85,12 @@ app.get('/', (req, res) => {
   if (!req.session.user) return res.redirect('/login');
   if (req.session.user.tipo === 'C') return res.redirect('/seguimiento.html');
   res.redirect('/dashboard.html');
+});
+
+// Tenant middleware — resuelve req.tenant por hostname (excluye /superadmin)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/superadmin')) return next();
+  tenantMiddleware(req, res, next);
 });
 
 // Protección API key (todas las rutas /api/*)
