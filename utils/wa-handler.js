@@ -54,7 +54,7 @@ waClient.on('message', async (msg) => {
     conn = await db.getConnection();
 
     const [[pendiente]] = await conn.execute(
-      `SELECT uid_autorizacion, uid_orden, estado
+      `SELECT uid_autorizacion, uid_orden, estado, COALESCE(tenant_id, 1) AS tenant_id
        FROM b2c_wa_autorizacion_pendiente
        WHERE wa_phone = ?
        ORDER BY created_at DESC
@@ -80,9 +80,9 @@ waClient.on('message', async (msg) => {
     }
 
     if (pendiente.estado === 'esperando_opcion') {
-      await handleOpcion(conn, pendiente, text, senderPhone);
+      await handleOpcion(conn, pendiente, text, senderPhone, pendiente.tenant_id);
     } else if (pendiente.estado === 'esperando_maquinas') {
-      await handleSeleccionMaquinas(conn, pendiente, text, senderPhone);
+      await handleSeleccionMaquinas(conn, pendiente, text, senderPhone, pendiente.tenant_id);
     }
   } catch (e) {
     console.error('❌ wa-handler error:', e.message, e.stack);
@@ -94,7 +94,7 @@ waClient.on('message', async (msg) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Opción inicial: 1 / 2 / 3 / 4
 // ─────────────────────────────────────────────────────────────────────────────
-async function handleOpcion(conn, pendiente, text, senderPhone) {
+async function handleOpcion(conn, pendiente, text, senderPhone, tenantId = 1) {
   const { uid_autorizacion, uid_orden } = pendiente;
 
   if (text === '1') {
@@ -109,8 +109,8 @@ async function handleOpcion(conn, pendiente, text, senderPhone) {
         [m.uid_herramienta_orden]
       );
       await conn.execute(
-        `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado) VALUES (?, 'autorizada')`,
-        [m.uid_herramienta_orden]
+        `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, 'autorizada', ?)`,
+        [m.uid_herramienta_orden, tenantId]
       );
     }
     await conn.execute(
@@ -134,8 +134,8 @@ async function handleOpcion(conn, pendiente, text, senderPhone) {
         [m.uid_herramienta_orden]
       );
       await conn.execute(
-        `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado) VALUES (?, 'no_autorizada')`,
-        [m.uid_herramienta_orden]
+        `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, 'no_autorizada', ?)`,
+        [m.uid_herramienta_orden, tenantId]
       );
     }
     await conn.execute(
@@ -216,7 +216,7 @@ async function handleOpcion(conn, pendiente, text, senderPhone) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Selección parcial: cliente envía los números de las máquinas que autoriza
 // ─────────────────────────────────────────────────────────────────────────────
-async function handleSeleccionMaquinas(conn, pendiente, text, senderPhone) {
+async function handleSeleccionMaquinas(conn, pendiente, text, senderPhone, tenantId = 1) {
   const { uid_autorizacion, uid_orden } = pendiente;
 
   const [maquinas] = await conn.execute(
@@ -247,8 +247,8 @@ async function handleSeleccionMaquinas(conn, pendiente, text, senderPhone) {
       [estado, maquinas[i].uid_herramienta_orden]
     );
     await conn.execute(
-      `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado) VALUES (?, ?)`,
-      [maquinas[i].uid_herramienta_orden, estado]
+      `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, ?, ?)`,
+      [maquinas[i].uid_herramienta_orden, estado, tenantId]
     );
   }
 
