@@ -1,14 +1,24 @@
 'use strict';
-const express  = require('express');
-const router   = express.Router();
-const multer   = require('multer');
-const path     = require('path');
-const fs       = require('fs');
-const bcrypt   = require('bcrypt');
-const db       = require('../utils/db');
+const express    = require('express');
+const router     = express.Router();
+const multer     = require('multer');
+const path       = require('path');
+const fs         = require('fs');
+const bcrypt     = require('bcrypt');
+const rateLimit  = require('express-rate-limit');
+const db         = require('../utils/db');
 const { requireSuperadmin } = require('../middleware/requireSuperadmin');
 const { invalidateTenantCache } = require('../middleware/tenant');
 const { initTenantClient }      = require('../utils/whatsapp-client');
+
+// Máx 5 intentos de login cada 15 minutos por IP
+const superadminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Demasiados intentos. Espere 15 minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // ── Almacenamiento de logos de tenant ─────────────────────────────────────────
 const LOGOS_DIR = path.join(__dirname, '..', 'public', 'assets', 'tenant-logos');
@@ -29,7 +39,7 @@ const uploadLogo = multer({
 
 // ── Auth superadmin ────────────────────────────────────────────────────────────
 
-router.post('/login', (req, res) => {
+router.post('/login', superadminLoginLimiter, (req, res) => {
   const secret = process.env.SUPERADMIN_SECRET;
   if (!secret) {
     return res.status(503).json({ error: 'SUPERADMIN_SECRET no configurado' });
@@ -264,7 +274,7 @@ router.post('/tenants/:id/init-wa', requireSuperadmin, (req, res) => {
     initTenantClient(id);
     res.json({ success: true, message: `Cliente WA del tenant ${id} inicializado. Escanea el QR en la terminal.` });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 

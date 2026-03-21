@@ -6,6 +6,7 @@ const path    = require('path');
 const session = require('express-session');
 
 const db      = require('./utils/db');
+const MySQLSessionStore = require('./utils/session-store');
 const { initTenantClient } = require('./utils/whatsapp-client');
 require('./utils/wa-handler'); // Listener de mensajes entrantes (autorización por WA)
 const apiKey  = require('./middleware/apiKey');
@@ -56,8 +57,9 @@ app.use(helmet({
   },
 }));
 
-// Sesiones
+// Sesiones — store MySQL propio (sobrevive reinicios, sin memory leak)
 app.use(session({
+  store: new MySQLSessionStore(db),
   secret: process.env.SESSION_SECRET || 'cst-dev-insecure',
   resave: false,
   saveUninitialized: false,
@@ -407,11 +409,31 @@ async function ensureTenantColumns() {
   }
 }
 
+async function ensureSessionTable() {
+  const conn = await db.getConnection();
+  try {
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS app_sessions (
+        session_id VARCHAR(128) NOT NULL PRIMARY KEY,
+        data       TEXT         NOT NULL,
+        expires    DATETIME     NOT NULL,
+        INDEX idx_sess_expires (expires)
+      )
+    `);
+    console.log('✅ Tabla app_sessions verificada/creada');
+  } catch (e) {
+    console.warn('⚠️ No pude crear app_sessions:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {
   console.log(`✅ Servidor corriendo en http://localhost:${PORT}`);
   console.log(`📄 Abrir: http://localhost:${PORT}/generador-cotizaciones.html`);
   console.log('⏳ Esperando conexión de WhatsApp Web...');
+  await ensureSessionTable();   // SEC-004 — session store persistente
   await ensureTenantTable();    // Fase 1a — b2c_tenant + tenant por defecto
   await ensureQuoteTables();
   await ensureStatusTables();

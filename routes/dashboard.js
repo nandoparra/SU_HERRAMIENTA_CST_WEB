@@ -122,7 +122,7 @@ router.get('/dashboard', async (req, res) => {
     });
   } catch (e) {
     console.error('Error /api/dashboard:', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -157,7 +157,7 @@ router.get('/clientes/search', async (req, res) => {
     conn.release();
     res.json(rows);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -182,7 +182,7 @@ router.get('/clientes/:id', async (req, res) => {
     conn.release();
     res.json({ cliente, ordenes });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -216,7 +216,7 @@ router.post('/clientes/:id/crear-acceso', async (req, res) => {
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY')
       return res.status(400).json({ error: 'Ese login ya está en uso' });
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -235,7 +235,7 @@ router.get('/funcionarios', async (req, res) => {
     conn.release();
     res.json(rows);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -259,7 +259,7 @@ router.post('/funcionarios', async (req, res) => {
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY')
       return res.status(400).json({ error: 'El login ya existe' });
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -281,7 +281,7 @@ router.patch('/funcionarios/:id', async (req, res) => {
     conn.release();
     res.json({ success: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -300,7 +300,7 @@ router.get('/inventario', async (req, res) => {
     conn.release();
     res.json(rows);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -321,7 +321,7 @@ router.post('/inventario', async (req, res) => {
     conn.release();
     res.json({ success: true, uid_concepto_costo: r.insertId });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -342,7 +342,7 @@ router.patch('/inventario/:id', async (req, res) => {
     conn.release();
     res.json({ success: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 

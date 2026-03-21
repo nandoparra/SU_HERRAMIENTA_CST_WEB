@@ -82,7 +82,7 @@ router.get('/crear-orden/cliente/buscar', async (req, res) => {
     conn.release();
     res.json(rows);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -140,25 +140,26 @@ router.post('/crear-orden/cliente', async (req, res) => {
     });
   } catch (e) {
     console.error('Error creando cliente:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
 // ── Historial de máquinas del cliente ─────────────────────────────────────────
 router.get('/crear-orden/herramientas/:clienteId', async (req, res) => {
   try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     const [rows] = await conn.execute(
       `SELECT uid_herramienta, her_nombre, her_marca, her_serial, her_referencia
        FROM b2c_herramienta
-       WHERE uid_cliente = ?
+       WHERE uid_cliente = ? AND tenant_id = ?
        ORDER BY her_nombre`,
-      [req.params.clienteId]
+      [req.params.clienteId, tenantId]
     );
     conn.release();
     res.json(rows);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -182,7 +183,7 @@ router.post('/crear-orden/herramienta', async (req, res) => {
       herramienta: { uid_herramienta: r.insertId, her_nombre, her_marca, her_serial, her_referencia },
     });
   } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -219,9 +220,9 @@ router.post('/crear-orden/orden', async (req, res) => {
     const herramientasCreadas = [];
     for (const maq of maquinas) {
       const [hRes] = await conn.execute(
-        `INSERT INTO b2c_herramienta_orden (uid_orden, uid_herramienta, hor_observaciones, her_estado)
-         VALUES (?, ?, ?, 'pendiente_revision')`,
-        [uid_orden, maq.uid_herramienta, maq.observaciones || null]
+        `INSERT INTO b2c_herramienta_orden (uid_orden, uid_herramienta, hor_observaciones, her_estado, tenant_id)
+         VALUES (?, ?, ?, 'pendiente_revision', ?)`,
+        [uid_orden, maq.uid_herramienta, maq.observaciones || null, tenantId]
       );
       herramientasCreadas.push({
         uid_herramienta_orden: hRes.insertId,
@@ -233,7 +234,7 @@ router.post('/crear-orden/orden', async (req, res) => {
     res.json({ success: true, uid_orden, ord_consecutivo: consecutivo, herramientas: herramientasCreadas });
   } catch (e) {
     console.error('Error creando orden:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -243,16 +244,17 @@ router.post('/crear-orden/foto/:herramientaOrdenId', upload.single('foto'), asyn
     const { herramientaOrdenId } = req.params;
     if (!req.file) return res.status(400).json({ success: false, error: 'No se recibió ninguna imagen' });
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     await conn.execute(
-      `INSERT INTO b2c_foto_herramienta_orden (uid_herramienta_orden, fho_archivo, fho_nombre)
-       VALUES (?, ?, ?)`,
-      [herramientaOrdenId, req.file.filename, req.file.originalname]
+      `INSERT INTO b2c_foto_herramienta_orden (uid_herramienta_orden, fho_archivo, fho_nombre, tenant_id)
+       VALUES (?, ?, ?, ?)`,
+      [herramientaOrdenId, req.file.filename, req.file.originalname, tenantId]
     );
     conn.release();
     res.json({ success: true, filename: req.file.filename, url: `/uploads/fotos-recepcion/${req.file.filename}` });
   } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -271,7 +273,7 @@ router.post('/crear-orden/factura/:uid_orden', uploadFactura.single('factura'), 
     conn.release();
     res.json({ success: true, filename: req.file.filename });
   } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 

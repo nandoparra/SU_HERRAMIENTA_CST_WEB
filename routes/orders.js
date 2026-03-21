@@ -63,15 +63,16 @@ router.get('/orders', async (req, res) => {
               c.cli_razon_social, c.cli_telefono
        FROM b2c_orden o
        JOIN b2c_cliente c ON o.uid_cliente = c.uid_cliente
-       WHERE o.tenant_id = ${tenantId}
+       WHERE o.tenant_id = ?
        ORDER BY o.ord_fecha DESC
-       LIMIT ${limit}`
+       LIMIT ${limit}`,
+      [tenantId]
     );
     conn.release();
     res.json(rows);
   } catch (e) {
     console.error('Error cargando órdenes recientes:', e);
-    res.status(500).json({ error: 'Error cargando órdenes', details: e.message });
+    res.status(500).json({ error: 'Error cargando órdenes', details: undefined });
   }
 });
 
@@ -151,7 +152,7 @@ router.get('/orders/search', async (req, res) => {
     res.json(rows);
   } catch (e) {
     console.error('Error en búsqueda:', e);
-    res.status(500).json({ error: 'Error en búsqueda', details: e.message });
+    res.status(500).json({ error: 'Error en búsqueda', details: undefined });
   }
 });
 
@@ -200,7 +201,7 @@ router.get('/orders/by-estado', async (req, res) => {
     res.json(rows);
   } catch (e) {
     console.error('Error en /orders/by-estado:', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -257,7 +258,7 @@ router.get('/orders/mis-ordenes-tecnico', async (req, res) => {
     res.json(rows);
   } catch (e) {
     console.error('Error mis-ordenes-tecnico:', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -367,7 +368,7 @@ router.get('/orders/:orderId', async (req, res) => {
     });
   } catch (e) {
     console.error('Error obteniendo orden:', e);
-    res.status(500).json({ error: 'Error obteniendo orden', details: e.message });
+    res.status(500).json({ error: 'Error obteniendo orden', details: undefined });
   }
 });
 
@@ -410,7 +411,7 @@ router.patch('/equipment-order/:equipmentOrderId/assign-technician', async (req,
     res.json({ success: true, affectedRows: result.affectedRows });
   } catch (e) {
     console.error('Error asignando técnico:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -457,7 +458,7 @@ router.patch('/orders/:orderId/assign-technician', async (req, res) => {
     res.json({ success: true, affectedRows: result.affectedRows });
   } catch (e) {
     console.error('Error asignando técnico a la orden:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -520,7 +521,7 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
     res.json({ success: true, status, changed_at: logRow?.changed_at || null });
   } catch (e) {
     console.error('Error actualizando estado de máquina:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -538,7 +539,7 @@ router.patch('/equipment-order/:equipmentOrderId/observaciones', async (req, res
     res.json({ success: true });
   } catch (e) {
     console.error('Error guardando observaciones:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -594,7 +595,7 @@ router.post('/orders/:orderId/notify-parts', async (req, res) => {
     res.json({ success: true, maquinas: maquinas.length });
   } catch (e) {
     console.error('Error enviando lista de repuestos:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -639,7 +640,7 @@ router.post('/orders/:orderId/notify-ready', async (req, res) => {
     res.json({ success: true, maquinas: maquinas.length, destinatarios: chatIds.length });
   } catch (e) {
     console.error('Error notificando reparadas:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -684,7 +685,7 @@ router.post('/orders/:orderId/notify-delivered', async (req, res) => {
     res.json({ success: true, maquinas: maquinas.length, destinatarios: chatIds.length });
   } catch (e) {
     console.error('Error confirmando entregas:', e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
@@ -801,7 +802,7 @@ router.get('/orders/:orderId/detalle', async (req, res) => {
     }
   } catch (e) {
     console.error('Error obteniendo detalle de orden:', e);
-    res.status(500).json({ error: e.message || String(e) || 'Error en la base de datos' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -829,7 +830,7 @@ router.get('/cliente/informe/:uid_herramienta_orden', async (req, res) => {
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${row.inf_archivo}"` });
     fs.createReadStream(fpath).pipe(res);
   } catch (e) {
-    res.status(500).json({ error: e.message || String(e) });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -933,7 +934,7 @@ router.patch('/cliente/maquina/:uid_herramienta_orden/autorizar', async (req, re
     res.json({ success: true, her_estado: decision });
   } catch (e) {
     console.error('Error en autorización cliente:', e);
-    res.status(500).json({ error: e.message || 'Error interno' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   } finally {
     if (conn) conn.release();
   }
@@ -1073,7 +1074,7 @@ router.post('/orders/:id/fotos-trabajo/:uid_herramienta_orden', uploadFoto.singl
     });
   } catch (e) {
     console.error('Error subiendo foto de trabajo:', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -1098,7 +1099,7 @@ router.delete('/orders/fotos-trabajo/:uid_foto', async (req, res) => {
     res.json({ success: true });
   } catch (e) {
     console.error('Error eliminando foto de trabajo:', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
