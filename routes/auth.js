@@ -111,6 +111,13 @@ router.post('/logout', (req, res) => {
 // GET /me — datos del usuario logueado (para el frontend)
 router.get('/me', (req, res) => {
   if (!req.session.user) return res.status(401).json({ authenticated: false });
+  // Verificar que la sesión pertenece al tenant activo (cross-tenant protection)
+  const sessionTenant = req.session.user.tenant_id ?? 1;
+  const reqTenant     = req.tenant?.uid_tenant ?? 1;
+  if (sessionTenant !== reqTenant) {
+    req.session.destroy(() => {});
+    return res.status(401).json({ authenticated: false, redirect: '/login' });
+  }
   res.json({ authenticated: true, user: req.session.user });
 });
 

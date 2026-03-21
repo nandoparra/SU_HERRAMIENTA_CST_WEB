@@ -69,11 +69,25 @@ app.use(session({
   },
 }));
 
-// Rutas públicas — login/logout/me
+// Archivos estáticos públicos (sin tenant — se sirven en cualquier hostname)
+app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
+
+// Superadmin routes — antes del tenant middleware (no requieren tenant)
+app.use('/superadmin/api', require('./routes/superadmin'));
+app.get('/superadmin', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'superadmin', 'index.html')));
+
+// Tenant middleware — resuelve req.tenant ANTES de auth y rutas protegidas.
+// IMPORTANTE: debe correr antes de POST /login para que el login filtre usuarios
+// por tenant (WHERE usu_login = ? AND tenant_id = req.tenant.uid_tenant).
+app.use((req, res, next) => {
+  if (req.path.startsWith('/superadmin')) return next();
+  tenantMiddleware(req, res, next);
+});
+
+// Rutas públicas — login/logout/me (ya tienen req.tenant disponible)
 app.use('/', require('./routes/auth'));
 
-// Archivos estáticos — protegidos excepto login.html y assets
-app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
+// Archivos HTML protegidos
 app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 app.get('/seguimiento.html', requireLogin, (req, res) => res.sendFile(path.join(__dirname, 'public', 'seguimiento.html')));
 app.get('/generador-cotizaciones.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'generador-cotizaciones.html')));
@@ -85,16 +99,6 @@ app.get('/', (req, res) => {
   if (!req.session.user) return res.redirect('/login');
   if (req.session.user.tipo === 'C') return res.redirect('/seguimiento.html');
   res.redirect('/dashboard.html');
-});
-
-// Superadmin routes — antes del tenant middleware (no requieren tenant)
-app.use('/superadmin/api', require('./routes/superadmin'));
-app.get('/superadmin', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'superadmin', 'index.html')));
-
-// Tenant middleware — resuelve req.tenant por hostname (excluye /superadmin)
-app.use((req, res, next) => {
-  if (req.path.startsWith('/superadmin')) return next();
-  tenantMiddleware(req, res, next);
 });
 
 // Protección API key (todas las rutas /api/*)
