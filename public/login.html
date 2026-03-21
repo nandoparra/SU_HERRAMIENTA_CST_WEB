@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SU HERRAMIENTA CST — Acceso</title>
+  <script src="/assets/tenant-init.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -39,7 +40,7 @@
     h1 {
       text-align: center;
       font-size: 17px;
-      color: #1d3557;
+      color: var(--color-primary, #1d3557);
       margin-bottom: 4px;
     }
     .sub {
@@ -69,7 +70,7 @@
     button {
       width: 100%;
       padding: 11px;
-      background: #1d3557;
+      background: var(--color-primary, #1d3557);
       color: #fff;
       border: none;
       border-radius: 6px;
@@ -103,7 +104,7 @@
     <div class="logo-wrap">
       <img src="/assets/logo.png" alt="Logo">
     </div>
-    <h1>SU HERRAMIENTA CST</h1>
+    <h1 data-tenant-name>SU HERRAMIENTA CST</h1>
     <p class="sub">Ingresa tus credenciales para continuar</p>
 
     <div class="error" id="errorMsg"></div>
