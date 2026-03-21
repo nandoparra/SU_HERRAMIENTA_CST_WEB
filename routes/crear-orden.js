@@ -68,15 +68,16 @@ router.get('/crear-orden/cliente/buscar', async (req, res) => {
     const q = String(req.query.q || '').trim();
     if (q.length < 2) return res.json([]);
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     const like = `%${q}%`;
     const [rows] = await conn.execute(
       `SELECT uid_cliente, cli_identificacion, cli_razon_social, cli_telefono, cli_direccion, cli_contacto
        FROM b2c_cliente
-       WHERE cli_identificacion LIKE ? OR cli_razon_social LIKE ? OR cli_telefono LIKE ?
+       WHERE tenant_id = ? AND (cli_identificacion LIKE ? OR cli_razon_social LIKE ? OR cli_telefono LIKE ?)
        ORDER BY cli_razon_social
        LIMIT 15`,
-      [like, like, like]
+      [tenantId, like, like, like]
     );
     conn.release();
     res.json(rows);
@@ -96,10 +97,11 @@ router.post('/crear-orden/cliente', async (req, res) => {
 
     const conn = await db.getConnection();
 
-    // Verificar que no exista ya
+    const tenantId = req.tenant?.uid_tenant ?? 1;
+    // Verificar que no exista ya en este tenant
     const [[existe]] = await conn.execute(
-      `SELECT uid_cliente FROM b2c_cliente WHERE cli_identificacion = ? LIMIT 1`,
-      [cli_identificacion]
+      `SELECT uid_cliente FROM b2c_cliente WHERE cli_identificacion = ? AND tenant_id = ? LIMIT 1`,
+      [cli_identificacion, tenantId]
     );
     if (existe) {
       conn.release();
@@ -111,17 +113,17 @@ router.post('/crear-orden/cliente', async (req, res) => {
 
     // Crear usuario
     const [uRes] = await conn.execute(
-      `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado)
-       VALUES (?, ?, ?, 'C', 'A')`,
-      [cli_razon_social, cli_identificacion, hash]
+      `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado, tenant_id)
+       VALUES (?, ?, ?, 'C', 'A', ?)`,
+      [cli_razon_social, cli_identificacion, hash, tenantId]
     );
     const uid_usuario = uRes.insertId;
 
     // Crear cliente
     const [cRes] = await conn.execute(
-      `INSERT INTO b2c_cliente (uid_usuario, cli_identificacion, cli_razon_social, cli_direccion, cli_telefono, cli_contacto, cli_tel_contacto, cli_estado)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'A')`,
-      [uid_usuario, cli_identificacion, cli_razon_social, cli_direccion || null, cli_telefono, cli_contacto || null, cli_tel_contacto || null]
+      `INSERT INTO b2c_cliente (uid_usuario, cli_identificacion, cli_razon_social, cli_direccion, cli_telefono, cli_contacto, cli_tel_contacto, cli_estado, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'A', ?)`,
+      [uid_usuario, cli_identificacion, cli_razon_social, cli_direccion || null, cli_telefono, cli_contacto || null, cli_tel_contacto || null, tenantId]
     );
 
     conn.release();
@@ -167,11 +169,12 @@ router.post('/crear-orden/herramienta', async (req, res) => {
     if (!uid_cliente || !her_nombre) {
       return res.status(400).json({ success: false, error: 'Cliente y nombre de herramienta son obligatorios' });
     }
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     const [r] = await conn.execute(
-      `INSERT INTO b2c_herramienta (uid_cliente, her_nombre, her_marca, her_serial, her_referencia, her_estado)
-       VALUES (?, ?, ?, ?, ?, 'A')`,
-      [uid_cliente, her_nombre, her_marca || null, her_serial || null, her_referencia || null]
+      `INSERT INTO b2c_herramienta (uid_cliente, her_nombre, her_marca, her_serial, her_referencia, her_estado, tenant_id)
+       VALUES (?, ?, ?, ?, ?, 'A', ?)`,
+      [uid_cliente, her_nombre, her_marca || null, her_serial || null, her_referencia || null, tenantId]
     );
     conn.release();
     res.json({
@@ -199,15 +202,16 @@ router.post('/crear-orden/orden', async (req, res) => {
     const revisionLimite = es_garantia ? toISODate(addDiasHabiles(new Date(), 2)) : null;
     const conn = await db.getConnection();
 
-    // Consecutivo siguiente
+    const tenantId = req.tenant?.uid_tenant ?? 1;
+    // Consecutivo siguiente (global — los consecutivos son únicos en toda la BD)
     const [[maxRow]] = await conn.execute(`SELECT COALESCE(MAX(ord_consecutivo), 0) + 1 AS next FROM b2c_orden`);
     const consecutivo = maxRow.next;
 
     // Insertar orden
     const [ordRes] = await conn.execute(
-      `INSERT INTO b2c_orden (ord_consecutivo, uid_cliente, ord_estado, ord_total, ord_impuestos, ord_valor_total, ord_fecha, ord_tipo, ord_garantia_vence, ord_revision_limite)
-       VALUES (?, ?, 'A', 0, 0, 0, ?, ?, ?, ?)`,
-      [consecutivo, uid_cliente, fechaHoy(), tipo, ord_garantia_vence || null, revisionLimite]
+      `INSERT INTO b2c_orden (ord_consecutivo, uid_cliente, ord_estado, ord_total, ord_impuestos, ord_valor_total, ord_fecha, ord_tipo, ord_garantia_vence, ord_revision_limite, tenant_id)
+       VALUES (?, ?, 'A', 0, 0, 0, ?, ?, ?, ?, ?)`,
+      [consecutivo, uid_cliente, fechaHoy(), tipo, ord_garantia_vence || null, revisionLimite, tenantId]
     );
     const uid_orden = ordRes.insertId;
 
@@ -258,10 +262,11 @@ router.post('/crear-orden/factura/:uid_orden', uploadFactura.single('factura'), 
     const { uid_orden } = req.params;
     if (!req.file) return res.status(400).json({ success: false, error: 'No se recibió ningún PDF' });
 
+    const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     await conn.execute(
-      `UPDATE b2c_orden SET ord_factura = ? WHERE uid_orden = ?`,
-      [req.file.filename, uid_orden]
+      `UPDATE b2c_orden SET ord_factura = ? WHERE uid_orden = ? AND tenant_id = ?`,
+      [req.file.filename, uid_orden, tenantId]
     );
     conn.release();
     res.json({ success: true, filename: req.file.filename });
