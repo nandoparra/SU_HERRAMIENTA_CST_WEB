@@ -278,13 +278,126 @@ async function ensureStatusTables() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MULTI-TENANT — Fase 1: Crear b2c_tenant + tenant por defecto
+// ─────────────────────────────────────────────────────────────────────────────
+async function ensureTenantTable() {
+  const conn = await db.getConnection();
+  try {
+    // Crear tabla b2c_tenant
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_tenant (
+        uid_tenant        INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        ten_nombre        VARCHAR(100) NOT NULL,
+        ten_slug          VARCHAR(50)  NOT NULL,
+        ten_slug_locked   TINYINT(1)   NOT NULL DEFAULT 0,
+        ten_dominio_custom VARCHAR(100) NULL,
+        ten_logo          VARCHAR(255) NULL,
+        ten_color_primary VARCHAR(7)   NOT NULL DEFAULT '#1B2A6B',
+        ten_color_accent  VARCHAR(7)   NOT NULL DEFAULT '#E31E24',
+        ten_wa_number     VARCHAR(20)  NULL,
+        ten_wa_parts_number VARCHAR(20) NULL,
+        ten_estado        ENUM('activo','suspendido','prueba') NOT NULL DEFAULT 'prueba',
+        ten_plan          VARCHAR(20)  NOT NULL DEFAULT 'mensual',
+        ten_vence         DATE         NULL,
+        ten_created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_slug (ten_slug),
+        UNIQUE KEY uq_dominio (ten_dominio_custom)
+      )
+    `);
+
+    // Insertar tenant por defecto (SU HERRAMIENTA CST) si no existe
+    await conn.execute(`
+      INSERT IGNORE INTO b2c_tenant
+        (uid_tenant, ten_nombre, ten_slug, ten_slug_locked, ten_estado,
+         ten_color_primary, ten_color_accent,
+         ten_wa_number, ten_wa_parts_number)
+      VALUES
+        (1, 'SU HERRAMIENTA CST', 'suherramienta', 1, 'activo',
+         '#1d3557', '#e63946',
+         ?, ?)
+    `, [
+      process.env.PARTS_WHATSAPP_NUMBER || null,
+      process.env.PARTS_WHATSAPP_NUMBER || null,
+    ]);
+
+    console.log('✅ Tabla b2c_tenant verificada/creada — tenant por defecto listo');
+  } catch (e) {
+    console.warn('⚠️ No pude crear/verificar b2c_tenant:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MULTI-TENANT — Fase 1: Agregar tenant_id a todas las tablas de negocio
+// ─────────────────────────────────────────────────────────────────────────────
+async function ensureTenantColumns() {
+  const conn = await db.getConnection();
+
+  // Tablas que necesitan tenant_id
+  const tablas = [
+    'b2c_usuario',
+    'b2c_cliente',
+    'b2c_orden',
+    'b2c_herramienta',
+    'b2c_herramienta_orden',
+    'b2c_foto_herramienta_orden',
+    'b2c_concepto_costos',
+    'b2c_cotizacion_orden',
+    'b2c_cotizacion_maquina',
+    'b2c_cotizacion_item',
+    'b2c_herramienta_status_log',
+    'b2c_wa_autorizacion_pendiente',
+    'b2c_informe_mantenimiento',
+  ];
+
+  try {
+    for (const tabla of tablas) {
+      // Agregar columna tenant_id con DEFAULT 1 (tenant SU HERRAMIENTA CST)
+      try {
+        await conn.execute(
+          `ALTER TABLE \`${tabla}\` ADD COLUMN tenant_id INT NOT NULL DEFAULT 1`
+        );
+        // Agregar índice para búsquedas eficientes por tenant
+        try {
+          await conn.execute(
+            `ALTER TABLE \`${tabla}\` ADD INDEX idx_tenant (tenant_id)`
+          );
+        } catch (_) { /* índice ya existe */ }
+
+        console.log(`  ✅ tenant_id agregado a ${tabla}`);
+      } catch (e) {
+        if (e.code === 'ER_DUP_FIELDNAME') {
+          // Columna ya existe — solo asegurarse de que los registros sin asignar queden en tenant 1
+          await conn.execute(
+            `UPDATE \`${tabla}\` SET tenant_id = 1 WHERE tenant_id = 0`
+          );
+        } else if (e.code === 'ER_NO_SUCH_TABLE') {
+          // Tabla aún no existe (se crea más adelante en el arranque)
+          console.log(`  ⏭ ${tabla} aún no existe, se migrará al crearse`);
+        } else {
+          throw e;
+        }
+      }
+    }
+    console.log('✅ Columnas tenant_id verificadas en todas las tablas');
+  } catch (e) {
+    console.warn('⚠️ Error al agregar tenant_id:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {
   console.log(`✅ Servidor corriendo en http://localhost:${PORT}`);
   console.log(`📄 Abrir: http://localhost:${PORT}/generador-cotizaciones.html`);
   console.log('⏳ Esperando conexión de WhatsApp Web...');
+  await ensureTenantTable();    // Fase 1a — b2c_tenant + tenant por defecto
   await ensureQuoteTables();
   await ensureStatusTables();
+  await ensureTenantColumns();  // Fase 1b — tenant_id en todas las tablas
   waClient.initialize().catch(e => {
     console.warn('⚠️ WhatsApp Web no disponible:', e.message);
   });
