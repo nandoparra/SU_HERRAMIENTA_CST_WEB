@@ -96,6 +96,9 @@ app.use((req, res, next) => {
 // Protección API key (todas las rutas /api/*)
 app.use('/api', apiKey);
 
+// Rutas /api públicas (sin auth) — config de branding por tenant
+app.use('/api', require('./routes/tenant'));
+
 // Protección de sesión en rutas /api/ — clientes solo acceden a sus endpoints
 app.use('/api', requireLogin);
 
