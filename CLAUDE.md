@@ -33,6 +33,7 @@ utils/wa-handler.js                Listener mensajes entrantes WA — flujo auto
                                      └─ resuelve LID vía msg.getContact() antes de buscar pendiente
 utils/pdf-generator.js             Generación PDFs (quote, maintenance, orden de servicio)
 utils/session-store.js             MySQLSessionStore — sesiones MySQL persistentes (tabla app_sessions, cleanup cada 15min)
+utils/uploads.js                   UPLOADS_DIR — ruta base de uploads (usa UPLOADS_PATH env o public/uploads por defecto)
 utils/dias-habiles.js              addDiasHabiles(fecha, n) + esNoHabil + toISODate — festivos colombianos algorítmicos
 utils/phones.js                    parseColombianPhones() — separa múltiples números
 routes/auth.js                     GET/POST /login (rate limit 10/15min), /logout, /me
@@ -97,6 +98,7 @@ SESSION_SECRET        (requerido en producción — lanza error si no está)
 PARTS_WHATSAPP_NUMBER (número del encargado de repuestos, ej: 3104650437)
 BEHIND_PROXY          (true = activar redirect HTTP→HTTPS vía x-forwarded-proto)
 SUPERADMIN_SECRET     (requerido en producción — clave de acceso al panel superadmin)
+UPLOADS_PATH          (ruta base de uploads — en Railway: /data/uploads apuntando al Volume)
 ```
 
 ---
@@ -675,8 +677,8 @@ if (process.env.BEHIND_PROXY === 'true') {
 - **Puerto app**: 8080 (Railway inyecta PORT=8080 — el custom domain debe apuntar a ese puerto)
 - **Deploy**: automático desde push a `main` en GitHub
 - **MySQL**: plugin Railway, acceso externo vía `switchback.proxy.rlwy.net:23534`
-- **Volumes**: `/app/.wwebjs_auth` (sesión WA) + `/app/public/uploads` (fotos/PDFs)
-- **Variables requeridas**: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `SESSION_SECRET`, `ANTHROPIC_API_KEY`, `PARTS_WHATSAPP_NUMBER`, `BEHIND_PROXY=true`, `NODE_ENV=production`, `WA_AUTH_PATH=/app/.wwebjs_auth`
+- **Volumes**: Volume único montado en `/data` — WhatsApp en `/data/.wwebjs_auth`, uploads en `/data/uploads`
+- **Variables requeridas**: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `SESSION_SECRET`, `ANTHROPIC_API_KEY`, `PARTS_WHATSAPP_NUMBER`, `BEHIND_PROXY=true`, `NODE_ENV=production`, `WA_AUTH_PATH=/data/.wwebjs_auth`, `UPLOADS_PATH=/data/uploads`, `SUPERADMIN_SECRET`
 - **SSL**: provisionado automáticamente por Railway vía Let's Encrypt tras verificar DNS
 
 ### DNS GoDaddy para taller.suherramienta.com
@@ -784,6 +786,40 @@ node smoke-test.js --admin <login> --pass <clave> \
 
 **Rate limiter**: si se acumulan intentos fallidos de login, el servidor puede responder 429.
 Reiniciar el servidor limpia el rate limiter en memoria.
+
+---
+
+## Uploads — utils/uploads.js
+
+Centraliza la ruta base de archivos subidos. Todos los módulos usan `require('../utils/uploads')`.
+
+```js
+const UPLOADS_DIR = process.env.UPLOADS_PATH || path.join(__dirname, '..', 'public', 'uploads');
+```
+
+| Subdirectorio | Contenido |
+|--------------|-----------|
+| `fotos-recepcion/` | Fotos de recepción Y trabajo (mismo dir, diferenciadas por `fho_tipo`) |
+| `informes-mantenimiento/` | PDFs de informes generados |
+| `facturas-garantia/` | PDFs de facturas de garantía |
+
+**En Railway**: Volume montado en `/data`. `UPLOADS_PATH=/data/uploads`, `WA_AUTH_PATH=/data/.wwebjs_auth`.
+**En local**: usa `public/uploads` (en .gitignore).
+
+### Fotos de recepción — agregar post-creación
+- `POST /api/orders/:id/fotos-recepcion/:uid_herramienta_orden` — sube foto tipo `recepcion`
+- `DELETE /api/orders/fotos-recepcion/:uid_foto` — elimina foto de recepción
+- `dashboard.html`: botón `+ Agregar foto` en sección Recepción de cada máquina (con ✕ para eliminar)
+
+### Factura garantía — ver desde detalle
+- `dashboard.html`: botón `📄 Factura garantía` aparece en acciones si `ord_tipo='garantia'` y `ord_factura` no es null
+- Ruta: `/uploads/facturas-garantia/${ord_factura}` (requiere login)
+- `GET /orders/:id/detalle` incluye `ord_tipo`, `ord_factura`, `ord_garantia_vence`
+
+### sync-db.js — tablas preservadas (actualizado 2026-03-31)
+Además de cotizaciones, ahora también se preservan:
+- `b2c_tenant` — evita perder configuración de dominio custom tras sync
+- `app_sessions` — evita cerrar sesiones activas al sincronizar
 
 ---
 
