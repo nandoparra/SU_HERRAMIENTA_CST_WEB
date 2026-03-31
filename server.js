@@ -96,7 +96,7 @@ app.get('/generador-cotizaciones.html', requireInterno, (req, res) => res.sendFi
 app.get('/crear-orden.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'crear-orden.html')));
 app.get('/dashboard.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.html')));
 app.get('/ordenes.html', requireInterno, (req, res) => res.sendFile(path.join(__dirname, 'public', 'ordenes.html')));
-app.use('/uploads', requireLogin, express.static(path.join(__dirname, 'public', 'uploads')));
+app.use('/uploads', requireLogin, express.static(require('./utils/uploads')));
 app.get('/', (req, res) => {
   if (!req.session.user) return res.redirect('/login');
   if (req.session.user.tipo === 'C') return res.redirect('/seguimiento.html');

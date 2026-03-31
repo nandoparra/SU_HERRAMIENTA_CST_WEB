@@ -8,6 +8,7 @@ const path    = require('path');
 const fs      = require('fs');
 const { requireInterno } = require('../middleware/auth');
 const { addDiasHabiles, toISODate } = require('../utils/dias-habiles');
+const UPLOADS_DIR = require('../utils/uploads');
 
 // Todas las rutas de crear-orden requieren rol interno
 router.use(requireInterno);
@@ -15,7 +16,7 @@ router.use(requireInterno);
 // ── Multer — almacenamiento de fotos de recepción ────────────────────────────
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = path.join(__dirname, '..', 'public', 'uploads', 'fotos-recepcion');
+    const dir = path.join(UPLOADS_DIR, 'fotos-recepcion');
     fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
@@ -36,7 +37,7 @@ const upload = multer({
 // ── Multer — almacenamiento de facturas de garantía (PDF) ────────────────────
 const storageFactura = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = path.join(__dirname, '..', 'public', 'uploads', 'facturas-garantia');
+    const dir = path.join(UPLOADS_DIR, 'facturas-garantia');
     fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },

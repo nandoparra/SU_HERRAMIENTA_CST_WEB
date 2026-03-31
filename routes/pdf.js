@@ -10,6 +10,7 @@ const { generateText }  = require('../utils/ia');
 const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { MessageMedia }  = require('whatsapp-web.js');
 const { requireInterno } = require('../middleware/auth');
+const UPLOADS_DIR = require('../utils/uploads');
 
 // ─── Helper: buscar informe existente para esta máquina en esta orden ────────
 async function getExistingInforme(conn, uid_herramienta_orden) {
@@ -19,14 +20,14 @@ async function getExistingInforme(conn, uid_herramienta_orden) {
     [uid_herramienta_orden]
   );
   if (!row) return null;
-  const fpath = path.join(__dirname, '..', 'public', 'uploads', 'informes-mantenimiento', row.inf_archivo);
+  const fpath = path.join(UPLOADS_DIR, 'informes-mantenimiento', row.inf_archivo);
   if (!fs.existsSync(fpath)) return null;   // archivo borrado del disco — tratar como inexistente
   return { uid_informe: row.uid_informe, inf_archivo: row.inf_archivo, fpath };
 }
 
 // ─── Helper: guardar informe nuevo en disco + BD ──────────────────────────────
 async function saveInforme(conn, uid_orden, uid_herramienta_orden, pdfBuffer, consecutivo) {
-  const dir = path.join(__dirname, '..', 'public', 'uploads', 'informes-mantenimiento');
+  const dir = path.join(UPLOADS_DIR, 'informes-mantenimiento');
   fs.mkdirSync(dir, { recursive: true });
   const filename = `mant-${consecutivo}-${uid_herramienta_orden}-${Date.now()}.pdf`;
   fs.writeFileSync(path.join(dir, filename), pdfBuffer);
@@ -269,7 +270,7 @@ router.get('/informes/:uid_informe', requireInterno, async (req, res) => {
     conn.release();
     if (!inf) return res.status(404).json({ error: 'Informe no encontrado' });
 
-    const fpath = path.join(__dirname, '..', 'public', 'uploads', 'informes-mantenimiento', inf.inf_archivo);
+    const fpath = path.join(UPLOADS_DIR, 'informes-mantenimiento', inf.inf_archivo);
     if (!fs.existsSync(fpath)) return res.status(404).json({ error: 'Archivo no encontrado en disco' });
 
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="' + inf.inf_archivo + '"' });

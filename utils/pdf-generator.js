@@ -2,6 +2,7 @@
 const PDFDocument = require('pdfkit');
 const path        = require('path');
 const fs          = require('fs');
+const UPLOADS_DIR = require('./uploads');
 
 const LOGO = path.join(__dirname, '..', 'public', 'assets', 'logo.png');
 
@@ -450,7 +451,7 @@ function generateMaintenancePDF({ order, machine, items, observation, proxManten
         let col = 0;
         let rowY = y;
         for (const foto of group.fotos) {
-          const fpath = path.join(__dirname, '..', 'public', 'uploads', 'fotos-recepcion', foto.fho_archivo);
+          const fpath = path.join(UPLOADS_DIR, 'fotos-recepcion', foto.fho_archivo);
           if (!fs.existsSync(fpath)) continue;
           if (col === 0 && y + PH > SAFE_Y) { doc.addPage(); y = MG; rowY = y; }
           try { doc.image(fpath, MG + col * (PW + GAP), y, { fit: [PW, PH] }); } catch {}

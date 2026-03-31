@@ -14,6 +14,7 @@ const {
 const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 const { requireInterno } = require('../middleware/auth');
+const UPLOADS_DIR = require('../utils/uploads');
 
 // Todas las rutas de órdenes requieren rol interno, excepto rutas de cliente
 router.use((req, res, next) => {
@@ -25,7 +26,7 @@ router.use((req, res, next) => {
 // ── Multer para fotos del trabajo ─────────────────────────────────────────────
 const fotoStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = path.join(__dirname, '..', 'public', 'uploads', 'fotos-recepcion');
+    const dir = path.join(UPLOADS_DIR, 'fotos-recepcion');
     fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
@@ -826,7 +827,7 @@ router.get('/cliente/informe/:uid_herramienta_orden', async (req, res) => {
     );
     conn.release();
     if (!row) return res.status(404).json({ error: 'Informe no encontrado' });
-    const fpath = path.join(__dirname, '..', 'public', 'uploads', 'informes-mantenimiento', row.inf_archivo);
+    const fpath = path.join(UPLOADS_DIR, 'informes-mantenimiento', row.inf_archivo);
     if (!fs.existsSync(fpath)) return res.status(404).json({ error: 'Archivo no encontrado en disco' });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${row.inf_archivo}"` });
     fs.createReadStream(fpath).pipe(res);
@@ -1095,7 +1096,7 @@ router.delete('/orders/fotos-trabajo/:uid_foto', async (req, res) => {
     );
     conn.release();
     try {
-      fs.unlinkSync(path.join(__dirname, '..', 'public', 'uploads', 'fotos-recepcion', foto.fho_archivo));
+      fs.unlinkSync(path.join(UPLOADS_DIR, 'fotos-recepcion', foto.fho_archivo));
     } catch {}
     res.json({ success: true });
   } catch (e) {
