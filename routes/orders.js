@@ -700,6 +700,7 @@ router.get('/orders/:orderId/detalle', async (req, res) => {
     // Orden + cliente
     const [[ordenRow]] = await conn.execute(
       `SELECT o.uid_orden, o.ord_consecutivo, o.ord_fecha, o.ord_estado,
+              o.ord_tipo, o.ord_factura, o.ord_garantia_vence,
               c.cli_razon_social, c.cli_identificacion, c.cli_telefono, c.cli_direccion
        FROM b2c_orden o
        JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
