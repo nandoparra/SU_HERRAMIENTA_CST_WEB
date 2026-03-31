@@ -35,6 +35,8 @@ const QUOTE_TABLES = [
   'b2c_herramienta_status_log',
   'b2c_wa_autorizacion_pendiente',
   'b2c_foto_herramienta_orden', // fotos subidas localmente (no existen en GoDaddy)
+  'b2c_tenant',                 // configuración multi-tenant (slug, dominio custom, colores)
+  'app_sessions',               // sesiones activas — preservar para no cerrar sesiones al sincronizar
   // b2c_informe_mantenimiento NO se preserva — se regenera desde cero con los datos reales de GoDaddy
 ];
 
