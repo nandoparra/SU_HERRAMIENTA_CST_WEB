@@ -927,9 +927,12 @@ Views.ordenes = {
         const bc  = 'badge b-'+(m.her_estado||'pendiente_revision');
         const sub = [m.her_marca,m.her_serial?'S/N: '+m.her_serial:null,m.her_referencia?'Ref: '+m.her_referencia:null].filter(Boolean).join(' | ');
         const opts = Object.entries(ELBL).map(([v,l])=>`<option value="${v}"${(m.her_estado||'pendiente_revision')===v?' selected':''}>${l}</option>`).join('');
-        const fotosRec = m.fotos?.length
-          ? `<div class="foto-row">${m.fotos.map(f=>`<div class="foto-thumb" onclick="window.open('/uploads/fotos-recepcion/${f.fho_archivo}','_blank')"><img src="/uploads/fotos-recepcion/${f.fho_archivo}" alt=""></div>`).join('')}</div>`
-          : `<div class="sin-fotos">Sin fotos de recepción</div>`;
+        const fotosRecHtml = (m.fotos||[]).map(f=>`
+          <div class="foto-thumb" id="fr-${f.uid_foto_herramienta_orden}">
+            <img src="/uploads/fotos-recepcion/${f.fho_archivo}" onclick="window.open(this.src,'_blank')" alt="">
+            <button class="del-btn" onclick="ord_delFotoRec(${f.uid_foto_herramienta_orden},event)">✕</button>
+          </div>`).join('');
+        const fotosRec = `<div class="foto-row" id="fr-row-${m.uid_herramienta_orden}">${fotosRecHtml || '<div class=\'sin-fotos\'>Sin fotos de recepción</div>'}</div>`;
         const fotosTrab = (m.fotos_trabajo||[]).map(f=>`
           <div class="foto-thumb" id="ft-${f.uid_foto_herramienta_orden}">
             <img src="/uploads/fotos-recepcion/${f.fho_archivo}" onclick="window.open(this.src,'_blank')" alt="">
@@ -970,7 +973,12 @@ Views.ordenes = {
             </div>
             ${m.hor_observaciones?`<div class="maq-obs"><div class="maq-obs-lbl">Observaciones</div>${esc(m.hor_observaciones)}</div>`:''}
             <div class="fotos-seccion">
-              <div class="fotos-lbl">Recepción</div>${fotosRec}
+              <div class="fotos-lbl">Recepción</div>
+              ${fotosRec}
+              <label class="upload-foto-btn">+ Agregar foto
+                <input type="file" accept="image/*" style="display:none"
+                  onchange="ord_uploadFotoRec(${orden.uid_orden},${m.uid_herramienta_orden},this)">
+              </label>
             </div>
             <div class="fotos-seccion">
               <div class="fotos-lbl fotos-trabajo-lbl">Del trabajo</div>
@@ -1091,6 +1099,30 @@ Views.ordenes = {
         showToast('✅ PDF cotización enviado por WA');
       } catch(e) { alert('⚠️ '+e.message); }
       btn.disabled=false; btn.textContent=orig;
+    };
+    window.ord_uploadFotoRec = async (uidOrden, uidHo, input) => {
+      if (!input.files[0]) return;
+      const fd = new FormData(); fd.append('foto', input.files[0]);
+      input.value='';
+      try {
+        const r = await fetch(`${API}/orders/${uidOrden}/fotos-recepcion/${uidHo}`,{method:'POST',body:fd});
+        const d = await r.json();
+        if (d.success) {
+          const row = document.getElementById(`fr-row-${uidHo}`);
+          const sinFotos = row?.querySelector('.sin-fotos');
+          if (sinFotos) sinFotos.remove();
+          const div = document.createElement('div');
+          div.className='foto-thumb'; div.id=`fr-${d.uid_foto}`;
+          div.innerHTML=`<img src="${d.url}" onclick="window.open(this.src,'_blank')" alt=""><button class="del-btn" onclick="ord_delFotoRec(${d.uid_foto},event)">✕</button>`;
+          row?.appendChild(div);
+        } else alert('Error al subir foto: '+(d.error||''));
+      } catch(e) { alert(e.message); }
+    };
+    window.ord_delFotoRec = async (uid, e) => {
+      e.stopPropagation();
+      if (!confirm('¿Eliminar esta foto de recepción?')) return;
+      await fetch(`${API}/orders/fotos-recepcion/${uid}`,{method:'DELETE'});
+      document.getElementById(`fr-${uid}`)?.remove();
     };
     window.ord_uploadFoto = async (uidOrden, uidHo, input) => {
       if (!input.files[0]) return;

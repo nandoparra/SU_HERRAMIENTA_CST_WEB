@@ -1056,6 +1056,53 @@ router.get('/cliente/mis-ordenes', async (req, res) => {
   }
 });
 
+// ── Subir foto de recepción (post-creación) ───────────────────────────────────
+router.post('/orders/:id/fotos-recepcion/:uid_herramienta_orden', uploadFoto.single('foto'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No se recibió imagen' });
+    const conn = await db.getConnection();
+    await conn.execute(
+      `INSERT INTO b2c_foto_herramienta_orden (uid_herramienta_orden, fho_archivo, fho_nombre, fho_tipo)
+       VALUES (?, ?, ?, 'recepcion')`,
+      [req.params.uid_herramienta_orden, req.file.filename, req.file.originalname]
+    );
+    const [[ins]] = await conn.execute('SELECT LAST_INSERT_ID() AS id');
+    conn.release();
+    res.json({
+      success:  true,
+      uid_foto: ins.id,
+      filename: req.file.filename,
+      url:      '/uploads/fotos-recepcion/' + req.file.filename,
+    });
+  } catch (e) {
+    console.error('Error subiendo foto de recepción:', e);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// ── Eliminar foto de recepción (post-creación) ────────────────────────────────
+router.delete('/orders/fotos-recepcion/:uid_foto', async (req, res) => {
+  try {
+    const conn = await db.getConnection();
+    const [[foto]] = await conn.execute(
+      `SELECT fho_archivo FROM b2c_foto_herramienta_orden
+       WHERE uid_foto_herramienta_orden = ? AND fho_tipo = 'recepcion'`,
+      [req.params.uid_foto]
+    );
+    if (!foto) { conn.release(); return res.status(404).json({ error: 'Foto no encontrada' }); }
+    await conn.execute(
+      `DELETE FROM b2c_foto_herramienta_orden WHERE uid_foto_herramienta_orden = ?`,
+      [req.params.uid_foto]
+    );
+    conn.release();
+    try { fs.unlinkSync(path.join(UPLOADS_DIR, 'fotos-recepcion', foto.fho_archivo)); } catch {}
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Error eliminando foto de recepción:', e);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 // ── Subir foto del trabajo ────────────────────────────────────────────────────
 router.post('/orders/:id/fotos-trabajo/:uid_herramienta_orden', uploadFoto.single('foto'), async (req, res) => {
   try {
