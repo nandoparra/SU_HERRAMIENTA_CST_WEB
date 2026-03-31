@@ -11,7 +11,7 @@ Sistema de cotizaciones y órdenes de servicio para **SU HERRAMIENTA CST** (tall
 - **IA**: Anthropic SDK `@0.13.1` — usar `client.beta.messages.create()`, NO `client.messages.create()`
 - **PDF**: PDFKit `^0.17.2` (`utils/pdf-generator.js`)
 - **WhatsApp**: `whatsapp-web.js` (`utils/whatsapp-client.js`)
-- **Sesiones**: `express-session` + `bcrypt`
+- **Sesiones**: `express-session` + `MySQLSessionStore` (`utils/session-store.js`) — sesiones persistentes en tabla `app_sessions`
 - **Seguridad HTTP**: `helmet@8.1.0` (CSP, HSTS, etc.)
 - **Fotos**: `multer` → `public/uploads/fotos-recepcion/`
 
@@ -32,6 +32,7 @@ utils/whatsapp-client.js           Singleton waClient + parche LID + validación
 utils/wa-handler.js                Listener mensajes entrantes WA — flujo autorización cotizaciones
                                      └─ resuelve LID vía msg.getContact() antes de buscar pendiente
 utils/pdf-generator.js             Generación PDFs (quote, maintenance, orden de servicio)
+utils/session-store.js             MySQLSessionStore — sesiones MySQL persistentes (tabla app_sessions, cleanup cada 15min)
 utils/dias-habiles.js              addDiasHabiles(fecha, n) + esNoHabil + toISODate — festivos colombianos algorítmicos
 utils/phones.js                    parseColombianPhones() — separa múltiples números
 routes/auth.js                     GET/POST /login (rate limit 10/15min), /logout, /me
@@ -95,6 +96,7 @@ API_SECRET_KEY        (opcional, guard de rutas)
 SESSION_SECRET        (requerido en producción — lanza error si no está)
 PARTS_WHATSAPP_NUMBER (número del encargado de repuestos, ej: 3104650437)
 BEHIND_PROXY          (true = activar redirect HTTP→HTTPS vía x-forwarded-proto)
+SUPERADMIN_SECRET     (requerido en producción — clave de acceso al panel superadmin)
 ```
 
 ---
@@ -102,7 +104,7 @@ BEHIND_PROXY          (true = activar redirect HTTP→HTTPS vía x-forwarded-pro
 ## Git — ramas
 
 ```
-main                        Estado estable — incluye security-fixes + wa-plantillas (2026-03-11)
+main                        Estado estable — incluye multitenant + security-audit-fixes (2026-03-21)
 feature/login               Login completo — pendiente merge a main
 feature/crear-orden         Módulo crear orden — pendiente merge a main
 feature/security-fixes      Correcciones de seguridad — MERGEADO a main 2026-03-11
@@ -113,10 +115,12 @@ feature/responsive          Responsive + autorización portal cliente desde segu
 feature/helmet-https        Helmet CSP + redirect HTTPS vía BEHIND_PROXY — pendiente merge (base: feature/responsive)
 feature/wa-plantillas       WA plantillas fijas (orden recibida + cotización con desglose) — MERGEADO a main
 feature/cotizaciones-cola   Cotizaciones tab rediseñada como cola de pendientes — pendiente prueba/merge
+feature/multitenant         Arquitectura multi-tenant completa — MERGEADO a main 2026-03-21
+feature/security-audit-fixes  Auditoría SEC-001 a SEC-006 — MERGEADO a main 2026-03-21
 ```
 
 Mergear en orden: login → crear-orden → wa-autorizacion → ui-fixes → dashboard → responsive → helmet-https.
-`feature/wa-plantillas` y `feature/security-fixes` ya fueron mergeados a main.
+`feature/wa-plantillas`, `feature/security-fixes`, `feature/multitenant` y `feature/security-audit-fixes` ya fueron mergeados a main.
 `feature/cotizaciones-cola` pendiente de validación en Railway antes de merge.
 
 ---
@@ -145,6 +149,26 @@ Mergear en orden: login → crear-orden → wa-autorizacion → ui-fixes → das
 14. `routes/pdf.js` — `requireInterno` en 7 rutas de descarga/envío PDF
     - GET /pdf/quote, GET /pdf/maintenance/:id, POST /send-pdf/quote, POST /send-pdf/maintenance/:id
     - GET /pdf/orden, GET /print/orden, POST /send-pdf/orden
+
+### Auditoría de seguridad SaaS (feature/security-audit-fixes, mergeado a main 2026-03-21)
+
+Auditoría ofensiva completa documentada en `docs/auditoria-seguridad.md` (17 hallazgos).
+Los 6 críticos/altos (SEC-001 a SEC-006) fueron corregidos y mergeados:
+
+| # | Hallazgo | Archivo | Fix aplicado |
+|---|---------|---------|-------------|
+| SEC-001 | Enumeración de órdenes de otros tenants vía `/orders/search` | `routes/orders.js` | `LIMIT ${limit}` template literal + `AND tenant_id = ?` (ver nota MySQL 8.0) |
+| SEC-002 | IDOR en `/crear-orden/herramientas/:clienteId` sin filtro tenant | `routes/crear-orden.js` | `AND tenant_id = ?` en SELECT |
+| SEC-003 | INSERT `b2c_herramienta_orden` y `b2c_foto_herramienta_orden` sin `tenant_id` | `routes/crear-orden.js` | Agregado `tenant_id` en ambos INSERTs |
+| SEC-004 | MemoryStore volátil (sesiones se borran con cada restart) | `server.js` + nuevo `utils/session-store.js` | MySQLSessionStore + tabla `app_sessions` |
+| SEC-005 | Rate limiting ausente en superadmin login | `routes/superadmin.js` | `express-rate-limit` 5 intentos/15 min |
+| SEC-006 | `error: e.message` expone stack/schema en HTTP 500 | múltiples rutas | Reemplazado con `'Error interno del servidor'` |
+
+**Nota crítica MySQL 8.0**: `conn.execute('SELECT ... LIMIT ?', [n])` lanza `ER_WRONG_ARGUMENTS`.
+MySQL 8.0 no soporta `LIMIT` con parámetros en prepared statements.
+Solución: `LIMIT ${limit}` como template literal con valor ya validado (ej: `Math.min(Math.max(1, parseInt(n)||20), 50)`).
+
+Los hallazgos SEC-007 a SEC-017 (medios/bajos) están documentados en `docs/auditoria-seguridad.md` pero no son bloqueantes para comercialización.
 
 ---
 
@@ -663,7 +687,7 @@ if (process.env.BEHIND_PROXY === 'true') {
 
 ---
 
-## Multi-tenant — feature/multitenant (en desarrollo)
+## Multi-tenant — MERGEADO a main 2026-03-21
 
 Arquitectura: esquema compartido con `tenant_id` en todas las tablas.
 
@@ -701,13 +725,33 @@ Cada tabla: `tenant_id INT NOT NULL DEFAULT 1` + `INDEX idx_tenant(tenant_id)`.
 1. `ensureTenantTable()` — CREATE TABLE b2c_tenant + INSERT IGNORE tenant default
 2. `ensureTenantColumns()` — ADD COLUMN tenant_id a las 13 tablas (try/catch ER_DUP_FIELDNAME)
 
-### Fases pendientes
-- **Fase 2**: `middleware/tenant.js` — resolve tenant por hostname
-- **Fase 3**: Auth multi-tenant — login filtra por tenant_id, lock slug primer login
-- **Fase 4**: Queries — todas las rutas + `AND tenant_id = req.tenant.uid_tenant`
-- **Fase 5**: WhatsApp pool — Map(tenant_id → waClient)
-- **Fase 6**: Frontend dinámico — CSS variables colores/logo por tenant
-- **Fase 7**: Panel superadmin
+### Estado de implementación (todas las fases completadas)
+- ✅ **Fase 2**: `middleware/tenant.js` — resolve tenant por hostname (slug o dominio custom)
+- ✅ **Fase 3**: Auth multi-tenant — login filtra por tenant_id
+- ✅ **Fase 4**: Queries con `AND tenant_id = req.tenant.uid_tenant` en todas las rutas principales
+- ✅ **Fase 5**: WhatsApp pool — `Map(tenant_id → waClient)` en `utils/whatsapp-client.js`
+- ✅ **Fase 6**: Frontend dinámico — CSS variables colores/logo inyectados por tenant
+- ✅ **Fase 7**: Panel superadmin en `/superadmin` (ruta separada, sesión `req.session.superadmin`)
+
+### Panel superadmin (`routes/superadmin.js` + `public/superadmin/index.html`)
+- Acceso: `/superadmin` — sesión independiente (no usa `req.session.user`)
+- Login con `SUPERADMIN_SECRET` env (requerido — error si no está en producción)
+- Rate limit: 5 intentos / 15 minutos
+- **CRUD tenants**: crear, editar nombre/slug/colores/WA, toggle estado
+- **Gestión usuarios por tenant** (implementado 2026-03-21):
+  - `GET  /superadmin/api/tenants/:id/usuarios` — lista usuarios del tenant
+  - `POST /superadmin/api/tenants/:id/usuarios` — crea usuario (bcrypt, tipo A/F/T)
+  - `PATCH /superadmin/api/usuarios/:uid` — editar nombre/tipo/estado
+  - UI: botón "👤 Usuarios" por fila → modal con tabla + formulario inline
+
+### isolation-test.js — quirks Railway
+- `ord_consecutivo` es `INT` en Railway MySQL 8.0 (no VARCHAR) — usar número: `9999999`
+- `ord_estado` es `VARCHAR(2)` — usar `'A'` (no `'abierta'`)
+- Requiere `SUPERADMIN_SECRET` env al arrancar el servidor para pruebas superadmin
+
+### Credenciales de prueba (Railway)
+- Admin: `admin / 123`
+- DB externa: `switchback.proxy.rlwy.net:23534`, DB: `railway`, user: `root`
 
 ---
 
