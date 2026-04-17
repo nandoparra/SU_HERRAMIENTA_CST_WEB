@@ -186,49 +186,73 @@
   <div id="step2" style="display:none;">
     <div class="card">
       <div id="step2ClientCard"></div>
-
-      <h2>Máquinas en esta orden</h2>
-
-      <!-- Nueva máquina -->
-      <button class="section-toggle" onclick="toggleNewMaq()">+ Agregar máquina nueva</button>
-      <div id="newMaqForm" style="display:none;margin-top:14px;">
-        <div class="grid2">
-          <div class="form-group">
-            <label>Nombre <span class="req">*</span></label>
-            <input id="nm_nombre" type="text" placeholder="Ej: Taladro, Esmeril...">
-          </div>
-          <div class="form-group">
-            <label>Marca</label>
-            <input id="nm_marca" type="text" placeholder="Ej: Bosch, DeWalt...">
-          </div>
-        </div>
-        <div class="grid2">
-          <div class="form-group">
-            <label>Serial</label>
-            <input id="nm_serial" type="text" placeholder="Número de serie">
-          </div>
-          <div class="form-group">
-            <label>Referencia</label>
-            <input id="nm_ref" type="text" placeholder="Referencia del modelo">
-          </div>
-        </div>
-        <div id="newMaqError" class="alert alert-error" style="display:none;"></div>
-        <button class="btn-primary" onclick="crearMaquina()">Agregar a la orden</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin:0;">Máquinas en esta orden</h2>
+        <button class="btn-primary" onclick="abrirModalMaquina()">+ Agregar máquina</button>
       </div>
-
-      <hr class="divider">
-
-      <!-- Historial -->
-      <h3>Historial del cliente</h3>
-      <div id="herramientasHistorial" class="muted">Cargando...</div>
+      <div id="maquinasEnOrden"></div>
     </div>
-
-    <!-- Lista de máquinas agregadas -->
-    <div id="maquinasEnOrden"></div>
 
     <div class="nav-row" style="display:flex;justify-content:space-between;margin-top:8px;">
       <button class="btn-secondary" onclick="goStep1()">← Atrás</button>
       <button class="btn-primary" id="btnStep2Next" onclick="goStep3()" disabled>Siguiente →</button>
+    </div>
+  </div>
+
+  <!-- Modal agregar máquina -->
+  <div id="modalMaquina" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);align-items:center;justify-content:center;">
+    <div style="background:#fff;width:94%;max-width:520px;border-radius:12px;overflow:hidden;max-height:90vh;display:flex;flex-direction:column;">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #e5e7eb;">
+        <span style="font-weight:600;font-size:15px;">Agregar máquina a la orden</span>
+        <button onclick="cerrarModalMaquina()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#666;">✕</button>
+      </div>
+      <div style="padding:16px;overflow-y:auto;">
+        <!-- Selector máquinas existentes -->
+        <div class="form-group">
+          <label>Máquinas del cliente</label>
+          <select id="mm_select" style="width:100%;" onchange="onSelectMaquinaModal(this)">
+            <option value="">-- Seleccionar máquina --</option>
+          </select>
+        </div>
+        <!-- Observaciones para máquina existente -->
+        <div id="mm_obsRow" style="display:none;" class="form-group">
+          <label>Observaciones de recepción</label>
+          <textarea id="mm_obs" rows="3" style="width:100%;resize:vertical;" placeholder="Estado visible, falla reportada, accesorios..."></textarea>
+        </div>
+        <!-- Separador -->
+        <div style="text-align:center;margin:12px 0;color:#999;font-size:13px;">— o —</div>
+        <!-- Toggle nueva máquina -->
+        <button id="mm_btnNueva" class="section-toggle" style="width:100%;text-align:center;" onclick="toggleNuevaMaqModal()">+ Crear nueva máquina</button>
+        <div id="mm_nuevaForm" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;">
+          <div class="grid2">
+            <div class="form-group">
+              <label>Nombre <span class="req">*</span></label>
+              <input id="mm_nombre" type="text" placeholder="Ej: Taladro, Esmeril...">
+            </div>
+            <div class="form-group">
+              <label>Marca</label>
+              <input id="mm_marca" type="text" placeholder="Bosch, DeWalt...">
+            </div>
+            <div class="form-group">
+              <label>Serial</label>
+              <input id="mm_serial" type="text" placeholder="Número de serie">
+            </div>
+            <div class="form-group">
+              <label>Referencia</label>
+              <input id="mm_ref" type="text" placeholder="Referencia del modelo">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Observaciones de recepción</label>
+            <textarea id="mm_nuevaObs" rows="3" style="width:100%;resize:vertical;" placeholder="Estado visible, falla reportada, accesorios..."></textarea>
+          </div>
+          <div id="mm_error" class="alert alert-error" style="display:none;"></div>
+        </div>
+      </div>
+      <div style="padding:12px 16px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn-secondary" onclick="cerrarModalMaquina()">Cancelar</button>
+        <button id="mm_btnAgregar" class="btn-primary" onclick="confirmarAgregarMaquina()" disabled>Agregar a la orden</button>
+      </div>
     </div>
   </div>
 
@@ -420,59 +444,117 @@ async function crearCliente() {
   document.getElementById('newClientForm').style.display = 'none';
 }
 
-// ── Máquinas ──────────────────────────────────────────────────────────────────
-async function cargarHistorial() {
-  const el = document.getElementById('herramientasHistorial');
-  el.innerHTML = 'Cargando...';
+// ── Máquinas — modal ─────────────────────────────────────────────────────────
+let _mmModoNueva = false;
+
+async function abrirModalMaquina() {
+  _mmModoNueva = false;
+  // Resetear
+  document.getElementById('mm_select').innerHTML = '<option value="">-- Cargando... --</option>';
+  document.getElementById('mm_obsRow').style.display = 'none';
+  document.getElementById('mm_obs').value = '';
+  document.getElementById('mm_nuevaForm').style.display = 'none';
+  document.getElementById('mm_btnNueva').textContent = '+ Crear nueva máquina';
+  document.getElementById('mm_error').style.display = 'none';
+  document.getElementById('mm_nuevaObs').value = '';
+  ['mm_nombre','mm_marca','mm_serial','mm_ref'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('mm_btnAgregar').disabled = true;
+  document.getElementById('modalMaquina').style.display = 'flex';
+
+  // Cargar máquinas del cliente
   const data = await fetch(`${API}/crear-orden/herramientas/${clienteSeleccionado.uid_cliente}`).then(r => r.json());
-  if (!data.length) { el.innerHTML = '<div class="muted">Este cliente no tiene máquinas previas.</div>'; return; }
   data.forEach(h => { herramientaMap[h.uid_herramienta] = h; });
-  el.innerHTML = data.map(h => `
-    <div class="result-item" onclick="agregarMaquina(${h.uid_herramienta})">
-      <div>
-        <div class="result-name">${h.her_nombre} ${h.her_marca||''}</div>
-        <div class="result-sub">${h.her_serial ? 'S/N: '+h.her_serial : ''}${h.her_referencia ? ' | Ref: '+h.her_referencia : ''}</div>
-      </div>
-      <button class="btn-primary btn-sm">Agregar</button>
-    </div>`).join('');
-}
-
-function agregarMaquina(uid) {
-  const h = herramientaMap[uid];
-  if (maquinasEnOrden.find(m => m.uid_herramienta === h.uid_herramienta)) {
-    alert('Esta máquina ya está en la orden.');
-    return;
+  const sel = document.getElementById('mm_select');
+  if (!data.length) {
+    sel.innerHTML = '<option value="">-- Este cliente no tiene máquinas registradas --</option>';
+  } else {
+    sel.innerHTML = '<option value="">-- Seleccionar máquina --</option>' +
+      data.map(h => {
+        const yaAgregada = maquinasEnOrden.find(m => m.uid_herramienta === h.uid_herramienta);
+        return `<option value="${h.uid_herramienta}" ${yaAgregada ? 'disabled' : ''}>${h.her_nombre}${h.her_marca ? ' — '+h.her_marca : ''}${h.her_serial ? ' ('+h.her_serial+')' : ''}${yaAgregada ? ' ✓ ya en orden' : ''}</option>`;
+      }).join('');
   }
-  maquinasEnOrden.push({ ...h, observaciones: '', fotos: [] });
-  renderMaquinasEnOrden();
 }
 
-function toggleNewMaq() {
-  const f = document.getElementById('newMaqForm');
-  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+function cerrarModalMaquina() {
+  document.getElementById('modalMaquina').style.display = 'none';
 }
 
-async function crearMaquina() {
-  const errEl = document.getElementById('newMaqError');
-  errEl.style.display = 'none';
-  const body = {
-    uid_cliente:   clienteSeleccionado.uid_cliente,
-    her_nombre:    document.getElementById('nm_nombre').value.trim(),
-    her_marca:     document.getElementById('nm_marca').value.trim(),
-    her_serial:    document.getElementById('nm_serial').value.trim(),
-    her_referencia:document.getElementById('nm_ref').value.trim(),
-  };
-  if (!body.her_nombre) { errEl.textContent = 'El nombre es obligatorio'; errEl.style.display = 'block'; return; }
-  const res = await fetch(`${API}/crear-orden/herramienta`, {
-    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
-  }).then(r => r.json());
-  if (!res.success) { errEl.textContent = res.error; errEl.style.display = 'block'; return; }
-  maquinasEnOrden.push({ ...res.herramienta, observaciones: '', fotos: [] });
-  renderMaquinasEnOrden();
-  // limpiar form
-  ['nm_nombre','nm_marca','nm_serial','nm_ref'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('newMaqForm').style.display = 'none';
-  await cargarHistorial();
+function onSelectMaquinaModal(sel) {
+  const obsRow = document.getElementById('mm_obsRow');
+  const btn = document.getElementById('mm_btnAgregar');
+  if (sel.value) {
+    obsRow.style.display = 'block';
+    btn.disabled = false;
+    // Si estaba en modo nueva, cerrar
+    if (_mmModoNueva) {
+      _mmModoNueva = false;
+      document.getElementById('mm_nuevaForm').style.display = 'none';
+      document.getElementById('mm_btnNueva').textContent = '+ Crear nueva máquina';
+    }
+  } else {
+    obsRow.style.display = 'none';
+    btn.disabled = _mmModoNueva ? false : true;
+  }
+}
+
+function toggleNuevaMaqModal() {
+  _mmModoNueva = !_mmModoNueva;
+  document.getElementById('mm_nuevaForm').style.display = _mmModoNueva ? 'block' : 'none';
+  document.getElementById('mm_btnNueva').textContent = _mmModoNueva ? '✕ Cancelar nueva máquina' : '+ Crear nueva máquina';
+  if (_mmModoNueva) {
+    document.getElementById('mm_select').value = '';
+    document.getElementById('mm_obsRow').style.display = 'none';
+    document.getElementById('mm_btnAgregar').disabled = false;
+  } else {
+    document.getElementById('mm_btnAgregar').disabled = !document.getElementById('mm_select').value;
+  }
+}
+
+async function confirmarAgregarMaquina() {
+  const btn = document.getElementById('mm_btnAgregar');
+  btn.disabled = true; btn.textContent = '⏳ Agregando...';
+  try {
+    if (_mmModoNueva) {
+      const errEl = document.getElementById('mm_error');
+      errEl.style.display = 'none';
+      const body = {
+        uid_cliente:    clienteSeleccionado.uid_cliente,
+        her_nombre:     document.getElementById('mm_nombre').value.trim(),
+        her_marca:      document.getElementById('mm_marca').value.trim(),
+        her_serial:     document.getElementById('mm_serial').value.trim(),
+        her_referencia: document.getElementById('mm_ref').value.trim(),
+      };
+      if (!body.her_nombre) {
+        errEl.textContent = 'El nombre de la máquina es obligatorio';
+        errEl.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Agregar a la orden'; return;
+      }
+      const res = await fetch(`${API}/crear-orden/herramienta`, {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+      }).then(r => r.json());
+      if (!res.success) { errEl.textContent = res.error; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Agregar a la orden'; return; }
+      const obs = document.getElementById('mm_nuevaObs').value.trim();
+      maquinasEnOrden.push({ ...res.herramienta, observaciones: obs, fotos: [] });
+    } else {
+      const uid = parseInt(document.getElementById('mm_select').value);
+      const h = herramientaMap[uid];
+      const obs = document.getElementById('mm_obs').value.trim();
+      maquinasEnOrden.push({ ...h, observaciones: obs, fotos: [] });
+    }
+    renderMaquinasEnOrden();
+    cerrarModalMaquina();
+  } catch(e) {
+    document.getElementById('mm_error').textContent = e.message;
+    document.getElementById('mm_error').style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Agregar a la orden';
+  }
+}
+
+// Mantener compatibilidad: cargarHistorial ya no renderiza HTML, solo carga el mapa
+async function cargarHistorial() {
+  const data = await fetch(`${API}/crear-orden/herramientas/${clienteSeleccionado.uid_cliente}`).then(r => r.json());
+  data.forEach(h => { herramientaMap[h.uid_herramienta] = h; });
 }
 
 function quitarMaquina(uid) {
