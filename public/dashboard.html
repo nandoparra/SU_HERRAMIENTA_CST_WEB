@@ -874,7 +874,7 @@ Views.inicio = {
                 revBadge = `<span class="dias-badge" style="background:#2980b9;color:#fff;">Revisar antes: ${fmtFecha(g.ord_revision_limite)}</span>`;
             }
 
-            const sinFactura = !g.ord_factura
+            const sinFactura = g.sin_factura
               ? `<span style="display:inline-block;font-size:11px;background:#fff3cd;color:#856404;border:1px solid #ffc107;border-radius:4px;padding:1px 7px;">⚠️ Sin factura adjunta</span>`
               : '';
             return `
@@ -1028,7 +1028,7 @@ Views.ordenes = {
             const dias = Math.round((vd - hoy) / 86400000);
             if (dias < 0) vb = `<span style="background:#c0392b;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">🔴 Garantía vencida</span>`;
             else if (dias <= 7) vb = `<span style="background:#e67e22;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">⚠️ Vence en ${dias}d</span>`;
-            else vb = `<span style="background:#2980b9;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">Garantía: ${m.hor_garantia_vence}</span>`;
+            else vb = `<span style="background:#2980b9;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">Garantía: ${fmtFecha(m.hor_garantia_vence)}</span>`;
           }
           return `<div style="margin:3px 0;display:flex;flex-wrap:wrap;gap:3px;">
             <span style="background:#c0392b;color:#fff;font-size:10px;padding:1px 7px;border-radius:4px;font-weight:700;">GARANTÍA</span>
@@ -1112,8 +1112,6 @@ Views.ordenes = {
           ${totalHtml}
           <div class="ord-acciones">
             <a class="btn btn-dark" href="${API}/orders/${orden.uid_orden}/print/orden" target="_blank">🖨️ Imprimir orden</a>
-            ${orden.ord_tipo==='garantia' && orden.ord_factura ? `<a class="btn btn-teal" href="/uploads/facturas-garantia/${orden.ord_factura}" target="_blank">📄 Factura garantía</a>` : ''}
-            ${orden.ord_tipo==='garantia' && !orden.ord_factura ? `<label class="btn btn-teal" style="cursor:pointer;">📎 Adjuntar factura<input type="file" accept=".pdf" style="display:none" onchange="ord_subirFactura(${orden.uid_orden},this)"></label>` : ''}
             ${tieneCotizacion?`
             <a class="btn btn-purple" href="${API}/orders/${orden.uid_orden}/pdf/quote" target="_blank">📄 PDF Cotización</a>
             <button class="btn btn-mid" onclick="ord_enviarPDFCotWA(${orden.uid_orden},this)">📤 PDF Cotización WA</button>
