@@ -476,64 +476,64 @@
 
 <!-- Modal agregar máquina a orden existente -->
 <div id="agregarMaquinaModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);align-items:center;justify-content:center;">
-  <div style="background:#fff;width:92%;max-width:560px;border-radius:12px;overflow:hidden;">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #e5e7eb;">
+  <div style="background:#fff;width:94%;max-width:520px;border-radius:12px;overflow:hidden;max-height:90vh;display:flex;flex-direction:column;">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #e5e7eb;flex-shrink:0;">
       <span style="font-weight:600;font-size:15px;">Agregar máquina a la orden</span>
       <button onclick="ord_cerrarAgregarMaquina()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#666;">✕</button>
     </div>
-    <div style="padding:16px;">
-      <div class="form-group">
-        <label>Seleccionar máquina del cliente</label>
+    <div style="padding:16px;overflow-y:auto;flex:1;">
+      <div class="no-fgroup">
+        <label>Máquinas del cliente</label>
         <select id="amSelectMaquina" style="width:100%;" onchange="ord_onSelectMaquina(this)">
           <option value="">-- Cargando... --</option>
         </select>
       </div>
-      <div id="amObsRow" style="display:none;" class="form-group">
+      <div id="amObsRow" style="display:none;" class="no-fgroup">
         <label>Observaciones de recepción</label>
         <textarea id="amObservaciones" rows="3" style="width:100%;resize:vertical;" placeholder="Descripción del problema, falla reportada..."></textarea>
       </div>
-      <div id="amNuevaForm" style="display:none;border-top:1px solid #e5e7eb;margin-top:12px;padding-top:12px;">
-        <div style="font-weight:600;margin-bottom:10px;color:#1d3557;">Nueva máquina</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-          <div class="form-group"><label>Nombre <span style="color:red">*</span></label><input id="amNombre" type="text" placeholder="Ej: Taladro, Esmeril..."></div>
-          <div class="form-group"><label>Marca</label><input id="amMarca" type="text" placeholder="Bosch, DeWalt..."></div>
-          <div class="form-group"><label>Serial</label><input id="amSerial" type="text"></div>
-          <div class="form-group"><label>Referencia</label><input id="amRef" type="text"></div>
+      <div id="amSeparador" style="text-align:center;margin:12px 0;color:#999;font-size:13px;">— o —</div>
+      <button id="amBtnNueva" class="no-toggle-link" style="width:100%;text-align:center;" onclick="ord_toggleNuevaMaquina()">+ Crear nueva máquina</button>
+      <div id="amNuevaForm" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;">
+        <div class="no-grid2">
+          <div class="no-fgroup"><label>Nombre <span class="no-req">*</span></label><input id="amNombre" type="text" placeholder="Ej: Taladro, Esmeril..."></div>
+          <div class="no-fgroup"><label>Marca</label><input id="amMarca" type="text" placeholder="Bosch, DeWalt..."></div>
+          <div class="no-fgroup"><label>Serial</label><input id="amSerial" type="text"></div>
+          <div class="no-fgroup"><label>Referencia</label><input id="amRef" type="text"></div>
         </div>
-        <div class="form-group">
+        <div class="no-fgroup">
           <label>Observaciones de recepción</label>
           <textarea id="amNuevaObs" rows="3" style="width:100%;resize:vertical;" placeholder="Descripción del problema..."></textarea>
         </div>
-        <div id="amNuevaError" style="display:none;color:#c0392b;font-size:13px;margin-bottom:8px;"></div>
+        <div id="amNuevaError" class="no-alert-err" style="display:none;"></div>
       </div>
       <!-- Bloque garantía por máquina -->
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
           <input type="checkbox" id="amChkGarantia" onchange="am_toggleGarantia(this.checked)"
-            style="width:16px;height:16px;cursor:pointer;accent-color:#1d3557;flex-shrink:0;">
+            style="width:16px;height:16px;cursor:pointer;accent-color:var(--dark);flex-shrink:0;">
           <span style="font-size:13px;font-weight:600;">¿Esta máquina está en garantía?</span>
           <span style="font-size:11px;font-weight:700;background:#c0392b;color:#fff;padding:1px 7px;border-radius:4px;letter-spacing:.3px;">GARANTÍA</span>
         </label>
         <div id="amGarantiaFields" style="display:none;margin-top:10px;">
-          <div class="form-group">
-            <label>Fecha de vencimiento <span style="color:red">*</span></label>
+          <div class="no-fgroup">
+            <label>Fecha de vencimiento <span class="no-req">*</span></label>
             <input type="date" id="amGarantiaVence" style="max-width:200px;">
           </div>
-          <div class="form-group" style="margin-top:8px;">
+          <div class="no-fgroup" style="margin-top:8px;">
             <label>Factura de compra (PDF) <span style="font-size:11px;color:#888;">— opcional</span></label>
-            <label id="amFacturaLabel" style="display:inline-block;padding:6px 12px;background:#f0f4f8;border:1px solid #ddd;border-radius:6px;cursor:pointer;font-size:12px;">📄 Seleccionar PDF
+            <label class="upload-foto-btn" id="amFacturaLabel">📄 Seleccionar PDF
               <input type="file" id="amFacturaFile" accept=".pdf" style="display:none"
                 onchange="am_onFacturaChange(this)">
             </label>
           </div>
         </div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:8px;flex-wrap:wrap;">
-        <button id="amBtnNueva" class="btn btn-secondary" onclick="ord_toggleNuevaMaquina()" style="display:none;">+ Crear nueva máquina</button>
-        <div style="margin-left:auto;display:flex;gap:8px;">
-          <button class="btn btn-secondary" onclick="ord_cerrarAgregarMaquina()">Cancelar</button>
-          <button id="amBtnAgregar" class="btn btn-primary" onclick="ord_confirmarAgregarMaquina()" disabled>Agregar a la orden</button>
-        </div>
+    </div>
+    <div style="padding:12px 16px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px;flex-shrink:0;">
+      <button class="btn btn-grey" onclick="ord_cerrarAgregarMaquina()">Cancelar</button>
+      <button id="amBtnAgregar" class="btn btn-dark" onclick="ord_confirmarAgregarMaquina()" disabled>Agregar a la orden</button>
+    </div>
       </div>
     </div>
   </div>
@@ -1218,7 +1218,10 @@ Views.ordenes = {
       document.getElementById('amNuevaObs').value = '';
       ['amNombre','amMarca','amSerial','amRef'].forEach(id => document.getElementById(id).value = '');
       document.getElementById('amBtnAgregar').disabled = true;
-      document.getElementById('amBtnNueva').style.display = 'none';
+      document.getElementById('amBtnNueva').style.display = 'inline-block';
+      document.getElementById('amBtnNueva').textContent = '+ Crear nueva máquina';
+      document.getElementById('amSeparador').style.display = 'block';
+      document.getElementById('amSelectMaquina').closest('.no-fgroup').style.display = 'block';
       // Reset guarantee
       document.getElementById('amChkGarantia').checked = false;
       document.getElementById('amGarantiaFields').style.display = 'none';
@@ -1256,7 +1259,12 @@ Views.ordenes = {
       if (sel.value) {
         obsRow.style.display = 'block';
         btn.disabled = false;
-        _amModoNueva = false;
+        if (_amModoNueva) {
+          _amModoNueva = false;
+          document.getElementById('amNuevaForm').style.display = 'none';
+          document.getElementById('amBtnNueva').textContent = '+ Crear nueva máquina';
+          document.getElementById('amSeparador').style.display = 'block';
+        }
       } else {
         obsRow.style.display = 'none';
         btn.disabled = _amModoNueva ? false : true;
@@ -1264,18 +1272,18 @@ Views.ordenes = {
     };
 
     window.ord_toggleNuevaMaquina = () => {
-      const form = document.getElementById('amNuevaForm');
-      const btn = document.getElementById('amBtnNueva');
-      const btnAgregar = document.getElementById('amBtnAgregar');
       _amModoNueva = !_amModoNueva;
-      form.style.display = _amModoNueva ? 'block' : 'none';
-      btn.textContent = _amModoNueva ? '✕ Cancelar nueva' : '+ Crear nueva máquina';
+      document.getElementById('amNuevaForm').style.display = _amModoNueva ? 'block' : 'none';
+      document.getElementById('amBtnNueva').textContent = _amModoNueva ? '✕ Cancelar nueva máquina' : '+ Crear nueva máquina';
+      // Ocultar selector y separador en modo nueva
+      document.getElementById('amSelectMaquina').closest('.no-fgroup').style.display = _amModoNueva ? 'none' : 'block';
+      document.getElementById('amSeparador').style.display = _amModoNueva ? 'none' : 'block';
       if (_amModoNueva) {
         document.getElementById('amSelectMaquina').value = '';
         document.getElementById('amObsRow').style.display = 'none';
-        btnAgregar.disabled = false;
+        document.getElementById('amBtnAgregar').disabled = false;
       } else {
-        btnAgregar.disabled = true;
+        document.getElementById('amBtnAgregar').disabled = !document.getElementById('amSelectMaquina').value;
       }
     };
 
