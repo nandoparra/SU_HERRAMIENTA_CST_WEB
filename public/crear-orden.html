@@ -208,7 +208,7 @@
       </div>
       <div style="padding:16px;overflow-y:auto;">
         <!-- Selector máquinas existentes -->
-        <div class="form-group">
+        <div id="mm_selectRow" class="form-group">
           <label>Máquinas del cliente</label>
           <select id="mm_select" style="width:100%;" onchange="onSelectMaquinaModal(this)">
             <option value="">-- Seleccionar máquina --</option>
@@ -220,7 +220,7 @@
           <textarea id="mm_obs" rows="3" style="width:100%;resize:vertical;" placeholder="Estado visible, falla reportada, accesorios..."></textarea>
         </div>
         <!-- Separador -->
-        <div style="text-align:center;margin:12px 0;color:#999;font-size:13px;">— o —</div>
+        <div id="mm_separador" style="text-align:center;margin:12px 0;color:#999;font-size:13px;">— o —</div>
         <!-- Toggle nueva máquina -->
         <button id="mm_btnNueva" class="section-toggle" style="width:100%;text-align:center;" onclick="toggleNuevaMaqModal()">+ Crear nueva máquina</button>
         <div id="mm_nuevaForm" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;">
@@ -248,6 +248,28 @@
           </div>
           <div id="mm_error" class="alert alert-error" style="display:none;"></div>
         </div>
+        <!-- Bloque garantía por máquina -->
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="mm_chkGarantia" onchange="mm_toggleGarantia(this.checked)"
+              style="width:16px;height:16px;cursor:pointer;flex-shrink:0;">
+            <span style="font-size:13px;font-weight:600;">¿Esta máquina está en garantía?</span>
+            <span style="font-size:11px;font-weight:700;background:#c0392b;color:#fff;padding:1px 7px;border-radius:4px;letter-spacing:.3px;">GARANTÍA</span>
+          </label>
+          <div id="mm_garantiaFields" style="display:none;margin-top:10px;">
+            <div class="form-group">
+              <label>Fecha de vencimiento <span class="req">*</span></label>
+              <input type="date" id="mm_garantiaVence" style="max-width:200px;">
+            </div>
+            <div class="form-group" style="margin-top:8px;">
+              <label>Factura de compra (PDF) <span style="font-size:11px;color:#888;">— opcional</span></label>
+              <label class="upload-foto-btn" id="mm_facturaLabel" style="display:inline-block;padding:6px 12px;background:#f0f4f8;border:1px solid #ddd;border-radius:6px;cursor:pointer;font-size:12px;">📄 Seleccionar PDF
+                <input type="file" id="mm_facturaFile" accept=".pdf" style="display:none"
+                  onchange="mm_onFacturaChange(this)">
+              </label>
+            </div>
+          </div>
+        </div>
       </div>
       <div style="padding:12px 16px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px;">
         <button class="btn-secondary" onclick="cerrarModalMaquina()">Cancelar</button>
@@ -261,29 +283,6 @@
     <div class="card">
       <h2>Confirmar orden</h2>
       <div id="resumenOrden"></div>
-
-      <!-- Bloque garantía -->
-      <hr style="border:none;border-top:1px solid #eee;margin:18px 0 14px;">
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:0;">
-        <input type="checkbox" id="chkGarantia" onchange="toggleGarantia(this.checked)"
-          style="width:16px;height:16px;cursor:pointer;accent-color:var(--color-primary, #1d3557);flex-shrink:0;">
-        <span style="font-size:14px;font-weight:600;color:var(--color-primary, #1d3557);">Esta orden es una garantía</span>
-        <span style="font-size:11px;font-weight:700;background:#c0392b;color:#fff;padding:1px 7px;border-radius:4px;letter-spacing:.3px;">GARANTÍA</span>
-      </label>
-      <div id="garantiaFields" style="display:none;margin-top:14px;">
-        <div style="margin-bottom:12px;">
-          <label>Fecha de vencimiento de garantía <span style="color:#e74c3c;">*</span></label>
-          <input type="date" id="inputGarantiaVence" style="max-width:220px;">
-        </div>
-        <div>
-          <label>Factura de compra (PDF) <span style="color:#888;font-weight:400;">— opcional</span></label>
-          <label class="upload-foto-btn" id="facturaLabel">📄 Seleccionar PDF
-            <input type="file" id="inputFacturaPDF" accept=".pdf" style="display:none"
-              onchange="onFacturaChange(this)">
-          </label>
-          <div style="font-size:12px;color:#888;margin-top:4px;">Si no la tiene ahora, recuerde pedirla al cliente.</div>
-        </div>
-      </div>
 
       <div id="step3Error" class="alert alert-error" style="display:none;margin-top:12px;"></div>
     </div>
@@ -459,6 +458,12 @@ async function abrirModalMaquina() {
   document.getElementById('mm_nuevaObs').value = '';
   ['mm_nombre','mm_marca','mm_serial','mm_ref'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('mm_btnAgregar').disabled = true;
+  // Reset guarantee fields
+  document.getElementById('mm_chkGarantia').checked = false;
+  document.getElementById('mm_garantiaFields').style.display = 'none';
+  document.getElementById('mm_garantiaVence').value = '';
+  document.getElementById('mm_facturaFile').value = '';
+  document.getElementById('mm_facturaLabel').firstChild.textContent = '📄 Seleccionar PDF';
   document.getElementById('modalMaquina').style.display = 'flex';
 
   // Cargar máquinas del cliente
@@ -502,6 +507,8 @@ function toggleNuevaMaqModal() {
   _mmModoNueva = !_mmModoNueva;
   document.getElementById('mm_nuevaForm').style.display = _mmModoNueva ? 'block' : 'none';
   document.getElementById('mm_btnNueva').textContent = _mmModoNueva ? '✕ Cancelar nueva máquina' : '+ Crear nueva máquina';
+  document.getElementById('mm_selectRow').style.display = _mmModoNueva ? 'none' : 'block';
+  document.getElementById('mm_separador').style.display = _mmModoNueva ? 'none' : 'block';
   if (_mmModoNueva) {
     document.getElementById('mm_select').value = '';
     document.getElementById('mm_obsRow').style.display = 'none';
@@ -515,8 +522,19 @@ async function confirmarAgregarMaquina() {
   const btn = document.getElementById('mm_btnAgregar');
   btn.disabled = true; btn.textContent = '⏳ Agregando...';
   try {
+    const errEl = document.getElementById('mm_error');
+    // Leer campos de garantía (comunes para ambos modos)
+    const esGarantia   = document.getElementById('mm_chkGarantia').checked;
+    const garantiaVence = document.getElementById('mm_garantiaVence').value;
+    const facturaFile  = document.getElementById('mm_facturaFile').files?.[0] || null;
+
+    if (esGarantia && !garantiaVence) {
+      errEl.textContent = 'La fecha de vencimiento es obligatoria para máquinas en garantía';
+      errEl.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Agregar a la orden'; return;
+    }
+
     if (_mmModoNueva) {
-      const errEl = document.getElementById('mm_error');
       errEl.style.display = 'none';
       const body = {
         uid_cliente:    clienteSeleccionado.uid_cliente,
@@ -535,12 +553,14 @@ async function confirmarAgregarMaquina() {
       }).then(r => r.json());
       if (!res.success) { errEl.textContent = res.error; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Agregar a la orden'; return; }
       const obs = document.getElementById('mm_nuevaObs').value.trim();
-      maquinasEnOrden.push({ ...res.herramienta, observaciones: obs, fotos: [] });
+      maquinasEnOrden.push({ ...res.herramienta, observaciones: obs, fotos: [],
+        es_garantia: esGarantia, garantia_vence: garantiaVence, factura: facturaFile });
     } else {
       const uid = parseInt(document.getElementById('mm_select').value);
       const h = herramientaMap[uid];
       const obs = document.getElementById('mm_obs').value.trim();
-      maquinasEnOrden.push({ ...h, observaciones: obs, fotos: [] });
+      maquinasEnOrden.push({ ...h, observaciones: obs, fotos: [],
+        es_garantia: esGarantia, garantia_vence: garantiaVence, factura: facturaFile });
     }
     renderMaquinasEnOrden();
     cerrarModalMaquina();
@@ -575,8 +595,8 @@ function renderMaquinasEnOrden() {
     <div class="card maq-item">
       <div class="maq-header">
         <div>
-          <div class="maq-nombre">${i+1}. ${m.her_nombre} ${m.her_marca||''}</div>
-          <div class="maq-sub">${m.her_serial ? 'S/N: '+m.her_serial : 'Sin serial'}${m.her_referencia ? ' | Ref: '+m.her_referencia : ''}</div>
+          <div class="maq-nombre">${i+1}. ${m.her_nombre} ${m.her_marca||''}${m.es_garantia ? ' <span style="font-size:11px;font-weight:700;background:#c0392b;color:#fff;padding:1px 6px;border-radius:4px;vertical-align:middle;">GARANTÍA</span>' : ''}</div>
+          <div class="maq-sub">${m.her_serial ? 'S/N: '+m.her_serial : 'Sin serial'}${m.her_referencia ? ' | Ref: '+m.her_referencia : ''}${m.es_garantia && m.garantia_vence ? ' | Vence: '+m.garantia_vence : ''}${m.es_garantia && m.factura ? ' | 📄 '+m.factura.name : ''}</div>
         </div>
         <button class="btn-danger" onclick="quitarMaquina(${m.uid_herramienta})">Quitar</button>
       </div>
@@ -642,8 +662,9 @@ function renderResumen() {
     <h3 style="margin-bottom:10px;">Máquinas (${maquinasEnOrden.length})</h3>
     ${maquinasEnOrden.map((m,i) => `
       <div style="padding:8px 12px;border:1px solid #eee;border-radius:6px;margin-bottom:6px;">
-        <div style="font-weight:600;font-size:13px;">${i+1}. ${m.her_nombre} ${m.her_marca||''}</div>
+        <div style="font-weight:600;font-size:13px;">${i+1}. ${m.her_nombre} ${m.her_marca||''}${m.es_garantia ? ' <span style="font-size:11px;font-weight:700;background:#c0392b;color:#fff;padding:1px 6px;border-radius:4px;">GARANTÍA</span>' : ''}</div>
         ${m.her_serial ? `<div class="muted">S/N: ${m.her_serial}</div>` : ''}
+        ${m.es_garantia && m.garantia_vence ? `<div class="muted">Garantía vence: ${m.garantia_vence}${m.factura ? ' | 📄 '+m.factura.name : ''}</div>` : ''}
         ${m.observaciones ? `<div class="muted" style="margin-top:4px;">${m.observaciones}</div>` : ''}
         ${m.fotos.length ? `<div class="muted" style="margin-top:2px;">📷 ${m.fotos.length} foto(s) adjunta(s)</div>` : ''}
       </div>`).join('')}`;
@@ -675,20 +696,18 @@ function renderResumen() {
   window.toInputDate=function(d){return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
 })();
 
-// ── Toggle garantía ───────────────────────────────────────────────────────────
-function toggleGarantia(checked) {
-  document.getElementById('garantiaFields').style.display = checked ? 'block' : 'none';
+// ── Toggle garantía por máquina (en modal) ────────────────────────────────────
+function mm_toggleGarantia(checked) {
+  document.getElementById('mm_garantiaFields').style.display = checked ? 'block' : 'none';
   if (checked) {
-    document.getElementById('inputGarantiaVence').value = toInputDate(addDiasHabiles(new Date(), 30));
+    document.getElementById('mm_garantiaVence').value = toInputDate(addDiasHabiles(new Date(), 30));
   } else {
-    document.getElementById('inputGarantiaVence').value = '';
-    document.getElementById('inputFacturaPDF').value = '';
-    document.getElementById('facturaLabel').firstChild.textContent = '📄 Seleccionar PDF';
+    document.getElementById('mm_garantiaVence').value = '';
   }
 }
 
-function onFacturaChange(input) {
-  const lbl = document.getElementById('facturaLabel');
+function mm_onFacturaChange(input) {
+  const lbl = document.getElementById('mm_facturaLabel');
   lbl.firstChild.textContent = input.files?.[0]?.name ? '✅ ' + input.files[0].name : '📄 Seleccionar PDF';
 }
 
@@ -697,16 +716,6 @@ async function crearOrden() {
   const btn = document.getElementById('btnCrear');
   const errEl = document.getElementById('step3Error');
   errEl.style.display = 'none';
-
-  // Validar garantía
-  const esGarantia = document.getElementById('chkGarantia').checked;
-  const garantiaVence = document.getElementById('inputGarantiaVence').value;
-  if (esGarantia && !garantiaVence) {
-    errEl.textContent = 'La fecha de vencimiento es obligatoria para órdenes de garantía.';
-    errEl.style.display = 'block';
-    return;
-  }
-
   btn.disabled = true;
   btn.textContent = 'Creando...';
 
@@ -715,20 +724,22 @@ async function crearOrden() {
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({
       uid_cliente: clienteSeleccionado.uid_cliente,
-      maquinas: maquinasEnOrden.map(m => ({ uid_herramienta: m.uid_herramienta, observaciones: m.observaciones })),
-      es_garantia: esGarantia,
-      ord_garantia_vence: esGarantia ? garantiaVence : null,
+      maquinas: maquinasEnOrden.map(m => ({
+        uid_herramienta: m.uid_herramienta,
+        observaciones:   m.observaciones,
+        es_garantia:     m.es_garantia || false,
+        garantia_vence:  m.garantia_vence || null,
+      })),
     }),
   }).then(r => r.json());
 
-  btn.disabled = false;
-  btn.textContent = '✓ Crear Orden';
-
-  if (!res.success) { errEl.textContent = res.error; errEl.style.display = 'block'; return; }
+  if (!res.success) {
+    btn.disabled = false; btn.textContent = '✓ Crear Orden';
+    errEl.textContent = res.error; errEl.style.display = 'block'; return;
+  }
   ordenCreada = res;
 
   // Subir fotos adjuntadas en Step 2
-  btn.disabled = true;
   btn.textContent = 'Subiendo fotos...';
   for (let i = 0; i < res.herramientas.length; i++) {
     const fotos = maquinasEnOrden[i]?.fotos || [];
@@ -739,14 +750,14 @@ async function crearOrden() {
     }
   }
 
-  // Subir factura PDF si se adjuntó
-  if (esGarantia) {
-    const facturaFile = document.getElementById('inputFacturaPDF').files?.[0];
-    if (facturaFile) {
-      btn.textContent = 'Subiendo factura...';
+  // Subir factura PDF por máquina (si se adjuntó)
+  btn.textContent = 'Subiendo facturas...';
+  for (let i = 0; i < res.herramientas.length; i++) {
+    const factura = maquinasEnOrden[i]?.factura;
+    if (factura) {
       const fd = new FormData();
-      fd.append('factura', facturaFile);
-      await fetch(`${API}/crear-orden/factura/${res.uid_orden}`, { method: 'POST', body: fd });
+      fd.append('factura', factura);
+      await fetch(`${API}/crear-orden/factura-maquina/${res.herramientas[i].uid_herramienta_orden}`, { method: 'POST', body: fd });
     }
   }
 
