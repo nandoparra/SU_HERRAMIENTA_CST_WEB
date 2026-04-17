@@ -195,6 +195,28 @@ router.get('/clientes/:id', async (req, res) => {
   }
 });
 
+router.patch('/clientes/:id', async (req, res) => {
+  try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const { cli_razon_social, cli_telefono, cli_contacto, cli_tel_contacto, cli_direccion } = req.body;
+    if (!cli_razon_social || !cli_telefono) {
+      return res.status(400).json({ error: 'Razón social y teléfono son obligatorios' });
+    }
+    const conn = await db.getConnection();
+    const [r] = await conn.execute(
+      `UPDATE b2c_cliente
+       SET cli_razon_social=?, cli_telefono=?, cli_contacto=?, cli_tel_contacto=?, cli_direccion=?
+       WHERE uid_cliente=? AND tenant_id=?`,
+      [cli_razon_social, cli_telefono, cli_contacto||null, cli_tel_contacto||null, cli_direccion||null, req.params.id, tenantId]
+    );
+    conn.release();
+    if (!r.affectedRows) return res.status(404).json({ error: 'No encontrado' });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 router.post('/clientes/:id/crear-acceso', async (req, res) => {
   if (req.session?.user?.tipo !== 'A')
     return res.status(403).json({ error: 'Solo administradores' });

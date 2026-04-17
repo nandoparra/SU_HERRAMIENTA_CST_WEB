@@ -1942,6 +1942,11 @@ Views.clientes = {
       right.innerHTML='<div class="mobile-back" onclick="cli_back()">← Volver</div><div style="padding:20px;color:#888;text-align:center;">Cargando...</div>';
       const data = await fetch(`${API}/clientes/${uid}`).then(r=>r.json()).catch(()=>null);
       if (!data) { right.innerHTML='<div class="mobile-back" onclick="cli_back()">← Volver</div><div style="padding:20px;color:#e74c3c;">Error cargando cliente</div>'; return; }
+      cli_renderDetalle(uid, data);
+    };
+
+    window.cli_renderDetalle = (uid, data) => {
+      const right = document.getElementById('cliRight'); if (!right) return;
       const c = data.cliente;
       const ordsHtml = data.ordenes.length
         ? `<table class="ordenes-list-table">
@@ -1959,9 +1964,14 @@ Views.clientes = {
       right.innerHTML = `
         <div class="mobile-back" onclick="cli_back()">← Volver a resultados</div>
         <div style="padding:22px;">
-          <div class="cli-name">${esc(c.cli_razon_social||c.cli_contacto||'-')}</div>
-          <div class="cli-sub">NIT / CC: ${esc(c.cli_identificacion||'-')}</div>
-          <div class="card">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
+            <div>
+              <div class="cli-name">${esc(c.cli_razon_social||c.cli_contacto||'-')}</div>
+              <div class="cli-sub">NIT / CC: ${esc(c.cli_identificacion||'-')}</div>
+            </div>
+            <button class="btn btn-mid" onclick="cli_abrirEditar(${uid})">✏️ Editar</button>
+          </div>
+          <div class="card" id="cli-info-card-${uid}">
             <div class="card-title">Información de contacto</div>
             <div class="client-grid">
               <div class="field"><span class="lbl">Teléfono</span><span class="val">${esc(c.cli_telefono||'-')}</span></div>
@@ -1975,6 +1985,70 @@ Views.clientes = {
             ${ordsHtml}
           </div>
         </div>`;
+      // guardar datos del cliente para el form de edición
+      right._cliData = data;
+    };
+
+    window.cli_abrirEditar = (uid) => {
+      const right = document.getElementById('cliRight'); if (!right) return;
+      const data = right._cliData; if (!data) return;
+      const c = data.cliente;
+      const card = document.getElementById(`cli-info-card-${uid}`); if (!card) return;
+      card.innerHTML = `
+        <div class="card-title">Editar información</div>
+        <div class="no-fgroup">
+          <label class="no-lbl">Razón social / Nombre <span class="no-req">*</span></label>
+          <input class="no-input" id="cli_e_razon" value="${esc(c.cli_razon_social||'')}">
+        </div>
+        <div class="no-grid2" style="margin-top:10px;">
+          <div class="no-fgroup">
+            <label class="no-lbl">Teléfono <span class="no-req">*</span></label>
+            <input class="no-input" id="cli_e_tel" value="${esc(c.cli_telefono||'')}">
+          </div>
+          <div class="no-fgroup">
+            <label class="no-lbl">Nombre contacto</label>
+            <input class="no-input" id="cli_e_contacto" value="${esc(c.cli_contacto||'')}">
+          </div>
+        </div>
+        <div class="no-grid2" style="margin-top:10px;">
+          <div class="no-fgroup">
+            <label class="no-lbl">Tel. contacto</label>
+            <input class="no-input" id="cli_e_tel_contacto" value="${esc(c.cli_tel_contacto||'')}">
+          </div>
+          <div class="no-fgroup">
+            <label class="no-lbl">Dirección</label>
+            <input class="no-input" id="cli_e_direccion" value="${esc(c.cli_direccion||'')}">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button class="btn btn-dark" onclick="cli_guardarEditar(${uid})">💾 Guardar</button>
+          <button class="btn btn-mid" onclick="cli_renderDetalle(${uid}, document.getElementById('cliRight')._cliData)">Cancelar</button>
+        </div>
+        <div id="cli-edit-err-${uid}" class="no-alert-err" style="display:none;margin-top:8px;"></div>`;
+    };
+
+    window.cli_guardarEditar = async (uid) => {
+      const razon = document.getElementById('cli_e_razon')?.value.trim();
+      const tel   = document.getElementById('cli_e_tel')?.value.trim();
+      const errEl = document.getElementById(`cli-edit-err-${uid}`);
+      if (!razon || !tel) {
+        errEl.textContent = 'Razón social y teléfono son obligatorios'; errEl.style.display='block'; return;
+      }
+      errEl.style.display = 'none';
+      const body = {
+        cli_razon_social:  razon,
+        cli_telefono:      tel,
+        cli_contacto:      document.getElementById('cli_e_contacto')?.value.trim() || '',
+        cli_tel_contacto:  document.getElementById('cli_e_tel_contacto')?.value.trim() || '',
+        cli_direccion:     document.getElementById('cli_e_direccion')?.value.trim() || '',
+      };
+      const r = await fetch(`${API}/clientes/${uid}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) }).then(x=>x.json()).catch(()=>null);
+      if (!r?.success) { errEl.textContent = r?.error||'Error al guardar'; errEl.style.display='block'; return; }
+      // actualizar datos en memoria y re-renderizar
+      const right = document.getElementById('cliRight');
+      Object.assign(right._cliData.cliente, body);
+      cli_renderDetalle(uid, right._cliData);
+      showToast('Cliente actualizado');
     };
   }
 };
