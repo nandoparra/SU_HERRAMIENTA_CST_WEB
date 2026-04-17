@@ -702,7 +702,7 @@ router.get('/orders/:orderId/detalle', async (req, res) => {
     const [[ordenRow]] = await conn.execute(
       `SELECT o.uid_orden, o.ord_consecutivo, o.ord_fecha, o.ord_estado,
               o.ord_tipo, o.ord_factura, o.ord_garantia_vence,
-              c.cli_razon_social, c.cli_identificacion, c.cli_telefono, c.cli_direccion
+              c.uid_cliente, c.cli_razon_social, c.cli_identificacion, c.cli_telefono, c.cli_direccion
        FROM b2c_orden o
        JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
        WHERE o.uid_orden = ?`,
@@ -1148,6 +1148,44 @@ router.delete('/orders/fotos-trabajo/:uid_foto', async (req, res) => {
     res.json({ success: true });
   } catch (e) {
     console.error('Error eliminando foto de trabajo:', e);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// ── Agregar máquina a orden existente ────────────────────────────────────────
+router.post('/orders/:orderId/agregar-maquina', async (req, res) => {
+  try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const conn = await db.getConnection();
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
+    if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
+
+    const { uid_herramienta, observaciones } = req.body;
+    if (!uid_herramienta) { conn.release(); return res.status(400).json({ error: 'uid_herramienta requerido' }); }
+
+    // Verificar que la herramienta pertenece al tenant y no está ya en la orden
+    const [[herr]] = await conn.execute(
+      `SELECT uid_herramienta FROM b2c_herramienta WHERE uid_herramienta = ? AND tenant_id = ?`,
+      [uid_herramienta, tenantId]
+    );
+    if (!herr) { conn.release(); return res.status(404).json({ error: 'Máquina no encontrada' }); }
+
+    const [[yaEnOrden]] = await conn.execute(
+      `SELECT uid_herramienta_orden FROM b2c_herramienta_orden WHERE uid_orden = ? AND uid_herramienta = ?`,
+      [order.uid_orden, uid_herramienta]
+    );
+    if (yaEnOrden) { conn.release(); return res.status(409).json({ error: 'La máquina ya está en esta orden' }); }
+
+    await conn.execute(
+      `INSERT INTO b2c_herramienta_orden (uid_orden, uid_herramienta, hor_observaciones, her_estado, tenant_id)
+       VALUES (?, ?, ?, 'pendiente_revision', ?)`,
+      [order.uid_orden, uid_herramienta, observaciones || null, tenantId]
+    );
+    const [[ins]] = await conn.execute('SELECT LAST_INSERT_ID() AS id');
+    conn.release();
+    res.json({ success: true, uid_herramienta_orden: ins.id });
+  } catch (e) {
+    console.error('Error agregando máquina a orden:', e);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

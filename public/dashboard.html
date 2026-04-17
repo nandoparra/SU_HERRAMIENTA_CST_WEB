@@ -474,6 +474,49 @@
   </div>
 </div>
 
+<!-- Modal agregar máquina a orden existente -->
+<div id="agregarMaquinaModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);align-items:center;justify-content:center;">
+  <div style="background:#fff;width:92%;max-width:560px;border-radius:12px;overflow:hidden;">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #e5e7eb;">
+      <span style="font-weight:600;font-size:15px;">Agregar máquina a la orden</span>
+      <button onclick="ord_cerrarAgregarMaquina()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#666;">✕</button>
+    </div>
+    <div style="padding:16px;">
+      <div class="form-group">
+        <label>Seleccionar máquina del cliente</label>
+        <select id="amSelectMaquina" style="width:100%;" onchange="ord_onSelectMaquina(this)">
+          <option value="">-- Cargando... --</option>
+        </select>
+      </div>
+      <div id="amObsRow" style="display:none;" class="form-group">
+        <label>Observaciones de recepción</label>
+        <textarea id="amObservaciones" rows="3" style="width:100%;resize:vertical;" placeholder="Descripción del problema, falla reportada..."></textarea>
+      </div>
+      <div id="amNuevaForm" style="display:none;border-top:1px solid #e5e7eb;margin-top:12px;padding-top:12px;">
+        <div style="font-weight:600;margin-bottom:10px;color:#1d3557;">Nueva máquina</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="form-group"><label>Nombre <span style="color:red">*</span></label><input id="amNombre" type="text" placeholder="Ej: Taladro, Esmeril..."></div>
+          <div class="form-group"><label>Marca</label><input id="amMarca" type="text" placeholder="Bosch, DeWalt..."></div>
+          <div class="form-group"><label>Serial</label><input id="amSerial" type="text"></div>
+          <div class="form-group"><label>Referencia</label><input id="amRef" type="text"></div>
+        </div>
+        <div class="form-group">
+          <label>Observaciones de recepción</label>
+          <textarea id="amNuevaObs" rows="3" style="width:100%;resize:vertical;" placeholder="Descripción del problema..."></textarea>
+        </div>
+        <div id="amNuevaError" style="display:none;color:#c0392b;font-size:13px;margin-bottom:8px;"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:8px;flex-wrap:wrap;">
+        <button id="amBtnNueva" class="btn btn-secondary" onclick="ord_toggleNuevaMaquina()" style="display:none;">+ Crear nueva máquina</button>
+        <div style="margin-left:auto;display:flex;gap:8px;">
+          <button class="btn btn-secondary" onclick="ord_cerrarAgregarMaquina()">Cancelar</button>
+          <button id="amBtnAgregar" class="btn btn-primary" onclick="ord_confirmarAgregarMaquina()" disabled>Agregar a la orden</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = '/api';
 let _currentUser = null;
@@ -1019,13 +1062,17 @@ Views.ordenes = {
             </div>
           </div>
           <div class="card">
-            <div class="card-title">Equipos (${maquinas.length})</div>
+            <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+              <span>Equipos (${maquinas.length})</span>
+              <button class="btn btn-sm btn-primary" onclick="ord_abrirAgregarMaquina(${orden.uid_orden},${orden.uid_cliente})">+ Agregar máquina</button>
+            </div>
             ${maqHtml}
           </div>
           ${totalHtml}
           <div class="ord-acciones">
             <a class="btn btn-dark" href="${API}/orders/${orden.uid_orden}/print/orden" target="_blank">🖨️ Imprimir orden</a>
             ${orden.ord_tipo==='garantia' && orden.ord_factura ? `<a class="btn btn-teal" href="/uploads/facturas-garantia/${orden.ord_factura}" target="_blank">📄 Factura garantía</a>` : ''}
+            ${orden.ord_tipo==='garantia' && !orden.ord_factura ? `<label class="btn btn-teal" style="cursor:pointer;">📎 Adjuntar factura<input type="file" accept=".pdf" style="display:none" onchange="ord_subirFactura(${orden.uid_orden},this)"></label>` : ''}
             ${tieneCotizacion?`
             <a class="btn btn-purple" href="${API}/orders/${orden.uid_orden}/pdf/quote" target="_blank">📄 PDF Cotización</a>
             <button class="btn btn-mid" onclick="ord_enviarPDFCotWA(${orden.uid_orden},this)">📤 PDF Cotización WA</button>
@@ -1079,6 +1126,141 @@ Views.ordenes = {
       } catch(e) { alert('⚠️ '+e.message); }
       btn.disabled=false; btn.textContent=orig;
     };
+    window.ord_subirFactura = async (uidOrden, input) => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const label = input.parentElement;
+      const orig = label.childNodes[0].textContent;
+      label.childNodes[0].textContent = '⏳ Subiendo...';
+      try {
+        const fd = new FormData();
+        fd.append('factura', file);
+        const r = await fetch(`${API}/crear-orden/factura/${uidOrden}`, { method: 'POST', body: fd }).then(r=>r.json());
+        if (!r.success) throw new Error(r.error || 'Error subiendo');
+        showToast('✅ Factura adjuntada correctamente');
+        ord_verDetalle(uidOrden);
+      } catch(e) {
+        label.childNodes[0].textContent = orig;
+        showToast('⚠️ Error: ' + e.message);
+      }
+    };
+
+    // ── Modal agregar máquina ─────────────────────────────────────────────────
+    let _amUidOrden = null, _amUidCliente = null, _amModoNueva = false;
+
+    window.ord_abrirAgregarMaquina = async (uidOrden, uidCliente) => {
+      _amUidOrden = uidOrden; _amUidCliente = uidCliente; _amModoNueva = false;
+      // Resetear estado
+      document.getElementById('amNuevaForm').style.display = 'none';
+      document.getElementById('amObsRow').style.display = 'none';
+      document.getElementById('amNuevaError').style.display = 'none';
+      document.getElementById('amObservaciones').value = '';
+      document.getElementById('amNuevaObs').value = '';
+      ['amNombre','amMarca','amSerial','amRef'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('amBtnAgregar').disabled = true;
+      document.getElementById('amBtnNueva').style.display = 'none';
+      // Cargar máquinas del cliente
+      const sel = document.getElementById('amSelectMaquina');
+      sel.innerHTML = '<option value="">-- Cargando... --</option>';
+      const modal = document.getElementById('agregarMaquinaModal');
+      modal.style.display = 'flex';
+      try {
+        const maquinas = await fetch(`${API}/crear-orden/herramientas/${uidCliente}`).then(r=>r.json());
+        if (maquinas.length === 0) {
+          sel.innerHTML = '<option value="">-- Este cliente no tiene máquinas registradas --</option>';
+        } else {
+          sel.innerHTML = '<option value="">-- Seleccionar máquina --</option>' +
+            maquinas.map(m => `<option value="${m.uid_herramienta}">${m.her_nombre}${m.her_marca?' — '+m.her_marca:''}${m.her_serial?' ('+m.her_serial+')':''}</option>`).join('');
+        }
+        document.getElementById('amBtnNueva').style.display = 'inline-block';
+      } catch(e) {
+        sel.innerHTML = '<option value="">-- Error cargando máquinas --</option>';
+        document.getElementById('amBtnNueva').style.display = 'inline-block';
+      }
+    };
+
+    window.ord_cerrarAgregarMaquina = () => {
+      document.getElementById('agregarMaquinaModal').style.display = 'none';
+      _amUidOrden = null; _amUidCliente = null;
+    };
+
+    window.ord_onSelectMaquina = (sel) => {
+      const obsRow = document.getElementById('amObsRow');
+      const btn = document.getElementById('amBtnAgregar');
+      if (sel.value) {
+        obsRow.style.display = 'block';
+        btn.disabled = false;
+        _amModoNueva = false;
+      } else {
+        obsRow.style.display = 'none';
+        btn.disabled = _amModoNueva ? false : true;
+      }
+    };
+
+    window.ord_toggleNuevaMaquina = () => {
+      const form = document.getElementById('amNuevaForm');
+      const btn = document.getElementById('amBtnNueva');
+      const btnAgregar = document.getElementById('amBtnAgregar');
+      _amModoNueva = !_amModoNueva;
+      form.style.display = _amModoNueva ? 'block' : 'none';
+      btn.textContent = _amModoNueva ? '✕ Cancelar nueva' : '+ Crear nueva máquina';
+      if (_amModoNueva) {
+        document.getElementById('amSelectMaquina').value = '';
+        document.getElementById('amObsRow').style.display = 'none';
+        btnAgregar.disabled = false;
+      } else {
+        btnAgregar.disabled = true;
+      }
+    };
+
+    window.ord_confirmarAgregarMaquina = async () => {
+      const btn = document.getElementById('amBtnAgregar');
+      btn.disabled = true; btn.textContent = '⏳ Agregando...';
+      try {
+        let uidHerramienta;
+        let observaciones;
+        if (_amModoNueva) {
+          // Crear nueva máquina primero
+          const nombre = document.getElementById('amNombre').value.trim();
+          if (!nombre) {
+            document.getElementById('amNuevaError').textContent = 'El nombre de la máquina es obligatorio';
+            document.getElementById('amNuevaError').style.display = 'block';
+            btn.disabled = false; btn.textContent = 'Agregar a la orden'; return;
+          }
+          const r = await fetch(`${API}/crear-orden/herramienta`, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+              uid_cliente: _amUidCliente,
+              her_nombre: nombre,
+              her_marca: document.getElementById('amMarca').value.trim(),
+              her_serial: document.getElementById('amSerial').value.trim(),
+              her_referencia: document.getElementById('amRef').value.trim(),
+            })
+          }).then(r=>r.json());
+          if (!r.uid_herramienta) throw new Error(r.error || 'Error creando máquina');
+          uidHerramienta = r.uid_herramienta;
+          observaciones = document.getElementById('amNuevaObs').value.trim();
+        } else {
+          uidHerramienta = parseInt(document.getElementById('amSelectMaquina').value);
+          observaciones = document.getElementById('amObservaciones').value.trim();
+        }
+        const r2 = await fetch(`${API}/orders/${_amUidOrden}/agregar-maquina`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ uid_herramienta: uidHerramienta, observaciones })
+        }).then(r=>r.json());
+        if (!r2.success) throw new Error(r2.error || 'Error agregando');
+        showToast('✅ Máquina agregada a la orden');
+        ord_cerrarAgregarMaquina();
+        ord_verDetalle(_amUidOrden);
+      } catch(e) {
+        showToast('⚠️ ' + e.message);
+        btn.disabled = false; btn.textContent = 'Agregar a la orden';
+      }
+    };
+    // ─────────────────────────────────────────────────────────────────────────
+
     window.ord_enviarCotWA = async (uidOrden, btn) => {
       const orig=btn.textContent; btn.disabled=true; btn.textContent='⏳ Enviando...';
       try {
