@@ -78,7 +78,11 @@ router.get('/dashboard', async (req, res) => {
                ORDER BY h.her_nombre SEPARATOR ', '
              ) AS maquinas,
              MIN(CASE WHEN ho.hor_es_garantia=1 THEN ho.hor_garantia_vence END) AS ord_garantia_vence,
-             MAX(CASE WHEN ho.hor_es_garantia=1 AND ho.hor_garantia_factura IS NULL THEN 1 ELSE 0 END) AS sin_factura
+             CASE
+               WHEN MAX(ho.hor_es_garantia) = 1
+               THEN MAX(CASE WHEN ho.hor_es_garantia=1 AND ho.hor_garantia_factura IS NULL THEN 1 ELSE 0 END)
+               ELSE IF(MIN(o.ord_factura) IS NULL, 1, 0)
+             END AS sin_factura
       FROM b2c_orden o
       JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
       JOIN b2c_herramienta_orden ho ON ho.uid_orden = o.uid_orden
