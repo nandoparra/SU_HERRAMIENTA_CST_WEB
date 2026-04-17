@@ -56,10 +56,12 @@ routes/pdf.js                      GET descargar/POST enviar PDFs
                                      └─ /informes/:uid — requireInterno
 routes/crear-orden.js              POST crear cliente/herramienta/orden + fotos + factura garantía
                                      └─ todos los endpoints con requireInterno
-                                     └─ POST /crear-orden/factura/:uid_orden — upload PDF factura garantía → public/uploads/facturas-garantia/
+                                     └─ POST /crear-orden/factura/:uid_orden — upload PDF factura garantía nivel orden (legacy, compat)
+                                     └─ POST /crear-orden/factura-maquina/:uid_herramienta_orden — upload PDF factura por máquina
 routes/dashboard.js                KPIs + CRUD clientes, funcionarios, inventario (requireInterno)
                                      └─ GET /dashboard?mes=YYYY-MM — KPIs + alertas reparadas + revisadas sin cotizar
                                      └─ GET /clientes/search, GET /clientes/:id (incluye usu_login del usuario)
+                                     └─ PATCH /clientes/:id — editar razón social, teléfono, contacto, dirección
                                      └─ POST /clientes/:id/crear-acceso — crea usuario tipo C para cliente (solo admin)
                                      └─ GET/POST/PATCH /funcionarios, GET/POST/PATCH /inventario
                                      └─ bypass requireInterno para /cliente/mis-ordenes, /cliente/informe/, /cliente/maquina/:id/autorizar
@@ -74,7 +76,7 @@ public/dashboard.html              SPA principal — 6 vistas con sidebar respon
                                      └─ Inicio: KPIs del mes + alertas reparadas (amarillo/naranja/rojo)
                                      └─ Órdenes: migración completa de ordenes.html
                                      └─ Cotizaciones: migración completa de generador-cotizaciones.html
-                                     └─ Clientes: búsqueda + historial de órdenes
+                                     └─ Clientes: búsqueda + historial de órdenes + editar cliente (✏️ Editar inline)
                                      └─ Funcionarios: CRUD con editar nombre/rol/clave + toggle estado
                                      └─ Inventario: CRUD conceptos de costo
 public/generador-cotizaciones.html Módulo de cotizaciones standalone (sin lista de estado en panel izq.)
@@ -106,7 +108,7 @@ UPLOADS_PATH          (ruta base de uploads — en Railway: /data/uploads apunta
 ## Git — ramas
 
 ```
-main                        Estado estable — incluye multitenant + security-audit-fixes (2026-03-21)
+main                        Estado estable — incluye mejoras-ordenes (2026-04-17)
 feature/login               Login completo — pendiente merge a main
 feature/crear-orden         Módulo crear orden — pendiente merge a main
 feature/security-fixes      Correcciones de seguridad — MERGEADO a main 2026-03-11
@@ -119,10 +121,11 @@ feature/wa-plantillas       WA plantillas fijas (orden recibida + cotización co
 feature/cotizaciones-cola   Cotizaciones tab rediseñada como cola de pendientes — pendiente prueba/merge
 feature/multitenant         Arquitectura multi-tenant completa — MERGEADO a main 2026-03-21
 feature/security-audit-fixes  Auditoría SEC-001 a SEC-006 — MERGEADO a main 2026-03-21
+feature/mejoras-ordenes     Garantía por máquina + modal agregar máquina rediseñado + editar cliente — MERGEADO a main 2026-04-17
 ```
 
 Mergear en orden: login → crear-orden → wa-autorizacion → ui-fixes → dashboard → responsive → helmet-https.
-`feature/wa-plantillas`, `feature/security-fixes`, `feature/multitenant` y `feature/security-audit-fixes` ya fueron mergeados a main.
+`feature/wa-plantillas`, `feature/security-fixes`, `feature/multitenant`, `feature/security-audit-fixes` y `feature/mejoras-ordenes` ya fueron mergeados a main.
 `feature/cotizaciones-cola` pendiente de validación en Railway antes de merge.
 
 ---
@@ -238,10 +241,13 @@ estado ENUM('esperando_opcion','esperando_maquinas'), created_at). UNIQUE KEY en
 
 ### Columnas agregadas al ERP (auto-migradas en server.js al arrancar)
 - `b2c_herramienta_orden.her_estado` VARCHAR(32) DEFAULT 'pendiente_revision'
+- `b2c_herramienta_orden.hor_es_garantia` TINYINT(1) DEFAULT 0 — máquina en garantía del fabricante
+- `b2c_herramienta_orden.hor_garantia_vence` DATE NULL — fecha vencimiento garantía por máquina
+- `b2c_herramienta_orden.hor_garantia_factura` VARCHAR(255) NULL — filename PDF factura por máquina
 - `b2c_foto_herramienta_orden.fho_tipo` VARCHAR(20) DEFAULT 'recepcion'
-- `b2c_orden.ord_tipo` VARCHAR(20) DEFAULT 'normal' — valores: 'normal' | 'garantia'
-- `b2c_orden.ord_factura` VARCHAR(255) NULL — nombre de archivo del PDF de factura de compra
-- `b2c_orden.ord_garantia_vence` DATE NULL — fecha de vencimiento de garantía (obligatoria si ord_tipo='garantia')
+- `b2c_orden.ord_tipo` VARCHAR(20) DEFAULT 'normal' — valores: 'normal' | 'garantia' (auto si ≥1 máquina con hor_es_garantia=1)
+- `b2c_orden.ord_factura` VARCHAR(255) NULL — factura nivel orden (legacy, solo órdenes antiguas)
+- `b2c_orden.ord_garantia_vence` DATE NULL — legacy, no se usa en órdenes nuevas
 - `b2c_orden.ord_revision_limite` DATE NULL — fecha límite revisión interna (48h hábiles desde recepción, solo garantías)
 
 ---
@@ -249,24 +255,34 @@ estado ENUM('esperando_opcion','esperando_maquinas'), created_at). UNIQUE KEY en
 ## Órdenes de garantía
 
 Flujo especial para equipos en período de garantía del fabricante.
+Mergeado en `feature/mejoras-ordenes` → main 2026-04-17.
 
-### Creación (crear-orden.html Step 3)
-- Toggle "¿Esta orden es una garantía?" en Step 3 (Confirmar)
-- Si activado: campo fecha vencimiento (obligatorio) + upload factura PDF (opcional)
-- Validación en frontend y backend: sin fecha → 400 error
-- Factura upload: `POST /api/crear-orden/factura/:uid_orden` → `public/uploads/facturas-garantia/`
+### Garantía por máquina (sistema nuevo — desde 2026-04-17)
+Cada máquina de la orden puede ser garantía o no independientemente.
+Útil para clientes como Homecenter que traen varias máquinas con facturas distintas.
 
-### BD
-- `ord_tipo='garantia'` distingue estas órdenes
-- `ord_garantia_vence DATE` — fecha límite de la garantía
-- `ord_factura VARCHAR(255)` — filename del PDF (NULL si no se adjuntó)
+- Toggle "¿En garantía?" por máquina en el modal de agregar máquina
+- Si activado: fecha vencimiento (obligatorio, auto: hoy + 30 días hábiles) + PDF factura (opcional)
+- Factura upload por máquina: `POST /api/crear-orden/factura-maquina/:uid_herramienta_orden`
+- `ord_tipo='garantia'` se calcula automáticamente si al menos una máquina tiene `hor_es_garantia=1`
+- Mismo flujo en nueva orden (`crear-orden.html`) y al agregar máquina a orden existente
+
+### BD — por máquina
+- `hor_es_garantia TINYINT(1)` — 1 si esa máquina está en garantía
+- `hor_garantia_vence DATE` — fecha límite garantía de esa máquina
+- `hor_garantia_factura VARCHAR(255)` — filename PDF factura de esa máquina
+
+### BD — nivel orden (legacy, órdenes anteriores a 2026-04-17)
+- `ord_tipo='garantia'` — sigue siendo la forma de distinguir órdenes de garantía
+- `ord_factura VARCHAR(255)` — factura a nivel orden (solo órdenes antiguas, se conserva para compat)
+- `ord_garantia_vence DATE` — legacy, no se usa en órdenes nuevas
 
 ### Dashboard — sección "Garantías activas" en Inicio
 - Aparece solo si hay ≥1 garantía activa (ord_tipo='garantia' con alguna máquina no entregada)
 - Ordenadas por fecha de ingreso ASC (más antiguas = mayor prioridad)
-- Cada fila muestra: badge GARANTÍA, máquinas, cliente, orden, fecha vencimiento, alerta sin factura
-- Badge vencimiento: 🔴 GARANTÍA VENCIDA (pasada) | ⚠️ Vence pronto (≤7 días) | fecha normal (azul)
-- Alerta "⚠️ Sin factura adjunta" si ord_factura IS NULL
+- Cada fila muestra: badge GARANTÍA, máquinas con fecha vencimiento inline, cliente, orden, badges estado
+- Badge vencimiento: 🔴 GARANTÍA VENCIDA (pasada) | ⚠️ Vence pronto (≤7 días) | fecha normal (verde)
+- Alerta "⚠️ Sin factura adjunta": para órdenes nuevas usa `sin_factura` (MAX por máquina); para órdenes antiguas usa `ord_factura IS NULL`
 
 ### Dashboard — vista Órdenes y Mis Órdenes (técnico)
 - Función `ord_garantiaBadges(o)` — genera badges inline en result-cards
