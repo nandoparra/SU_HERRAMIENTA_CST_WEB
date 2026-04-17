@@ -189,45 +189,55 @@ router.post('/crear-orden/herramienta', async (req, res) => {
 });
 
 // ── Crear orden completa ───────────────────────────────────────────────────────
-// Body: { uid_cliente, maquinas: [{ uid_herramienta, observaciones }], es_garantia, ord_garantia_vence }
+// Body: { uid_cliente, maquinas: [{ uid_herramienta, observaciones, es_garantia, garantia_vence }] }
+// ord_tipo se calcula automáticamente: 'garantia' si alguna máquina tiene es_garantia=true
 router.post('/crear-orden/orden', async (req, res) => {
   try {
-    const { uid_cliente, maquinas, es_garantia, ord_garantia_vence } = req.body;
+    const { uid_cliente, maquinas } = req.body;
     if (!uid_cliente || !Array.isArray(maquinas) || !maquinas.length) {
       return res.status(400).json({ success: false, error: 'Cliente y al menos una máquina son requeridos' });
     }
-    if (es_garantia && !ord_garantia_vence) {
-      return res.status(400).json({ success: false, error: 'La fecha de vencimiento es obligatoria para órdenes de garantía' });
+
+    // Validar que todas las máquinas marcadas como garantía tengan fecha
+    for (const maq of maquinas) {
+      if (maq.es_garantia && !maq.garantia_vence) {
+        return res.status(400).json({ success: false, error: 'La fecha de vencimiento es obligatoria para cada máquina en garantía' });
+      }
     }
 
-    const tipo = es_garantia ? 'garantia' : 'normal';
-    const revisionLimite = es_garantia ? toISODate(addDiasHabiles(new Date(), 2)) : null;
-    const conn = await db.getConnection();
+    // ord_tipo = 'garantia' si al menos una máquina es garantía
+    const tieneGarantia = maquinas.some(m => m.es_garantia);
+    const tipo = tieneGarantia ? 'garantia' : 'normal';
+    const revisionLimite = tieneGarantia ? toISODate(addDiasHabiles(new Date(), 2)) : null;
 
     const tenantId = req.tenant?.uid_tenant ?? 1;
+    const conn = await db.getConnection();
+
     // Consecutivo siguiente (global — los consecutivos son únicos en toda la BD)
     const [[maxRow]] = await conn.execute(`SELECT COALESCE(MAX(ord_consecutivo), 0) + 1 AS next FROM b2c_orden`);
     const consecutivo = maxRow.next;
 
-    // Insertar orden
+    // Insertar orden (ord_garantia_vence en nivel orden ya no aplica — es por máquina)
     const [ordRes] = await conn.execute(
-      `INSERT INTO b2c_orden (ord_consecutivo, uid_cliente, ord_estado, ord_total, ord_impuestos, ord_valor_total, ord_fecha, ord_tipo, ord_garantia_vence, ord_revision_limite, tenant_id)
-       VALUES (?, ?, 'A', 0, 0, 0, ?, ?, ?, ?, ?)`,
-      [consecutivo, uid_cliente, fechaHoy(), tipo, ord_garantia_vence || null, revisionLimite, tenantId]
+      `INSERT INTO b2c_orden (ord_consecutivo, uid_cliente, ord_estado, ord_total, ord_impuestos, ord_valor_total, ord_fecha, ord_tipo, ord_revision_limite, tenant_id)
+       VALUES (?, ?, 'A', 0, 0, 0, ?, ?, ?, ?)`,
+      [consecutivo, uid_cliente, fechaHoy(), tipo, revisionLimite, tenantId]
     );
     const uid_orden = ordRes.insertId;
 
-    // Insertar máquinas en la orden
+    // Insertar máquinas en la orden con campos de garantía por máquina
     const herramientasCreadas = [];
     for (const maq of maquinas) {
+      const esGarantia = maq.es_garantia ? 1 : 0;
       const [hRes] = await conn.execute(
-        `INSERT INTO b2c_herramienta_orden (uid_orden, uid_herramienta, hor_observaciones, her_estado, tenant_id)
-         VALUES (?, ?, ?, 'pendiente_revision', ?)`,
-        [uid_orden, maq.uid_herramienta, maq.observaciones || null, tenantId]
+        `INSERT INTO b2c_herramienta_orden (uid_orden, uid_herramienta, hor_observaciones, her_estado, hor_es_garantia, hor_garantia_vence, tenant_id)
+         VALUES (?, ?, ?, 'pendiente_revision', ?, ?, ?)`,
+        [uid_orden, maq.uid_herramienta, maq.observaciones || null, esGarantia, maq.garantia_vence || null, tenantId]
       );
       herramientasCreadas.push({
         uid_herramienta_orden: hRes.insertId,
         uid_herramienta: maq.uid_herramienta,
+        es_garantia: esGarantia,
       });
     }
 
@@ -259,7 +269,7 @@ router.post('/crear-orden/foto/:herramientaOrdenId', upload.single('foto'), asyn
   }
 });
 
-// ── Subir factura de garantía (PDF) ───────────────────────────────────────────
+// ── Subir factura de garantía nivel orden (PDF) — legacy, mantener para compat ─
 router.post('/crear-orden/factura/:uid_orden', uploadFactura.single('factura'), async (req, res) => {
   try {
     const { uid_orden } = req.params;
@@ -273,6 +283,39 @@ router.post('/crear-orden/factura/:uid_orden', uploadFactura.single('factura'), 
     );
     conn.release();
     res.json({ success: true, filename: req.file.filename });
+  } catch (e) {
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
+  }
+});
+
+// ── Subir factura de garantía por máquina (PDF) ───────────────────────────────
+// Guarda el PDF y actualiza hor_garantia_factura en b2c_herramienta_orden
+router.post('/crear-orden/factura-maquina/:uid_herramienta_orden', uploadFactura.single('factura'), async (req, res) => {
+  try {
+    const { uid_herramienta_orden } = req.params;
+    if (!req.file) return res.status(400).json({ success: false, error: 'No se recibió ningún PDF' });
+
+    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const conn = await db.getConnection();
+
+    // Validar que la herramienta_orden pertenece al tenant
+    const [[row]] = await conn.execute(
+      `SELECT ho.uid_herramienta_orden FROM b2c_herramienta_orden ho
+       JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
+       WHERE ho.uid_herramienta_orden = ? AND o.tenant_id = ?`,
+      [uid_herramienta_orden, tenantId]
+    );
+    if (!row) {
+      conn.release();
+      return res.status(404).json({ success: false, error: 'Máquina no encontrada' });
+    }
+
+    await conn.execute(
+      `UPDATE b2c_herramienta_orden SET hor_garantia_factura = ? WHERE uid_herramienta_orden = ?`,
+      [req.file.filename, uid_herramienta_orden]
+    );
+    conn.release();
+    res.json({ success: true, filename: req.file.filename, url: `/uploads/facturas-garantia/${req.file.filename}` });
   } catch (e) {
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }

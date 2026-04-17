@@ -43,6 +43,24 @@ const uploadFoto = multer({
   },
 });
 
+const facturaStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(UPLOADS_DIR, 'facturas-garantia');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, `factura_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
+  },
+});
+const uploadFactura = multer({
+  storage: facturaStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    file.mimetype === 'application/pdf' ? cb(null, true) : cb(new Error('Solo PDF'));
+  },
+});
+
 const ESTADOS_VALIDOS = [
   'pendiente_revision',
   'revisada',
@@ -702,7 +720,7 @@ router.get('/orders/:orderId/detalle', async (req, res) => {
     const [[ordenRow]] = await conn.execute(
       `SELECT o.uid_orden, o.ord_consecutivo, o.ord_fecha, o.ord_estado,
               o.ord_tipo, o.ord_factura, o.ord_garantia_vence,
-              c.cli_razon_social, c.cli_identificacion, c.cli_telefono, c.cli_direccion
+              c.uid_cliente, c.cli_razon_social, c.cli_identificacion, c.cli_telefono, c.cli_direccion
        FROM b2c_orden o
        JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
        WHERE o.uid_orden = ?`,
@@ -712,6 +730,7 @@ router.get('/orders/:orderId/detalle', async (req, res) => {
     // Máquinas con observaciones
     const [maquinas] = await conn.execute(
       `SELECT ho.uid_herramienta_orden, ho.her_estado, ho.hor_observaciones,
+              ho.hor_es_garantia, ho.hor_garantia_vence, ho.hor_garantia_factura,
               h.uid_herramienta, h.her_nombre, h.her_marca, h.her_serial, h.her_referencia
        FROM b2c_herramienta_orden ho
        JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
@@ -1148,6 +1167,82 @@ router.delete('/orders/fotos-trabajo/:uid_foto', async (req, res) => {
     res.json({ success: true });
   } catch (e) {
     console.error('Error eliminando foto de trabajo:', e);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// ── Subir factura de garantía por máquina (desde detalle de orden) ────────────
+router.post('/orders/:orderId/factura-maquina/:uid_herramienta_orden', uploadFactura.single('factura'), async (req, res) => {
+  try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const conn = await db.getConnection();
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
+    if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
+    if (!req.file) { conn.release(); return res.status(400).json({ error: 'No se recibió ningún PDF' }); }
+
+    const { uid_herramienta_orden } = req.params;
+    const [[row]] = await conn.execute(
+      `SELECT uid_herramienta_orden FROM b2c_herramienta_orden WHERE uid_herramienta_orden = ? AND uid_orden = ?`,
+      [uid_herramienta_orden, order.uid_orden]
+    );
+    if (!row) { conn.release(); return res.status(404).json({ error: 'Máquina no encontrada en esta orden' }); }
+
+    await conn.execute(
+      `UPDATE b2c_herramienta_orden SET hor_garantia_factura = ? WHERE uid_herramienta_orden = ?`,
+      [req.file.filename, uid_herramienta_orden]
+    );
+    conn.release();
+    res.json({ success: true, filename: req.file.filename, url: `/uploads/facturas-garantia/${req.file.filename}` });
+  } catch (e) {
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// ── Agregar máquina a orden existente ────────────────────────────────────────
+router.post('/orders/:orderId/agregar-maquina', async (req, res) => {
+  try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const conn = await db.getConnection();
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
+    if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
+
+    const { uid_herramienta, observaciones, es_garantia, garantia_vence } = req.body;
+    if (!uid_herramienta) { conn.release(); return res.status(400).json({ error: 'uid_herramienta requerido' }); }
+    if (es_garantia && !garantia_vence) { conn.release(); return res.status(400).json({ error: 'La fecha de vencimiento es obligatoria para máquinas en garantía' }); }
+
+    // Verificar que la herramienta pertenece al tenant y no está ya en la orden
+    const [[herr]] = await conn.execute(
+      `SELECT uid_herramienta FROM b2c_herramienta WHERE uid_herramienta = ? AND tenant_id = ?`,
+      [uid_herramienta, tenantId]
+    );
+    if (!herr) { conn.release(); return res.status(404).json({ error: 'Máquina no encontrada' }); }
+
+    const [[yaEnOrden]] = await conn.execute(
+      `SELECT uid_herramienta_orden FROM b2c_herramienta_orden WHERE uid_orden = ? AND uid_herramienta = ?`,
+      [order.uid_orden, uid_herramienta]
+    );
+    if (yaEnOrden) { conn.release(); return res.status(409).json({ error: 'La máquina ya está en esta orden' }); }
+
+    const esGarantia = es_garantia ? 1 : 0;
+    await conn.execute(
+      `INSERT INTO b2c_herramienta_orden (uid_orden, uid_herramienta, hor_observaciones, her_estado, hor_es_garantia, hor_garantia_vence, tenant_id)
+       VALUES (?, ?, ?, 'pendiente_revision', ?, ?, ?)`,
+      [order.uid_orden, uid_herramienta, observaciones || null, esGarantia, garantia_vence || null, tenantId]
+    );
+    const [[ins]] = await conn.execute('SELECT LAST_INSERT_ID() AS id');
+
+    // Si la máquina es garantía y la orden aún no lo es, actualizar ord_tipo
+    if (esGarantia) {
+      await conn.execute(
+        `UPDATE b2c_orden SET ord_tipo = 'garantia' WHERE uid_orden = ? AND ord_tipo != 'garantia'`,
+        [order.uid_orden]
+      );
+    }
+
+    conn.release();
+    res.json({ success: true, uid_herramienta_orden: ins.id, es_garantia: esGarantia });
+  } catch (e) {
+    console.error('Error agregando máquina a orden:', e);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

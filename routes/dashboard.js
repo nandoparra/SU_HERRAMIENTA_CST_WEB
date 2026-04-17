@@ -68,12 +68,17 @@ router.get('/dashboard', async (req, res) => {
       ORDER BY o.ord_fecha ASC
     `, [tenantId]);
 
-    // Garantías activas (todas las órdenes de garantía no entregadas)
+    // Garantías activas (órdenes con al menos una máquina en garantía no entregada)
     const [garantiasActivas] = await conn.execute(`
-      SELECT o.uid_orden, o.ord_consecutivo, o.ord_fecha, o.ord_factura,
-             o.ord_garantia_vence, o.ord_revision_limite,
+      SELECT o.uid_orden, o.ord_consecutivo, o.ord_fecha, o.ord_revision_limite,
              COALESCE(c.cli_razon_social, c.cli_contacto, '') AS cliente,
-             GROUP_CONCAT(h.her_nombre ORDER BY h.her_nombre SEPARATOR ', ') AS maquinas
+             GROUP_CONCAT(
+               CONCAT(h.her_nombre, IF(ho.hor_es_garantia=1 AND ho.hor_garantia_vence IS NOT NULL,
+                 CONCAT(' (vence:', DATE_FORMAT(ho.hor_garantia_vence,'%d/%m/%y'), ')'), ''))
+               ORDER BY h.her_nombre SEPARATOR ', '
+             ) AS maquinas,
+             MIN(CASE WHEN ho.hor_es_garantia=1 THEN ho.hor_garantia_vence END) AS ord_garantia_vence,
+             MAX(CASE WHEN ho.hor_es_garantia=1 AND ho.hor_garantia_factura IS NULL THEN 1 ELSE 0 END) AS sin_factura
       FROM b2c_orden o
       JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
       JOIN b2c_herramienta_orden ho ON ho.uid_orden = o.uid_orden

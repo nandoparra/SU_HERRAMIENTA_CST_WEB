@@ -428,6 +428,24 @@ async function ensureSessionTable() {
   }
 }
 
+async function ensureGarantiaColumns() {
+  const conn = await db.getConnection();
+  const cols = [
+    ['hor_es_garantia',      'TINYINT(1) NOT NULL DEFAULT 0'],
+    ['hor_garantia_vence',   'DATE NULL'],
+    ['hor_garantia_factura', 'VARCHAR(255) NULL'],
+  ];
+  for (const [col, def] of cols) {
+    try {
+      await conn.execute(`ALTER TABLE b2c_herramienta_orden ADD COLUMN ${col} ${def}`);
+    } catch (e) {
+      if (e.code !== 'ER_DUP_FIELDNAME') console.warn(`⚠️ ${col}:`, e.message);
+    }
+  }
+  conn.release();
+  console.log('✅ Columnas garantía por máquina verificadas');
+}
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {
   console.log(`✅ Servidor corriendo en http://localhost:${PORT}`);
@@ -438,5 +456,6 @@ app.listen(PORT, async () => {
   await ensureQuoteTables();
   await ensureStatusTables();
   await ensureTenantColumns();  // Fase 1b — tenant_id en todas las tablas
+  await ensureGarantiaColumns(); // garantía por máquina
   initTenantClient(1); // inicializa cliente WA del tenant por defecto
 });
