@@ -4,8 +4,8 @@ const router = express.Router();
 const db = require('../utils/db');
 const path = require('path');
 const fs   = require('fs');
-const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { UPLOADS_DIR } = require('../utils/uploads');
+const { enviarListaRepuestos } = require('../utils/repuestos-notifier');
 
 // Rutas de portal cliente — NO requieren requireInterno (tipo C).
 // Este router se monta ANTES de orders.js en server.js para que las rutas /cliente/*
@@ -203,45 +203,11 @@ router.patch('/cliente/maquina/:uid_herramienta_orden/autorizar', async (req, re
 
     if (decision === 'autorizada') {
       try {
-        const partsNumber = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
-        if (partsNumber && isReady(tenantId)) {
-          const [[orderRow]] = await conn.execute(
-            `SELECT ord_consecutivo FROM b2c_orden WHERE uid_orden = ?`,
-            [maq.uid_orden]
-          );
-          const [maquinas] = await conn.execute(
-            `SELECT ho.uid_herramienta_orden, h.her_nombre, h.her_marca, h.her_serial
-             FROM b2c_herramienta_orden ho
-             JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
-             WHERE ho.uid_orden = ? AND ho.her_estado = 'autorizada'
-             ORDER BY ho.uid_herramienta_orden`,
-            [maq.uid_orden]
-          );
-          if (maquinas.length) {
-            const bloques = await Promise.all(maquinas.map(async (maq2) => {
-              const [items] = await conn.execute(
-                `SELECT nombre, cantidad FROM b2c_cotizacion_item WHERE uid_herramienta_orden = ? ORDER BY id`,
-                [maq2.uid_herramienta_orden]
-              );
-              const nombre = [maq2.her_nombre, maq2.her_marca].filter(Boolean).join(' ');
-              const serial = maq2.her_serial ? ` / S/N: ${maq2.her_serial}` : '';
-              const lineas = items.length
-                ? items.map(i => `  • ${i.cantidad}x ${i.nombre}`).join('\n')
-                : '  (solo mano de obra)';
-              return `*${nombre}*${serial}\n${lineas}`;
-            }));
-            const msg =
-              `🔧 *REPUESTOS AUTORIZADOS*\n` +
-              `Orden #${orderRow?.ord_consecutivo || maq.uid_orden}\n\n` +
-              bloques.join('\n\n') +
-              `\n\n— SU HERRAMIENTA CST`;
-            let phone = partsNumber;
-            if (!phone.startsWith('57')) phone = '57' + phone.slice(-10);
-            await sendWAMessage(tenantId, `${phone}@c.us`, msg);
-          }
-        } else {
-          console.warn('⚠️ orders-cliente: WA no listo o PARTS_WHATSAPP_NUMBER no configurado, se omite notificación');
-        }
+        const [[orderRow]] = await conn.execute(
+          `SELECT ord_consecutivo FROM b2c_orden WHERE uid_orden = ?`,
+          [maq.uid_orden]
+        );
+        await enviarListaRepuestos(conn, tenantId, maq.uid_orden, orderRow?.ord_consecutivo || maq.uid_orden);
       } catch (waErr) {
         console.warn('⚠️ orders-cliente: error enviando lista de repuestos por WA (autorización guardada):', waErr.message);
       }
