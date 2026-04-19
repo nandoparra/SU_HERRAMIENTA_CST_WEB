@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
 const { requireInterno } = require('../middleware/auth');
@@ -7,6 +8,16 @@ const { requireInterno } = require('../middleware/auth');
 // Todos los endpoints de cotización son exclusivamente internos (admin/F/T).
 // El portal cliente recibe datos de cotización a través de /api/cliente/mis-ordenes.
 router.use(requireInterno);
+
+// Máximo 60 guardados de cotización por usuario por minuto — bloquea automatización abusiva
+const quoteSaveLimiter = rateLimit({
+  windowMs:        60 * 1000,
+  max:             60,
+  keyGenerator:    (req) => String(req.session?.user?.uid_usuario || req.ip),
+  message:         { success: false, error: 'Demasiadas cotizaciones en poco tiempo. Espere un momento.' },
+  standardHeaders: true,
+  legacyHeaders:   false,
+});
 
 // Catálogo de repuestos
 router.get('/quote/catalog', async (req, res) => {
@@ -76,7 +87,7 @@ router.get('/quotes/machine', async (req, res) => {
 });
 
 // POST guardar cotización de una máquina
-router.post('/quotes/machine', async (req, res) => {
+router.post('/quotes/machine', quoteSaveLimiter, async (req, res) => {
   try {
     const { orderId, equipmentOrderId, technicianId, laborCost, workDescription, items } = req.body;
 
