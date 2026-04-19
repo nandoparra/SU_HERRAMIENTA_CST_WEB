@@ -11,6 +11,23 @@ router.use((req, res, next) => {
   return requireInterno(req, res, next);
 });
 
+// ── Config: estados de máquina ────────────────────────────────────────────────
+// Única fuente de verdad para labels, colores y orden de estados.
+// El frontend puede cachear esto en sessionStorage para evitar roundtrips.
+const ESTADOS_MAQUINA = [
+  { value: 'pendiente_revision', label: 'Pendiente de revisión', color: '#888888' },
+  { value: 'revisada',           label: 'Revisada',              color: '#2196F3' },
+  { value: 'cotizada',           label: 'Cotizada',              color: '#FF9800' },
+  { value: 'autorizada',         label: 'Autorizada',            color: '#4CAF50' },
+  { value: 'no_autorizada',      label: 'No autorizada',         color: '#F44336' },
+  { value: 'reparada',           label: 'Reparada',              color: '#9C27B0' },
+  { value: 'entregada',          label: 'Entregada',             color: '#009688' },
+];
+
+router.get('/config/estados', (req, res) => {
+  res.json(ESTADOS_MAQUINA);
+});
+
 // ── Dashboard KPIs ─────────────────────────────────────────────────────────────
 router.get('/dashboard', async (req, res) => {
   try {
