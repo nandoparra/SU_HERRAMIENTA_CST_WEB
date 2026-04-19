@@ -115,6 +115,7 @@ app.use('/api', requireLogin);
 
 // Rutas modulares
 app.use('/api', require('./routes/dashboard'));
+app.use('/api', require('./routes/orders-notificaciones'));
 app.use('/api', require('./routes/orders'));
 app.use('/api', require('./routes/quote'));
 app.use('/api', require('./routes/whatsapp'));
