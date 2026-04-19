@@ -117,6 +117,7 @@ app.use('/api', requireLogin);
 app.use('/api', require('./routes/dashboard'));
 app.use('/api', require('./routes/orders-notificaciones'));
 app.use('/api', require('./routes/orders-fotos'));
+app.use('/api', require('./routes/orders-cliente')); // portal cliente — montado antes de orders.js para evitar requireInterno
 app.use('/api', require('./routes/orders'));
 app.use('/api', require('./routes/quote'));
 app.use('/api', require('./routes/whatsapp'));
