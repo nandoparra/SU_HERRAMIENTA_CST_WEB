@@ -1,11 +1,22 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
 const { isReady, sendWAMessage, getLastQR } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 const QRCode = require('qrcode');
 const { requireInterno } = require('../middleware/auth');
+
+// Máximo 10 envíos WA por usuario cada 5 minutos — evita spam masivo a clientes
+const waLimiter = rateLimit({
+  windowMs:        5 * 60 * 1000,
+  max:             10,
+  keyGenerator:    (req) => String(req.session?.user?.uid_usuario || req.ip),
+  message:         { success: false, error: 'Demasiados envíos de WhatsApp. Espere unos minutos.' },
+  standardHeaders: true,
+  legacyHeaders:   false,
+});
 
 // Mostrar QR para escanear desde el navegador (solo internos)
 router.get('/whatsapp/qr', requireInterno, async (req, res) => {
@@ -28,7 +39,7 @@ router.get('/whatsapp/qr', requireInterno, async (req, res) => {
 });
 
 // Enviar WhatsApp usando el mensaje guardado de la orden
-router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, async (req, res) => {
+router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, waLimiter, async (req, res) => {
   try {
     const tenantId = req.tenant?.uid_tenant ?? 1;
     if (!isReady(tenantId)) {
@@ -86,7 +97,7 @@ router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, async (req, 
 });
 
 // Envío genérico de WhatsApp
-router.post('/whatsapp/send', requireInterno, async (req, res) => {
+router.post('/whatsapp/send', requireInterno, waLimiter, async (req, res) => {
   try {
     const { orderId, message } = req.body;
 

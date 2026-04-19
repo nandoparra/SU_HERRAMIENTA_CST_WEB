@@ -1,6 +1,7 @@
 'use strict';
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
 const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
@@ -9,8 +10,18 @@ const { requireInterno } = require('../middleware/auth');
 
 router.use(requireInterno);
 
+// Máximo 20 notificaciones WA por usuario por minuto — cubre trabajo normal con múltiples órdenes
+const notifyLimiter = rateLimit({
+  windowMs:        60 * 1000,
+  max:             20,
+  keyGenerator:    (req) => String(req.session?.user?.uid_usuario || req.ip),
+  message:         { success: false, error: 'Demasiadas notificaciones. Espere un momento.' },
+  standardHeaders: true,
+  legacyHeaders:   false,
+});
+
 // Enviar lista consolidada de repuestos (máquinas autorizadas) al encargado
-router.post('/orders/:orderId/notify-parts', async (req, res) => {
+router.post('/orders/:orderId/notify-parts', notifyLimiter, async (req, res) => {
   try {
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
@@ -66,7 +77,7 @@ router.post('/orders/:orderId/notify-parts', async (req, res) => {
 });
 
 // Notificar al cliente que sus máquinas están reparadas
-router.post('/orders/:orderId/notify-ready', async (req, res) => {
+router.post('/orders/:orderId/notify-ready', notifyLimiter, async (req, res) => {
   try {
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
@@ -111,7 +122,7 @@ router.post('/orders/:orderId/notify-ready', async (req, res) => {
 });
 
 // Confirmar entrega al cliente
-router.post('/orders/:orderId/notify-delivered', async (req, res) => {
+router.post('/orders/:orderId/notify-delivered', notifyLimiter, async (req, res) => {
   try {
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
