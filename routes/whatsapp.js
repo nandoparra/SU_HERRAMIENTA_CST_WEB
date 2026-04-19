@@ -16,6 +16,7 @@ const waLimiter = rateLimit({
   message:         { success: false, error: 'Demasiados envíos de WhatsApp. Espere unos minutos.' },
   standardHeaders: true,
   legacyHeaders:   false,
+  validate:        { keyGeneratorIpFallback: false },
 });
 
 // Mostrar QR para escanear desde el navegador (solo internos)

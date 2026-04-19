@@ -7,6 +7,7 @@ const { resolveOrder } = require('../utils/schema');
 const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 const { requireInterno } = require('../middleware/auth');
+const { enviarListaRepuestos } = require('../utils/repuestos-notifier');
 
 router.use(requireInterno);
 
@@ -18,6 +19,7 @@ const notifyLimiter = rateLimit({
   message:         { success: false, error: 'Demasiadas notificaciones. Espere un momento.' },
   standardHeaders: true,
   legacyHeaders:   false,
+  validate:        { keyGeneratorIpFallback: false },
 });
 
 // Enviar lista consolidada de repuestos (máquinas autorizadas) al encargado
@@ -29,44 +31,9 @@ router.post('/orders/:orderId/notify-parts', notifyLimiter, async (req, res) => 
       const order = await resolveOrder(conn, req.params.orderId, tenantId);
       if (!order) return res.status(404).json({ success: false, error: 'Orden no encontrada' });
 
-      const partsNumber = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
-      if (!partsNumber) return res.status(400).json({ success: false, error: 'PARTS_WHATSAPP_NUMBER no configurado en .env' });
-      if (!isReady(tenantId)) return res.status(400).json({ success: false, error: 'WhatsApp no está conectado' });
-
-      const [maquinas] = await conn.execute(`
-        SELECT ho.uid_herramienta_orden, h.her_nombre, h.her_marca, h.her_serial
-        FROM b2c_herramienta_orden ho
-        JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
-        WHERE ho.uid_orden = ? AND ho.her_estado = 'autorizada'
-        ORDER BY ho.uid_herramienta_orden
-      `, [order.uid_orden]);
-
-      if (!maquinas.length) return res.status(400).json({ success: false, error: 'No hay máquinas con estado "autorizada" en esta orden' });
-
-      const bloques = await Promise.all(maquinas.map(async (maq) => {
-        const [items] = await conn.execute(
-          `SELECT nombre, cantidad FROM b2c_cotizacion_item WHERE uid_herramienta_orden = ? ORDER BY id`,
-          [maq.uid_herramienta_orden]
-        );
-        const nombre = [maq.her_nombre, maq.her_marca].filter(Boolean).join(' ');
-        const serial = maq.her_serial ? ` / S/N: ${maq.her_serial}` : '';
-        const lineas = items.length
-          ? items.map(i => `  • ${i.cantidad}x ${i.nombre}`).join('\n')
-          : '  (solo mano de obra)';
-        return `*${nombre}*${serial}\n${lineas}`;
-      }));
-
-      const msg =
-        `🔧 *REPUESTOS AUTORIZADOS*\n` +
-        `Orden #${order.ord_consecutivo}\n\n` +
-        bloques.join('\n\n') +
-        `\n\n— SU HERRAMIENTA CST`;
-
-      let phone = partsNumber;
-      if (!phone.startsWith('57')) phone = '57' + phone.slice(-10);
-      await sendWAMessage(tenantId, `${phone}@c.us`, msg);
-
-      res.json({ success: true, maquinas: maquinas.length });
+      const result = await enviarListaRepuestos(conn, tenantId, order.uid_orden, order.ord_consecutivo);
+      if (!result.sent) return res.status(400).json({ success: false, error: result.reason });
+      res.json({ success: true, maquinas: result.maquinas });
     } finally {
       conn.release();
     }

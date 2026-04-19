@@ -17,6 +17,7 @@ const quoteSaveLimiter = rateLimit({
   message:         { success: false, error: 'Demasiadas cotizaciones en poco tiempo. Espere un momento.' },
   standardHeaders: true,
   legacyHeaders:   false,
+  validate:        { keyGeneratorIpFallback: false },
 });
 
 // Catálogo de repuestos
