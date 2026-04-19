@@ -33,58 +33,52 @@ router.post('/login', loginLimiter, async (req, res) => {
 
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
-    const [[user]] = await conn.execute(
-      `SELECT uid_usuario, usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado
-       FROM b2c_usuario
-       WHERE usu_login = ? AND tenant_id = ? LIMIT 1`,
-      [username.trim(), tenantId]
-    );
-
-    if (!user) {
-      conn.release();
-      return res.status(401).json({ success: false, error: 'Usuario o contraseña incorrectos' });
-    }
-
-    if (user.usu_estado !== 'A') {
-      conn.release();
-      return res.status(401).json({ success: false, error: 'Usuario inactivo' });
-    }
-
-    // Verificar contraseña — bcrypt o texto plano (migración lazy)
-    let passwordOk = false;
-    const storedClave = String(user.usu_clave || '');
-
-    if (storedClave.startsWith('$2b$') || storedClave.startsWith('$2a$')) {
-      // Ya está hasheada
-      passwordOk = await bcrypt.compare(password, storedClave);
-    } else {
-      // Texto plano → comparar y migrar
-      passwordOk = storedClave === password;
-      if (passwordOk) {
-        const hash = await bcrypt.hash(password, 10);
-        await conn.execute(
-          `UPDATE b2c_usuario SET usu_clave = ? WHERE uid_usuario = ?`,
-          [hash, user.uid_usuario]
-        );
-      }
-    }
-
-    if (!passwordOk) {
-      conn.release();
-      return res.status(401).json({ success: false, error: 'Usuario o contraseña incorrectos' });
-    }
-
-    // Lock del slug tras el primer login exitoso del tenant
-    if (req.tenant && !req.tenant.ten_slug_locked) {
-      await conn.execute(
-        `UPDATE b2c_tenant SET ten_slug_locked = 1 WHERE uid_tenant = ?`,
-        [tenantId]
+    let userResult;
+    try {
+      const [[user]] = await conn.execute(
+        `SELECT uid_usuario, usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado
+         FROM b2c_usuario
+         WHERE usu_login = ? AND tenant_id = ? LIMIT 1`,
+        [username.trim(), tenantId]
       );
-      invalidateTenantCache(req.hostname);
+
+      if (!user) return res.status(401).json({ success: false, error: 'Usuario o contraseña incorrectos' });
+      if (user.usu_estado !== 'A') return res.status(401).json({ success: false, error: 'Usuario inactivo' });
+
+      // Verificar contraseña — bcrypt o texto plano (migración lazy)
+      let passwordOk = false;
+      const storedClave = String(user.usu_clave || '');
+
+      if (storedClave.startsWith('$2b$') || storedClave.startsWith('$2a$')) {
+        passwordOk = await bcrypt.compare(password, storedClave);
+      } else {
+        passwordOk = storedClave === password;
+        if (passwordOk) {
+          const hash = await bcrypt.hash(password, 10);
+          await conn.execute(
+            `UPDATE b2c_usuario SET usu_clave = ? WHERE uid_usuario = ?`,
+            [hash, user.uid_usuario]
+          );
+        }
+      }
+
+      if (!passwordOk) return res.status(401).json({ success: false, error: 'Usuario o contraseña incorrectos' });
+
+      // Lock del slug tras el primer login exitoso del tenant
+      if (req.tenant && !req.tenant.ten_slug_locked) {
+        await conn.execute(
+          `UPDATE b2c_tenant SET ten_slug_locked = 1 WHERE uid_tenant = ?`,
+          [tenantId]
+        );
+        invalidateTenantCache(req.hostname);
+      }
+
+      userResult = user;
+    } finally {
+      conn.release();
     }
 
-    conn.release();
-
+    const user = userResult;
     const tipo = String(user.usu_tipo || '').toUpperCase();
     req.session.user = {
       id:        user.uid_usuario,
