@@ -2555,6 +2555,7 @@ Views.nuevaOrden = {
         if (errEl) { errEl.textContent = res.error||'Error'; errEl.style.display = 'block'; }
         return;
       }
+      if (res.clave_acceso) alert(`✅ Cliente creado.\n\nClave de acceso al portal: ${res.clave_acceso}\n\nAnótela — no se volverá a mostrar.`);
       no_clientMap[res.cliente.uid_cliente] = res.cliente;
       window.no_seleccionarCliente(res.cliente.uid_cliente);
       const f = document.getElementById('no_newClientForm');

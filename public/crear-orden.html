@@ -438,6 +438,7 @@ async function crearCliente() {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
   }).then(r => r.json());
   if (!res.success) { errEl.textContent = res.error; errEl.style.display = 'block'; return; }
+  if (res.clave_acceso) alert(`✅ Cliente creado.\n\nClave de acceso al portal: ${res.clave_acceso}\n\nAnótela — no se volverá a mostrar.`);
   clientMap[res.cliente.uid_cliente] = res.cliente;
   seleccionarCliente(res.cliente.uid_cliente);
   document.getElementById('newClientForm').style.display = 'none';

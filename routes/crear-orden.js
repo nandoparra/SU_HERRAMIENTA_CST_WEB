@@ -109,7 +109,7 @@ router.post('/crear-orden/cliente', async (req, res) => {
       return res.status(400).json({ success: false, error: `Ya existe un cliente con identificación ${cli_identificacion}` });
     }
 
-    const claveRaw = clave || String(cli_identificacion).slice(-4);
+    const claveRaw = clave || require('crypto').randomBytes(4).toString('hex'); // 8 hex chars aleatorios
     const hash = await bcrypt.hash(claveRaw, 10);
 
     // Crear usuario
@@ -130,6 +130,7 @@ router.post('/crear-orden/cliente', async (req, res) => {
     conn.release();
     res.json({
       success: true,
+      clave_acceso: clave ? null : claveRaw, // solo se devuelve si fue autogenerada
       cliente: {
         uid_cliente: cRes.insertId,
         cli_identificacion,
