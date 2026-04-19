@@ -9,6 +9,13 @@ const fs      = require('fs');
 const { requireInterno } = require('../middleware/auth');
 const { addDiasHabiles, toISODate } = require('../utils/dias-habiles');
 const UPLOADS_DIR = require('../utils/uploads');
+const { fileTypeFromFile } = require('file-type');
+
+async function checkMagicBytes(filePath, allowed) {
+  const result = await fileTypeFromFile(filePath).catch(() => null);
+  const ok = result && allowed.some(a => result.mime === a || result.mime.startsWith(a));
+  if (!ok) { try { fs.unlinkSync(filePath); } catch (_) {} throw new Error('Tipo de archivo no permitido'); }
+}
 
 // Todas las rutas de crear-orden requieren rol interno
 router.use(requireInterno);
@@ -255,7 +262,7 @@ router.post('/crear-orden/foto/:herramientaOrdenId', upload.single('foto'), asyn
   try {
     const { herramientaOrdenId } = req.params;
     if (!req.file) return res.status(400).json({ success: false, error: 'No se recibió ninguna imagen' });
-
+    await checkMagicBytes(req.file.path, ['image/']);
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     await conn.execute(
@@ -275,7 +282,7 @@ router.post('/crear-orden/factura/:uid_orden', uploadFactura.single('factura'), 
   try {
     const { uid_orden } = req.params;
     if (!req.file) return res.status(400).json({ success: false, error: 'No se recibió ningún PDF' });
-
+    await checkMagicBytes(req.file.path, ['application/pdf']);
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     await conn.execute(
@@ -295,7 +302,7 @@ router.post('/crear-orden/factura-maquina/:uid_herramienta_orden', uploadFactura
   try {
     const { uid_herramienta_orden } = req.params;
     if (!req.file) return res.status(400).json({ success: false, error: 'No se recibió ningún PDF' });
-
+    await checkMagicBytes(req.file.path, ['application/pdf']);
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
 
