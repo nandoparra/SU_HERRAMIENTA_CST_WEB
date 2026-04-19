@@ -6,9 +6,11 @@ const pool = mysql.createPool({
   user:     process.env.DB_USER,
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME,
+  charset:            'utf8mb4',
+  connectTimeout:     10000,  // 10 s — falla explícitamente si MySQL no responde en lugar de colgar
   waitForConnections: true,
-  connectionLimit: 5,
-  queueLimit: 0,
+  connectionLimit:    5,
+  queueLimit:         0,
 });
 
 module.exports = pool;
