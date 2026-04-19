@@ -315,6 +315,7 @@
 
 <script>
 const API = '/api';
+const esc = s => String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let clienteSeleccionado = null;
 let maquinasEnOrden = []; // [{ uid_herramienta, her_nombre, her_marca, her_serial, observaciones, fotos:[] }]
 let ordenCreada = null;
@@ -477,7 +478,7 @@ async function abrirModalMaquina() {
     sel.innerHTML = '<option value="">-- Seleccionar máquina --</option>' +
       data.map(h => {
         const yaAgregada = maquinasEnOrden.find(m => m.uid_herramienta === h.uid_herramienta);
-        return `<option value="${h.uid_herramienta}" ${yaAgregada ? 'disabled' : ''}>${h.her_nombre}${h.her_marca ? ' — '+h.her_marca : ''}${h.her_serial ? ' ('+h.her_serial+')' : ''}${yaAgregada ? ' ✓ ya en orden' : ''}</option>`;
+        return `<option value="${h.uid_herramienta}" ${yaAgregada ? 'disabled' : ''}>${esc(h.her_nombre)}${h.her_marca ? ' — '+esc(h.her_marca) : ''}${h.her_serial ? ' ('+esc(h.her_serial)+')' : ''}${yaAgregada ? ' ✓ ya en orden' : ''}</option>`;
       }).join('');
   }
 }
