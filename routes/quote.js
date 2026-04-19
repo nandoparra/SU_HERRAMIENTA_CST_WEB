@@ -43,6 +43,13 @@ router.get('/quotes/machine', async (req, res) => {
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     try {
+      const [[machineInOrder]] = await conn.execute(
+        `SELECT uid_herramienta_orden FROM b2c_herramienta_orden
+         WHERE uid_herramienta_orden = ? AND uid_orden = ? AND tenant_id = ?`,
+        [equipmentOrderId, orderId, tenantId]
+      );
+      if (!machineInOrder) return res.status(403).json({ error: 'Máquina no pertenece a esta orden' });
+
       const [mq] = await conn.execute(
         `SELECT uid_orden, uid_herramienta_orden, tecnico_id, mano_obra, descripcion_trabajo, subtotal
          FROM b2c_cotizacion_maquina
@@ -85,6 +92,16 @@ router.post('/quotes/machine', async (req, res) => {
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     try {
+      const [[machineInOrder]] = await conn.execute(
+        `SELECT uid_herramienta_orden FROM b2c_herramienta_orden
+         WHERE uid_herramienta_orden = ? AND uid_orden = ? AND tenant_id = ?`,
+        [String(equipmentOrderId), String(orderId), tenantId]
+      );
+      if (!machineInOrder) {
+        conn.release();
+        return res.status(403).json({ success: false, error: 'Máquina no pertenece a esta orden' });
+      }
+
       await conn.beginTransaction();
 
       await conn.execute(
@@ -139,13 +156,15 @@ router.post('/quotes/machine', async (req, res) => {
       // Cambiar estado a 'cotizada' automáticamente si no está ya más avanzado
       const ESTADOS_NO_RETROCEDER = ['autorizada', 'no_autorizada', 'reparada', 'entregada'];
       const [[maqRow]] = await conn.execute(
-        `SELECT her_estado FROM b2c_herramienta_orden WHERE uid_herramienta_orden = ?`,
-        [String(equipmentOrderId)]
+        `SELECT her_estado FROM b2c_herramienta_orden
+         WHERE uid_herramienta_orden = ? AND uid_orden = ? AND tenant_id = ?`,
+        [String(equipmentOrderId), String(orderId), tenantId]
       );
       if (maqRow && !ESTADOS_NO_RETROCEDER.includes(maqRow.her_estado)) {
         await conn.execute(
-          `UPDATE b2c_herramienta_orden SET her_estado = 'cotizada' WHERE uid_herramienta_orden = ?`,
-          [String(equipmentOrderId)]
+          `UPDATE b2c_herramienta_orden SET her_estado = 'cotizada'
+           WHERE uid_herramienta_orden = ? AND uid_orden = ? AND tenant_id = ?`,
+          [String(equipmentOrderId), String(orderId), tenantId]
         );
         await conn.execute(
           `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado) VALUES (?, 'cotizada')`,

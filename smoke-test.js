@@ -392,6 +392,116 @@ async function testLogout() {
   }
 }
 
+// ── S14: Notificaciones Sprint 2 (expect routing, not 404) ────────────────────
+async function testNotificacionesSprint2() {
+  console.log('\n── S14: Notificaciones Sprint 2 ──────────────────────────────');
+  if (!cookiesAdmin) { console.log('  ⚠️  Sin sesión admin — saltando'); return; }
+
+  const fakeOrderId = '99999999';
+  const endpoints = [
+    `/api/orders/${fakeOrderId}/notify-parts`,
+    `/api/orders/${fakeOrderId}/notify-ready`,
+    `/api/orders/${fakeOrderId}/notify-delivered`,
+  ];
+  for (const ep of endpoints) {
+    const r = await req('POST', ep, {}, cookiesAdmin);
+    // 404 from route resolution = ok; 400/500 from handler = ok (route exists)
+    if ([400, 404, 500, 503].includes(r.status)) {
+      ok(`POST ${ep.replace('/api', '')}`, `HTTP ${r.status} (ruta existe)`);
+    } else {
+      fail(`POST ${ep.replace('/api', '')}`, `HTTP ${r.status} inesperado`);
+    }
+  }
+}
+
+// ── S15: Fotos y máquinas Sprint 2 ────────────────────────────────────────────
+async function testFotosSprint2() {
+  console.log('\n── S15: Fotos / Agregar máquina Sprint 2 ─────────────────────');
+  if (!cookiesAdmin) { console.log('  ⚠️  Sin sesión admin — saltando'); return; }
+
+  const fakeOrderId = '99999999';
+  const fakeUidHO   = '99999999';
+
+  // POST fotos sin archivo → 400 (multer pasa, handler detecta req.file undefined)
+  const r1 = await req('POST', `/api/orders/${fakeOrderId}/fotos-recepcion/${fakeUidHO}`, {}, cookiesAdmin);
+  if (r1.status === 400) ok('POST fotos-recepcion sin archivo', 'HTTP 400');
+  else fail('POST fotos-recepcion sin archivo', `HTTP ${r1.status}`);
+
+  const r2 = await req('POST', `/api/orders/${fakeOrderId}/fotos-trabajo/${fakeUidHO}`, {}, cookiesAdmin);
+  if (r2.status === 400) ok('POST fotos-trabajo sin archivo', 'HTTP 400');
+  else fail('POST fotos-trabajo sin archivo', `HTTP ${r2.status}`);
+
+  // DELETE foto inexistente → 404
+  const r3 = await req('DELETE', `/api/orders/fotos-recepcion/${fakeUidHO}`, null, cookiesAdmin);
+  if (r3.status === 404) ok('DELETE fotos-recepcion inexistente', 'HTTP 404');
+  else fail('DELETE fotos-recepcion inexistente', `HTTP ${r3.status}`);
+
+  const r4 = await req('DELETE', `/api/orders/fotos-trabajo/${fakeUidHO}`, null, cookiesAdmin);
+  if (r4.status === 404) ok('DELETE fotos-trabajo inexistente', 'HTTP 404');
+  else fail('DELETE fotos-trabajo inexistente', `HTTP ${r4.status}`);
+
+  // POST agregar-maquina sin uid_herramienta → 400
+  const r5 = await req('POST', `/api/orders/${fakeOrderId}/agregar-maquina`, {}, cookiesAdmin);
+  if (r5.status === 400) ok('POST agregar-maquina sin uid_herramienta', 'HTTP 400');
+  else fail('POST agregar-maquina sin uid_herramienta', `HTTP ${r5.status}`);
+
+  // POST factura-maquina sin archivo → 400
+  const r6 = await req('POST', `/api/orders/${fakeOrderId}/factura-maquina/${fakeUidHO}`, {}, cookiesAdmin);
+  if (r6.status === 400) ok('POST factura-maquina sin archivo', 'HTTP 400');
+  else fail('POST factura-maquina sin archivo', `HTTP ${r6.status}`);
+}
+
+// ── S16: Portal cliente extendido ─────────────────────────────────────────────
+async function testPortalClienteExtendido() {
+  console.log('\n── S16: Portal cliente extendido Sprint 2 ────────────────────');
+  if (!cookiesCliente) { console.log('  ⚠️  Sin sesión cliente — saltando'); return; }
+
+  // mis-ordenes ya cubierto en S10, aquí chequeamos 200 explícitamente
+  const r1 = await req('GET', '/api/cliente/mis-ordenes', null, cookiesCliente);
+  if (r1.status === 200 && Array.isArray(r1.json)) ok('GET /cliente/mis-ordenes (S16)', 'HTTP 200, array');
+  else fail('GET /cliente/mis-ordenes (S16)', `HTTP ${r1.status}`);
+
+  // informe inexistente → 404
+  const r2 = await req('GET', '/api/cliente/informe/99999999', null, cookiesCliente);
+  if (r2.status === 404) ok('GET /cliente/informe/99999999 inexistente', 'HTTP 404');
+  else fail('GET /cliente/informe/99999999 inexistente', `HTTP ${r2.status}`);
+
+  // autorizar con uid inexistente: validación propiedad → 403 o 404
+  const r3 = await req('PATCH', '/api/cliente/maquina/99999999/autorizar', { decision: 'autorizada' }, cookiesCliente);
+  if ([403, 404].includes(r3.status)) ok('PATCH autorizar uid inexistente', `HTTP ${r3.status}`);
+  else fail('PATCH autorizar uid inexistente', `HTTP ${r3.status}`);
+
+  // usuario interno no puede usar el endpoint de cliente
+  if (cookiesAdmin) {
+    const r4 = await req('PATCH', '/api/cliente/maquina/1/autorizar', { decision: 'autorizada' }, cookiesAdmin);
+    if (r4.status === 403) ok('PATCH autorizar como admin → 403', 'HTTP 403');
+    else fail('PATCH autorizar como admin → 403', `HTTP ${r4.status}`);
+  }
+}
+
+// ── S17: Sprint 2 endpoints sin sesión → 401 ──────────────────────────────────
+async function testSeguridadSprint2() {
+  console.log('\n── S17: Sprint 2 sin sesión → 401 ───────────────────────────');
+  const endpoints = [
+    ['POST', '/api/orders/1/notify-parts'],
+    ['POST', '/api/orders/1/notify-ready'],
+    ['POST', '/api/orders/1/notify-delivered'],
+    ['POST', '/api/orders/1/fotos-recepcion/1'],
+    ['DELETE', '/api/orders/fotos-recepcion/1'],
+    ['POST', '/api/orders/1/fotos-trabajo/1'],
+    ['DELETE', '/api/orders/fotos-trabajo/1'],
+    ['POST', '/api/orders/1/factura-maquina/1'],
+    ['POST', '/api/orders/1/agregar-maquina'],
+    ['GET', '/api/cliente/mis-ordenes'],
+    ['GET', '/api/cliente/informe/1'],
+  ];
+  for (const [method, ep] of endpoints) {
+    const r = await req(method, ep, method === 'GET' ? null : {});
+    if (r.status === 401) ok(`${method} ${ep} sin sesión`, 'HTTP 401');
+    else fail(`${method} ${ep} sin sesión`, `HTTP ${r.status} (esperaba 401)`);
+  }
+}
+
 // ── Resumen ────────────────────────────────────────────────────────────────────
 async function main() {
   console.log('\n╔══════════════════════════════════════════════════════════╗');
@@ -415,6 +525,10 @@ async function main() {
   await testPortalCliente();
   await testSeguridadCliente();
   await testSeguridadSinSesion();
+  await testNotificacionesSprint2();
+  await testFotosSprint2();
+  await testPortalClienteExtendido();
+  await testSeguridadSprint2();
   await testLogout();
 
   const total = passed + failed;

@@ -37,7 +37,7 @@ if (process.env.BEHIND_PROXY === 'true') {
   });
 }
 
-app.use(express.json());
+app.use(express.json({ limit: '100kb' }));
 // CORS: solo mismo origen — bloquea peticiones cross-origin de otros dominios
 app.use(cors({ origin: false }));
 
