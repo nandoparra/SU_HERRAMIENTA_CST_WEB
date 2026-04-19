@@ -2889,8 +2889,16 @@ Views.nuevaOrden = {
       btn.textContent = 'Enviando...';
       try {
         const res = await fetch(`${API}/orders/${uid_orden}/send-pdf/orden`, { method:'POST' }).then(r=>r.json());
-        btn.textContent = res.success ? '✓ Enviado' : '✗ Error';
-        if (!res.success) setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+        if (res.success) {
+          btn.textContent = res.waWarning ? '⚠️ Sin WA' : '✓ Enviado';
+          if (res.waWarning) {
+            showToast('⚠️ ' + res.waWarning, 6000);
+            setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
+          }
+        } else {
+          btn.textContent = '✗ Error';
+          setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+        }
       } catch {
         btn.textContent = '✗ Error';
         setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);

@@ -390,14 +390,20 @@ router.post('/orders/:orderId/send-pdf/orden', requireInterno, async (req, res) 
     const fname = 'orden-' + ordenRow.ord_consecutivo + '.pdf';
     const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
     const phone = getPhone({ cli_telefono: ordenRow.cli_telefono });
-    await sendWAMessage(tenantId, phone, media);
 
-    const clientName = ordenRow.cli_razon_social || 'Cliente';
-    const machineList = maquinas.map(m => `• ${m.her_nombre || 'Máquina'}${m.her_marca ? ' (' + m.her_marca + ')' : ''}`).join('\n');
-    const textMsg = `Hola, le saluda *Su Herramienta CST* 🔧\n\nHemos recibido su(s) equipo(s) para revisión. Orden #${ordenRow.ord_consecutivo}:\n\n${machineList}\n\nLe notificaremos cuando la revisión esté lista. ¡Gracias por confiar en nosotros!`;
-    await sendWAMessage(tenantId, phone, textMsg);
+    let waWarning = null;
+    try {
+      await sendWAMessage(tenantId, phone, media);
+      const clientName = ordenRow.cli_razon_social || 'Cliente';
+      const machineList = maquinas.map(m => `• ${m.her_nombre || 'Máquina'}${m.her_marca ? ' (' + m.her_marca + ')' : ''}`).join('\n');
+      const textMsg = `Hola, le saluda *Su Herramienta CST* 🔧\n\nHemos recibido su(s) equipo(s) para revisión. Orden #${ordenRow.ord_consecutivo}:\n\n${machineList}\n\nLe notificaremos cuando la revisión esté lista. ¡Gracias por confiar en nosotros!`;
+      await sendWAMessage(tenantId, phone, textMsg);
+    } catch (waErr) {
+      console.warn('WA no disponible para envío PDF orden:', waErr.message);
+      waWarning = waErr.message;
+    }
 
-    res.json({ success: true, filename: fname });
+    res.json({ success: true, filename: fname, waWarning });
   } catch (e) {
     console.error('Error enviando PDF orden de servicio:', e);
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
