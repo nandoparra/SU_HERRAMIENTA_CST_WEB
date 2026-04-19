@@ -14,15 +14,18 @@ router.get('/quote/catalog', async (req, res) => {
     const type = req.query.type || 'R';
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
-    const [rows] = await conn.execute(
-      `SELECT uid_concepto_costo, cco_descripcion, cco_valor, cco_impuesto
-       FROM b2c_concepto_costos
-       WHERE cco_tipo = ? AND cco_estado = 'A' AND tenant_id = ?
-       ORDER BY cco_descripcion`,
-      [type, tenantId]
-    );
-    conn.release();
-    res.json(rows);
+    try {
+      const [rows] = await conn.execute(
+        `SELECT uid_concepto_costo, cco_descripcion, cco_valor, cco_impuesto
+         FROM b2c_concepto_costos
+         WHERE cco_tipo = ? AND cco_estado = 'A' AND tenant_id = ?
+         ORDER BY cco_descripcion`,
+        [type, tenantId]
+      );
+      res.json(rows);
+    } finally {
+      conn.release();
+    }
   } catch (e) {
     console.error('Error cargando catálogo:', e);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -39,24 +42,26 @@ router.get('/quotes/machine', async (req, res) => {
 
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
+    try {
+      const [mq] = await conn.execute(
+        `SELECT uid_orden, uid_herramienta_orden, tecnico_id, mano_obra, descripcion_trabajo, subtotal
+         FROM b2c_cotizacion_maquina
+         WHERE uid_orden = ? AND uid_herramienta_orden = ? AND tenant_id = ?`,
+        [orderId, equipmentOrderId, tenantId]
+      );
 
-    const [mq] = await conn.execute(
-      `SELECT uid_orden, uid_herramienta_orden, tecnico_id, mano_obra, descripcion_trabajo, subtotal
-       FROM b2c_cotizacion_maquina
-       WHERE uid_orden = ? AND uid_herramienta_orden = ? AND tenant_id = ?`,
-      [orderId, equipmentOrderId, tenantId]
-    );
+      const [items] = await conn.execute(
+        `SELECT id, nombre, cantidad, precio, subtotal
+         FROM b2c_cotizacion_item
+         WHERE uid_orden = ? AND uid_herramienta_orden = ? AND tenant_id = ?
+         ORDER BY id`,
+        [orderId, equipmentOrderId, tenantId]
+      );
 
-    const [items] = await conn.execute(
-      `SELECT id, nombre, cantidad, precio, subtotal
-       FROM b2c_cotizacion_item
-       WHERE uid_orden = ? AND uid_herramienta_orden = ? AND tenant_id = ?
-       ORDER BY id`,
-      [orderId, equipmentOrderId, tenantId]
-    );
-
-    conn.release();
-    res.json({ exists: mq.length > 0, machineQuote: mq[0] || null, items: items || [] });
+      res.json({ exists: mq.length > 0, machineQuote: mq[0] || null, items: items || [] });
+    } finally {
+      conn.release();
+    }
   } catch (e) {
     console.error('Error consultando cotización máquina:', e);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -168,29 +173,31 @@ router.get('/quotes/order/:orderId', async (req, res) => {
     const orderId = String(req.params.orderId || '').trim();
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
+    try {
+      const [machines] = await conn.execute(
+        `SELECT uid_herramienta_orden, tecnico_id, mano_obra, descripcion_trabajo, subtotal, updated_at
+         FROM b2c_cotizacion_maquina
+         WHERE uid_orden = ? AND tenant_id = ?
+         ORDER BY uid_herramienta_orden`,
+        [orderId, tenantId]
+      );
 
-    const [machines] = await conn.execute(
-      `SELECT uid_herramienta_orden, tecnico_id, mano_obra, descripcion_trabajo, subtotal, updated_at
-       FROM b2c_cotizacion_maquina
-       WHERE uid_orden = ? AND tenant_id = ?
-       ORDER BY uid_herramienta_orden`,
-      [orderId, tenantId]
-    );
+      const [[hdr]] = await conn.execute(
+        `SELECT uid_orden, subtotal, iva, total, whatsapp_enviado, whatsapp_enviado_at
+         FROM b2c_cotizacion_orden
+         WHERE uid_orden = ? AND tenant_id = ?`,
+        [orderId, tenantId]
+      );
 
-    const [[hdr]] = await conn.execute(
-      `SELECT uid_orden, subtotal, iva, total, whatsapp_enviado, whatsapp_enviado_at
-       FROM b2c_cotizacion_orden
-       WHERE uid_orden = ? AND tenant_id = ?`,
-      [orderId, tenantId]
-    );
-
-    conn.release();
-    res.json({
-      success: true,
-      header: hdr || { uid_orden: orderId, subtotal: 0, iva: 0, total: 0 },
-      machines,
-      savedCount: machines.length,
-    });
+      res.json({
+        success: true,
+        header: hdr || { uid_orden: orderId, subtotal: 0, iva: 0, total: 0 },
+        machines,
+        savedCount: machines.length,
+      });
+    } finally {
+      conn.release();
+    }
   } catch (e) {
     console.error('Error consultando cotización orden:', e);
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
@@ -204,9 +211,9 @@ router.post('/quotes/order/:orderId/generate-message', async (req, res) => {
 
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
+    try {
     const order = await resolveOrder(conn, orderId, tenantId);
     if (!order) {
-      conn.release();
       return res.status(404).json({ success: false, error: 'Orden no encontrada' });
     }
 
@@ -222,7 +229,6 @@ router.post('/quotes/order/:orderId/generate-message', async (req, res) => {
     );
 
     if (!machines.length) {
-      conn.release();
       return res.status(400).json({ success: false, error: 'No hay cotizaciones guardadas para esta orden.' });
     }
 
@@ -287,8 +293,10 @@ router.post('/quotes/order/:orderId/generate-message', async (req, res) => {
       [order.uid_orden, machineSubtotal, iva, total, fullMessage, tenantId]
     );
 
-    conn.release();
-    res.json({ success: true, message: fullMessage, totals: { subtotal: machineSubtotal, iva, total }, machinesCount: machines.length });
+      res.json({ success: true, message: fullMessage, totals: { subtotal: machineSubtotal, iva, total }, machinesCount: machines.length });
+    } finally {
+      conn.release();
+    }
   } catch (e) {
     console.error('Error generando mensaje final:', e);
     res.status(500).json({ success: false, error: 'Error interno del servidor' });

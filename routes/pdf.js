@@ -10,7 +10,7 @@ const { generateText }  = require('../utils/ia');
 const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { MessageMedia }  = require('whatsapp-web.js');
 const { requireInterno } = require('../middleware/auth');
-const UPLOADS_DIR = require('../utils/uploads');
+const { UPLOADS_DIR } = require('../utils/uploads');
 
 // ─── Helper: buscar informe existente para esta máquina en esta orden ────────
 async function getExistingInforme(conn, uid_herramienta_orden) {
@@ -136,22 +136,24 @@ function getPhone(order) {
   return phone + '@c.us';
 }
 
-// ─── DESCARGAR cotizaci\u00f3n PDF ─────────────────────────────────────────────
+// ─── DESCARGAR cotización PDF ─────────────────────────────────────────────────
 router.get('/orders/:orderId/pdf/quote', requireInterno, async (req, res) => {
   try {
     const tenantId = req.tenant?.uid_tenant ?? 1;
-    const conn  = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId, tenantId);
-    if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
+    const conn = await db.getConnection();
+    try {
+      const order = await resolveOrder(conn, req.params.orderId, tenantId);
+      if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
 
-    const { machines, items } = await getAllMachinesWithItems(conn, order.uid_orden);
-    conn.release();
+      const { machines, items } = await getAllMachinesWithItems(conn, order.uid_orden);
+      if (!machines.length) return res.status(400).json({ error: 'No hay cotizaciones guardadas para esta orden.' });
 
-    if (!machines.length) return res.status(400).json({ error: 'No hay cotizaciones guardadas para esta orden.' });
-
-    const pdf = await generateQuotePDF({ order, machines, items, quoteNumber: order.ord_consecutivo });
-    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="cotizacion-' + order.ord_consecutivo + '.pdf"' });
-    res.send(pdf);
+      const pdf = await generateQuotePDF({ order, machines, items, quoteNumber: order.ord_consecutivo });
+      res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="cotizacion-' + order.ord_consecutivo + '.pdf"' });
+      res.send(pdf);
+    } finally {
+      conn.release();
+    }
   } catch (e) {
     console.error('Error generando PDF cotizaci\u00f3n:', e);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -162,58 +164,61 @@ router.get('/orders/:orderId/pdf/quote', requireInterno, async (req, res) => {
 router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireInterno, async (req, res) => {
   try {
     const tenantId = req.tenant?.uid_tenant ?? 1;
-    const conn  = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId, tenantId);
-    if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
+    const conn = await db.getConnection();
+    try {
+      const order = await resolveOrder(conn, req.params.orderId, tenantId);
+      if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
 
-    // Si ya existe informe para esta máquina, devolver el guardado sin regenerar
-    const existing = await getExistingInforme(conn, req.params.equipmentOrderId);
-    if (existing) {
+      const existing = await getExistingInforme(conn, req.params.equipmentOrderId);
+      if (existing) {
+        const fname = 'mantenimiento-' + order.ord_consecutivo + '.pdf';
+        res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="' + fname + '"' });
+        return res.sendFile(existing.fpath);
+      }
+
+      const { machine, items, photos } = await getMachineWithItems(conn, order.uid_orden, req.params.equipmentOrderId);
+      if (!machine) return res.status(404).json({ error: 'No hay cotizaci\u00f3n para esta m\u00e1quina.' });
+
+      const observation = await generateText(buildMaintenancePrompt(machine, machine.descripcion_trabajo, items), 350);
+      const pdf = await generateMaintenancePDF({ order, machine, items, observation, photos });
+      await saveInforme(conn, order.uid_orden, req.params.equipmentOrderId, pdf, order.ord_consecutivo);
+
+      const fname = 'mantenimiento-' + order.ord_consecutivo + '-' + (machine.her_nombre || 'maquina').replace(/\s+/g, '-') + '.pdf';
+      const fnameAscii = fname.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.\-]/g, '-');
+      res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${fnameAscii}"; filename*=UTF-8''${encodeURIComponent(fname)}` });
+      res.send(pdf);
+    } finally {
       conn.release();
-      const fname = 'mantenimiento-' + order.ord_consecutivo + '.pdf';
-      res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="' + fname + '"' });
-      return res.sendFile(existing.fpath);
     }
-
-    const { machine, items, photos } = await getMachineWithItems(conn, order.uid_orden, req.params.equipmentOrderId);
-    if (!machine) { conn.release(); return res.status(404).json({ error: 'No hay cotizaci\u00f3n para esta m\u00e1quina.' }); }
-
-    const observation = await generateText(buildMaintenancePrompt(machine, machine.descripcion_trabajo, items), 350);
-    const pdf = await generateMaintenancePDF({ order, machine, items, observation, photos });
-    await saveInforme(conn, order.uid_orden, req.params.equipmentOrderId, pdf, order.ord_consecutivo);
-    conn.release();
-
-    const fname = 'mantenimiento-' + order.ord_consecutivo + '-' + (machine.her_nombre || 'maquina').replace(/\s+/g, '-') + '.pdf';
-    const fnameAscii = fname.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.\-]/g, '-');
-    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${fnameAscii}"; filename*=UTF-8''${encodeURIComponent(fname)}` });
-    res.send(pdf);
   } catch (e) {
     console.error('Error generando PDF mantenimiento:', e);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
-// ─── ENVIAR cotizaci\u00f3n PDF por WhatsApp ──────────────────────────────────
+// ─── ENVIAR cotización PDF por WhatsApp ──────────────────────────────────────
 router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) => {
   try {
     const tenantId = req.tenant?.uid_tenant ?? 1;
     if (!isReady(tenantId)) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
 
-    const conn  = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId, tenantId);
-    if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
+    const conn = await db.getConnection();
+    try {
+      const order = await resolveOrder(conn, req.params.orderId, tenantId);
+      if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
 
-    const { machines, items } = await getAllMachinesWithItems(conn, order.uid_orden);
-    conn.release();
+      const { machines, items } = await getAllMachinesWithItems(conn, order.uid_orden);
+      if (!machines.length) return res.status(400).json({ error: 'No hay cotizaciones guardadas.' });
 
-    if (!machines.length) return res.status(400).json({ error: 'No hay cotizaciones guardadas.' });
+      const pdf    = await generateQuotePDF({ order, machines, items, quoteNumber: order.ord_consecutivo });
+      const fname  = 'cotizacion-' + order.ord_consecutivo + '.pdf';
+      const media  = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
+      await sendWAMessage(tenantId, getPhone(order), media);
 
-    const pdf    = await generateQuotePDF({ order, machines, items, quoteNumber: order.ord_consecutivo });
-    const fname  = 'cotizacion-' + order.ord_consecutivo + '.pdf';
-    const media  = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
-    await sendWAMessage(tenantId, getPhone(order), media);
-
-    res.json({ success: true, filename: fname });
+      res.json({ success: true, filename: fname });
+    } finally {
+      conn.release();
+    }
   } catch (e) {
     console.error('Error enviando PDF cotizaci\u00f3n:', e);
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
@@ -226,33 +231,34 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireIn
     const tenantId = req.tenant?.uid_tenant ?? 1;
     if (!isReady(tenantId)) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
 
-    const conn  = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId, tenantId);
-    if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
+    const conn = await db.getConnection();
+    try {
+      const order = await resolveOrder(conn, req.params.orderId, tenantId);
+      if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
 
-    const fname = 'mantenimiento-' + order.ord_consecutivo + '.pdf';
+      const fname = 'mantenimiento-' + order.ord_consecutivo + '.pdf';
 
-    // Si ya existe informe, enviar el guardado sin regenerar
-    const existing = await getExistingInforme(conn, req.params.equipmentOrderId);
-    if (existing) {
-      conn.release();
-      const pdfBuf = fs.readFileSync(existing.fpath);
-      const media  = new MessageMedia('application/pdf', pdfBuf.toString('base64'), fname);
+      const existing = await getExistingInforme(conn, req.params.equipmentOrderId);
+      if (existing) {
+        const pdfBuf = fs.readFileSync(existing.fpath);
+        const media  = new MessageMedia('application/pdf', pdfBuf.toString('base64'), fname);
+        await sendWAMessage(tenantId, getPhone(order), media);
+        return res.json({ success: true, filename: fname });
+      }
+
+      const { machine, items, photos } = await getMachineWithItems(conn, order.uid_orden, req.params.equipmentOrderId);
+      if (!machine) return res.status(404).json({ error: 'No hay cotizaci\u00f3n para esta m\u00e1quina.' });
+
+      const observation = await generateText(buildMaintenancePrompt(machine, machine.descripcion_trabajo, items), 350);
+      const pdf   = await generateMaintenancePDF({ order, machine, items, observation, photos });
+      await saveInforme(conn, order.uid_orden, req.params.equipmentOrderId, pdf, order.ord_consecutivo);
+
+      const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
       await sendWAMessage(tenantId, getPhone(order), media);
-      return res.json({ success: true, filename: fname });
+      res.json({ success: true, filename: fname });
+    } finally {
+      conn.release();
     }
-
-    const { machine, items, photos } = await getMachineWithItems(conn, order.uid_orden, req.params.equipmentOrderId);
-    if (!machine) { conn.release(); return res.status(404).json({ error: 'No hay cotizaci\u00f3n para esta m\u00e1quina.' }); }
-
-    const observation = await generateText(buildMaintenancePrompt(machine, machine.descripcion_trabajo, items), 350);
-    const pdf   = await generateMaintenancePDF({ order, machine, items, observation, photos });
-    await saveInforme(conn, order.uid_orden, req.params.equipmentOrderId, pdf, order.ord_consecutivo);
-    conn.release();
-
-    const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
-    await sendWAMessage(tenantId, getPhone(order), media);
-    res.json({ success: true, filename: fname });
   } catch (e) {
     console.error('Error enviando PDF mantenimiento:', e);
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
@@ -263,18 +269,21 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireIn
 router.get('/informes/:uid_informe', requireInterno, async (req, res) => {
   try {
     const conn = await db.getConnection();
-    const [[inf]] = await conn.execute(
-      `SELECT inf_archivo, inf_fecha FROM b2c_informe_mantenimiento WHERE uid_informe = ?`,
-      [req.params.uid_informe]
-    );
-    conn.release();
-    if (!inf) return res.status(404).json({ error: 'Informe no encontrado' });
+    try {
+      const [[inf]] = await conn.execute(
+        `SELECT inf_archivo, inf_fecha FROM b2c_informe_mantenimiento WHERE uid_informe = ?`,
+        [req.params.uid_informe]
+      );
+      if (!inf) return res.status(404).json({ error: 'Informe no encontrado' });
 
-    const fpath = path.join(UPLOADS_DIR, 'informes-mantenimiento', inf.inf_archivo);
-    if (!fs.existsSync(fpath)) return res.status(404).json({ error: 'Archivo no encontrado en disco' });
+      const fpath = path.join(UPLOADS_DIR, 'informes-mantenimiento', inf.inf_archivo);
+      if (!fs.existsSync(fpath)) return res.status(404).json({ error: 'Archivo no encontrado en disco' });
 
-    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="' + inf.inf_archivo + '"' });
-    res.sendFile(fpath);
+      res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="' + inf.inf_archivo + '"' });
+      res.sendFile(fpath);
+    } finally {
+      conn.release();
+    }
   } catch (e) {
     console.error('Error sirviendo informe:', e);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -334,24 +343,27 @@ function printHtml(pdfUrl) {
 router.get('/orders/:orderId/pdf/orden', requireInterno, async (req, res) => {
   try {
     const tenantId = req.tenant?.uid_tenant ?? 1;
-    const conn  = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId, tenantId);
-    if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
+    const conn = await db.getConnection();
+    try {
+      const order = await resolveOrder(conn, req.params.orderId, tenantId);
+      if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
 
-    const data = await getOrdenServicioDataCompleta(conn, order.uid_orden);
-    conn.release();
-    if (!data) return res.status(404).json({ error: 'Orden no encontrada' });
+      const data = await getOrdenServicioDataCompleta(conn, order.uid_orden);
+      if (!data) return res.status(404).json({ error: 'Orden no encontrada' });
 
-    const { ordenRow, maquinas } = data;
-    const pdf = await generateOrdenServicioPDF({
-      orden:   { ord_consecutivo: ordenRow.ord_consecutivo, ord_fecha: ordenRow.ord_fecha },
-      cliente: { cli_razon_social: ordenRow.cli_razon_social, cli_identificacion: ordenRow.cli_identificacion, cli_telefono: ordenRow.cli_telefono, cli_direccion: ordenRow.cli_direccion },
-      maquinas,
-    });
+      const { ordenRow, maquinas } = data;
+      const pdf = await generateOrdenServicioPDF({
+        orden:   { ord_consecutivo: ordenRow.ord_consecutivo, ord_fecha: ordenRow.ord_fecha },
+        cliente: { cli_razon_social: ordenRow.cli_razon_social, cli_identificacion: ordenRow.cli_identificacion, cli_telefono: ordenRow.cli_telefono, cli_direccion: ordenRow.cli_direccion },
+        maquinas,
+      });
 
-    const fname = 'orden-' + ordenRow.ord_consecutivo + '.pdf';
-    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="' + fname + '"' });
-    res.send(pdf);
+      const fname = 'orden-' + ordenRow.ord_consecutivo + '.pdf';
+      res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="' + fname + '"' });
+      res.send(pdf);
+    } finally {
+      conn.release();
+    }
   } catch (e) {
     console.error('Error generando PDF orden:', e);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -359,12 +371,20 @@ router.get('/orders/:orderId/pdf/orden', requireInterno, async (req, res) => {
 });
 
 router.get('/orders/:orderId/print/orden', requireInterno, async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
-  const conn  = await db.getConnection();
-  const order = await resolveOrder(conn, req.params.orderId, tenantId);
-  conn.release();
-  if (!order) return res.status(404).send('Orden no encontrada');
-  res.send(printHtml(`/api/orders/${order.uid_orden}/pdf/orden`));
+  try {
+    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const conn = await db.getConnection();
+    try {
+      const order = await resolveOrder(conn, req.params.orderId, tenantId);
+      if (!order) return res.status(404).send('Orden no encontrada');
+      res.send(printHtml(`/api/orders/${order.uid_orden}/pdf/orden`));
+    } finally {
+      conn.release();
+    }
+  } catch (e) {
+    console.error('Error en print/orden:', e);
+    res.status(500).send('Error interno del servidor');
+  }
 });
 
 // ─── ENVIAR orden completa PDF por WhatsApp ───────────────────────────────────
@@ -372,38 +392,40 @@ router.post('/orders/:orderId/send-pdf/orden', requireInterno, async (req, res) 
   try {
     const tenantId = req.tenant?.uid_tenant ?? 1;
     if (!isReady(tenantId)) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
-    const conn  = await db.getConnection();
-    const order = await resolveOrder(conn, req.params.orderId, tenantId);
-    if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
-
-    const data = await getOrdenServicioDataCompleta(conn, order.uid_orden);
-    conn.release();
-    if (!data) return res.status(404).json({ error: 'Orden no encontrada' });
-
-    const { ordenRow, maquinas } = data;
-    const pdf = await generateOrdenServicioPDF({
-      orden:   { ord_consecutivo: ordenRow.ord_consecutivo, ord_fecha: ordenRow.ord_fecha },
-      cliente: { cli_razon_social: ordenRow.cli_razon_social, cli_identificacion: ordenRow.cli_identificacion, cli_telefono: ordenRow.cli_telefono, cli_direccion: ordenRow.cli_direccion },
-      maquinas,
-    });
-
-    const fname = 'orden-' + ordenRow.ord_consecutivo + '.pdf';
-    const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
-    const phone = getPhone({ cli_telefono: ordenRow.cli_telefono });
-
-    let waWarning = null;
+    const conn = await db.getConnection();
     try {
-      await sendWAMessage(tenantId, phone, media);
-      const clientName = ordenRow.cli_razon_social || 'Cliente';
-      const machineList = maquinas.map(m => `• ${m.her_nombre || 'Máquina'}${m.her_marca ? ' (' + m.her_marca + ')' : ''}`).join('\n');
-      const textMsg = `Hola, le saluda *Su Herramienta CST* 🔧\n\nHemos recibido su(s) equipo(s) para revisión. Orden #${ordenRow.ord_consecutivo}:\n\n${machineList}\n\nLe notificaremos cuando la revisión esté lista. ¡Gracias por confiar en nosotros!`;
-      await sendWAMessage(tenantId, phone, textMsg);
-    } catch (waErr) {
-      console.warn('WA no disponible para envío PDF orden:', waErr.message);
-      waWarning = waErr.message;
-    }
+      const order = await resolveOrder(conn, req.params.orderId, tenantId);
+      if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
 
-    res.json({ success: true, filename: fname, waWarning });
+      const data = await getOrdenServicioDataCompleta(conn, order.uid_orden);
+      if (!data) return res.status(404).json({ error: 'Orden no encontrada' });
+
+      const { ordenRow, maquinas } = data;
+      const pdf = await generateOrdenServicioPDF({
+        orden:   { ord_consecutivo: ordenRow.ord_consecutivo, ord_fecha: ordenRow.ord_fecha },
+        cliente: { cli_razon_social: ordenRow.cli_razon_social, cli_identificacion: ordenRow.cli_identificacion, cli_telefono: ordenRow.cli_telefono, cli_direccion: ordenRow.cli_direccion },
+        maquinas,
+      });
+
+      const fname = 'orden-' + ordenRow.ord_consecutivo + '.pdf';
+      const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
+      const phone = getPhone({ cli_telefono: ordenRow.cli_telefono });
+
+      let waWarning = null;
+      try {
+        await sendWAMessage(tenantId, phone, media);
+        const machineList = maquinas.map(m => `• ${m.her_nombre || 'Máquina'}${m.her_marca ? ' (' + m.her_marca + ')' : ''}`).join('\n');
+        const textMsg = `Hola, le saluda *Su Herramienta CST* 🔧\n\nHemos recibido su(s) equipo(s) para revisión. Orden #${ordenRow.ord_consecutivo}:\n\n${machineList}\n\nLe notificaremos cuando la revisión esté lista. ¡Gracias por confiar en nosotros!`;
+        await sendWAMessage(tenantId, phone, textMsg);
+      } catch (waErr) {
+        console.warn('WA no disponible para envío PDF orden:', waErr.message);
+        waWarning = waErr.message;
+      }
+
+      res.json({ success: true, filename: fname, waWarning });
+    } finally {
+      conn.release();
+    }
   } catch (e) {
     console.error('Error enviando PDF orden de servicio:', e);
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
