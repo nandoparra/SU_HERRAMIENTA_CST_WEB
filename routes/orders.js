@@ -15,6 +15,14 @@ const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 const { requireInterno } = require('../middleware/auth');
 const UPLOADS_DIR = require('../utils/uploads');
+const { fileTypeFromFile } = require('file-type');
+
+// Verifica magic bytes del archivo subido; lo elimina y lanza error si no coincide.
+async function checkMagicBytes(filePath, allowed) {
+  const result = await fileTypeFromFile(filePath).catch(() => null);
+  const ok = result && allowed.some(a => result.mime === a || result.mime.startsWith(a));
+  if (!ok) { try { fs.unlinkSync(filePath); } catch (_) {} throw new Error('Tipo de archivo no permitido'); }
+}
 
 // Todas las rutas de órdenes requieren rol interno, excepto rutas de cliente
 router.use((req, res, next) => {
@@ -1079,6 +1087,7 @@ router.get('/cliente/mis-ordenes', async (req, res) => {
 router.post('/orders/:id/fotos-recepcion/:uid_herramienta_orden', uploadFoto.single('foto'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No se recibió imagen' });
+    await checkMagicBytes(req.file.path, ['image/']);
     const conn = await db.getConnection();
     await conn.execute(
       `INSERT INTO b2c_foto_herramienta_orden (uid_herramienta_orden, fho_archivo, fho_nombre, fho_tipo)
@@ -1126,6 +1135,7 @@ router.delete('/orders/fotos-recepcion/:uid_foto', async (req, res) => {
 router.post('/orders/:id/fotos-trabajo/:uid_herramienta_orden', uploadFoto.single('foto'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No se recibió imagen' });
+    await checkMagicBytes(req.file.path, ['image/']);
     const conn = await db.getConnection();
     await conn.execute(
       `INSERT INTO b2c_foto_herramienta_orden (uid_herramienta_orden, fho_archivo, fho_nombre, fho_tipo)
@@ -1179,6 +1189,7 @@ router.post('/orders/:orderId/factura-maquina/:uid_herramienta_orden', uploadFac
     const order = await resolveOrder(conn, req.params.orderId, tenantId);
     if (!order) { conn.release(); return res.status(404).json({ error: 'Orden no encontrada' }); }
     if (!req.file) { conn.release(); return res.status(400).json({ error: 'No se recibió ningún PDF' }); }
+    await checkMagicBytes(req.file.path, ['application/pdf']);
 
     const { uid_herramienta_orden } = req.params;
     const [[row]] = await conn.execute(

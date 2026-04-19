@@ -1239,7 +1239,7 @@ Views.ordenes = {
           sel.innerHTML = '<option value="">-- Este cliente no tiene máquinas registradas --</option>';
         } else {
           sel.innerHTML = '<option value="">-- Seleccionar máquina --</option>' +
-            maquinas.map(m => `<option value="${m.uid_herramienta}">${m.her_nombre}${m.her_marca?' — '+m.her_marca:''}${m.her_serial?' ('+m.her_serial+')':''}</option>`).join('');
+            maquinas.map(m => `<option value="${m.uid_herramienta}">${esc(m.her_nombre)}${m.her_marca?' — '+esc(m.her_marca):''}${m.her_serial?' ('+esc(m.her_serial)+')':''}</option>`).join('');
         }
         document.getElementById('amBtnNueva').style.display = 'inline-block';
       } catch(e) {
@@ -2555,6 +2555,7 @@ Views.nuevaOrden = {
         if (errEl) { errEl.textContent = res.error||'Error'; errEl.style.display = 'block'; }
         return;
       }
+      if (res.clave_acceso) alert(`✅ Cliente creado.\n\nClave de acceso al portal: ${res.clave_acceso}\n\nAnótela — no se volverá a mostrar.`);
       no_clientMap[res.cliente.uid_cliente] = res.cliente;
       window.no_seleccionarCliente(res.cliente.uid_cliente);
       const f = document.getElementById('no_newClientForm');
