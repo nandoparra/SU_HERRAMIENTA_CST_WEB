@@ -33,21 +33,36 @@ utils/wa-handler.js                Listener mensajes entrantes WA — flujo auto
                                      └─ resuelve LID vía msg.getContact() antes de buscar pendiente
 utils/pdf-generator.js             Generación PDFs (quote, maintenance, orden de servicio)
 utils/session-store.js             MySQLSessionStore — sesiones MySQL persistentes (tabla app_sessions, cleanup cada 15min)
-utils/uploads.js                   UPLOADS_DIR — ruta base de uploads (usa UPLOADS_PATH env o public/uploads por defecto)
+utils/uploads.js                   { UPLOADS_DIR, checkMagicBytes } — ruta base de uploads + validación magic bytes
+                                     └─ UPLOADS_DIR usa UPLOADS_PATH env o public/uploads por defecto
+                                     └─ checkMagicBytes(filePath, allowed) — valida bytes mágicos con file-type, borra archivo si falla
 utils/dias-habiles.js              addDiasHabiles(fecha, n) + esNoHabil + toISODate — festivos colombianos algorítmicos
 utils/phones.js                    parseColombianPhones() — separa múltiples números
 routes/auth.js                     GET/POST /login (rate limit 10/15min), /logout, /me
                                      └─ POST /login redirige a /dashboard.html (internos) o /seguimiento.html (C)
-routes/orders.js                   GET/PATCH órdenes + estados + notificaciones WA
-                                     └─ todos los endpoints con requireInterno (excepto rutas /cliente/*)
-                                     └─ GET /orders/:id/detalle — orden+cliente+máquinas+fotos+cotización
+routes/orders.js                   GET/PATCH órdenes + estados (10 endpoints, todos requireInterno)
+                                     └─ GET /orders, /orders/search, /orders/by-estado
+                                     └─ GET /orders/mis-ordenes-tecnico — órdenes asignadas al técnico logueado
+                                     └─ GET /orders/:id, GET /orders/:orderId/detalle
+                                     └─ PATCH /equipment-order/:uid/assign-technician, /orders/:id/assign-technician
+                                     └─ PATCH /equipment-order/:uid/status — cambia estado + WA automático al pasar a 'reparada'
+                                     └─ PATCH /equipment-order/:uid/observaciones — guardar observaciones técnico
+routes/orders-notificaciones.js    3 endpoints WA manuales (requireInterno)
+                                     └─ POST /orders/:id/notify-parts — lista repuestos al encargado
+                                     └─ POST /orders/:id/notify-ready — notifica cliente máquinas reparadas
+                                     └─ POST /orders/:id/notify-delivered — confirma entrega al cliente
+routes/orders-fotos.js             6 endpoints fotos + archivos (requireInterno)
+                                     └─ POST /orders/:id/fotos-recepcion/:uid — subir foto recepción post-creación
+                                     └─ DELETE /orders/fotos-recepcion/:uid — eliminar foto recepción
                                      └─ POST /orders/:id/fotos-trabajo/:uid — subir foto de trabajo
                                      └─ DELETE /orders/fotos-trabajo/:uid — eliminar foto de trabajo
-                                     └─ GET /orders/mis-ordenes-tecnico — órdenes asignadas al técnico logueado
-                                     └─ PATCH /equipment-order/:uid/observaciones — guardar observaciones técnico
+                                     └─ POST /orders/:id/factura-maquina/:uid — subir PDF factura garantía por máquina
+                                     └─ POST /orders/:id/agregar-maquina — agregar máquina a orden existente
+routes/orders-cliente.js           3 endpoints portal cliente (NO requireInterno — validan user.tipo === 'C' internamente)
+                                     └─ IMPORTANTE: montado ANTES de orders.js en server.js
                                      └─ GET /cliente/mis-ordenes — órdenes del cliente con historial+cotización+informes
-                                     └─ GET /cliente/informe/:uid_herramienta_orden — PDF informe (valida propiedad)
-                                     └─ PATCH /cliente/maquina/:uid/autorizar — autorizar/rechazar máquina (solo tipo C)
+                                     └─ GET /cliente/informe/:uid — PDF informe (valida propiedad)
+                                     └─ PATCH /cliente/maquina/:uid/autorizar — autorizar/rechazar máquina
 routes/quote.js                    GET/POST cotizaciones — mensaje incluye menú WA autorización
 routes/whatsapp.js                 POST envío WhatsApp — registra pendiente en b2c_wa_autorizacion_pendiente
 routes/pdf.js                      GET descargar/POST enviar PDFs
@@ -65,6 +80,7 @@ routes/dashboard.js                KPIs + CRUD clientes, funcionarios, inventari
                                      └─ POST /clientes/:id/crear-acceso — crea usuario tipo C para cliente (solo admin)
                                      └─ GET/POST/PATCH /funcionarios, GET/POST/PATCH /inventario
                                      └─ bypass requireInterno para /cliente/mis-ordenes, /cliente/informe/, /cliente/maquina/:id/autorizar
+                                     └─ NOTA: el bypass en dashboard.js sigue necesario porque Express evalúa todos los routers en orden
 public/login.html                  Página de login
 public/seguimiento.html            Vista cliente — seguimiento de sus órdenes
 public/crear-orden.html            Módulo creación de órdenes
@@ -108,24 +124,25 @@ UPLOADS_PATH          (ruta base de uploads — en Railway: /data/uploads apunta
 ## Git — ramas
 
 ```
-main                        Estado estable — incluye mejoras-ordenes (2026-04-17)
-feature/login               Login completo — pendiente merge a main
-feature/crear-orden         Módulo crear orden — pendiente merge a main
-feature/security-fixes      Correcciones de seguridad — MERGEADO a main 2026-03-11
-feature/wa-autorizacion     Flujo autorización cotizaciones por WhatsApp — pendiente merge
-feature/ui-fixes            Quitar lista máquinas panel izq. cotizaciones — pendiente merge
-feature/dashboard           Dashboard SPA + vista técnico + nueva orden SPA + seguimiento mejorado — pendiente merge
-feature/responsive          Responsive + autorización portal cliente desde seguimiento.html — pendiente merge
-feature/helmet-https        Helmet CSP + redirect HTTPS vía BEHIND_PROXY — pendiente merge (base: feature/responsive)
-feature/wa-plantillas       WA plantillas fijas (orden recibida + cotización con desglose) — MERGEADO a main
-feature/cotizaciones-cola   Cotizaciones tab rediseñada como cola de pendientes — pendiente prueba/merge
-feature/multitenant         Arquitectura multi-tenant completa — MERGEADO a main 2026-03-21
-feature/security-audit-fixes  Auditoría SEC-001 a SEC-006 — MERGEADO a main 2026-03-21
-feature/mejoras-ordenes     Garantía por máquina + modal agregar máquina rediseñado + editar cliente — MERGEADO a main 2026-04-17
+main                           Estado estable — incluye code-quality-sprint2 (2026-04-19)
+feature/login                  Login completo — pendiente merge a main
+feature/crear-orden            Módulo crear orden — pendiente merge a main
+feature/security-fixes         Correcciones de seguridad — MERGEADO a main 2026-03-11
+feature/wa-autorizacion        Flujo autorización cotizaciones por WhatsApp — pendiente merge
+feature/ui-fixes               Quitar lista máquinas panel izq. cotizaciones — pendiente merge
+feature/dashboard              Dashboard SPA + vista técnico + nueva orden SPA + seguimiento mejorado — pendiente merge
+feature/responsive             Responsive + autorización portal cliente desde seguimiento.html — pendiente merge
+feature/helmet-https           Helmet CSP + redirect HTTPS vía BEHIND_PROXY — pendiente merge (base: feature/responsive)
+feature/wa-plantillas          WA plantillas fijas — MERGEADO a main
+feature/cotizaciones-cola      Cotizaciones tab rediseñada como cola de pendientes — pendiente prueba/merge
+feature/multitenant            Arquitectura multi-tenant completa — MERGEADO a main 2026-03-21
+feature/security-audit-fixes   Auditoría SEC-001 a SEC-006 — MERGEADO a main 2026-03-21
+feature/mejoras-ordenes        Garantía por máquina + modal agregar máquina + editar cliente — MERGEADO a main 2026-04-17
+feature/code-quality-sprint1   try/finally, .env.example, checkMagicBytes, migrations — MERGEADO a main 2026-04-19
+feature/code-quality-sprint2   Split routes/orders.js en 4 archivos — MERGEADO a main 2026-04-19
 ```
 
 Mergear en orden: login → crear-orden → wa-autorizacion → ui-fixes → dashboard → responsive → helmet-https.
-`feature/wa-plantillas`, `feature/security-fixes`, `feature/multitenant`, `feature/security-audit-fixes` y `feature/mejoras-ordenes` ya fueron mergeados a main.
 `feature/cotizaciones-cola` pendiente de validación en Railway antes de merge.
 
 ---
@@ -174,6 +191,40 @@ MySQL 8.0 no soporta `LIMIT` con parámetros en prepared statements.
 Solución: `LIMIT ${limit}` como template literal con valor ya validado (ej: `Math.min(Math.max(1, parseInt(n)||20), 50)`).
 
 Los hallazgos SEC-007 a SEC-017 (medios/bajos) están documentados en `docs/auditoria-seguridad.md` pero no son bloqueantes para comercialización.
+
+---
+
+## Calidad de código — Sprints (mergeados a main 2026-04-19)
+
+### Sprint 1 — feature/code-quality-sprint1
+
+1. **try/finally en todos los conn.release()** — todos los handlers de routes/ garantizan liberación del pool incluso con early return o excepción
+2. **.env.example completo** — agrega DB_PORT, SUPERADMIN_SECRET, PARTS_WHATSAPP_NUMBER, WA_AUTH_PATH, UPLOADS_PATH
+3. **checkMagicBytes centralizado** — movido de `routes/crear-orden.js` a `utils/uploads.js`; todos los módulos importan `{ UPLOADS_DIR, checkMagicBytes }` desde ahí
+4. **GET /api/config/estados** — endpoint que devuelve `ESTADOS_MAQUINA` desde `routes/dashboard.js` (elimina hardcode en frontend)
+5. **utils/twilio.js eliminado** — archivo obsoleto, twilio ya desinstalado
+6. **Migraciones centralizadas** — `runMigrations()` en `utils/migrations.js` (antes inline en `server.js`)
+
+### Sprint 2 — feature/code-quality-sprint2
+
+Split de `routes/orders.js` (1254 líneas, 22 endpoints) en 4 archivos:
+
+| Archivo | Endpoints | Auth |
+|---------|-----------|------|
+| `routes/orders.js` | 10 (GET/PATCH órdenes + estados) | requireInterno |
+| `routes/orders-notificaciones.js` | 3 (notify-parts, notify-ready, notify-delivered) | requireInterno |
+| `routes/orders-fotos.js` | 6 (fotos recepción/trabajo, factura, agregar-maquina) | requireInterno |
+| `routes/orders-cliente.js` | 3 (mis-ordenes, informe, autorizar) | valida tipo C internamente |
+
+**Fix crítico de bypass**: `/cliente/informe/:uid` era bloqueado silenciosamente por `requireInterno` de `orders.js` — el bypass pre-existente en ese archivo solo cubría `mis-ordenes` y `autorizar`. Solución: `orders-cliente.js` se monta **antes** de `orders.js` en `server.js`; las rutas cliente nunca llegan al middleware de orders.js. El bypass doble en orders.js fue eliminado, reemplazado por `router.use(requireInterno)` simple.
+
+**Orden de montaje en server.js** (importa para el fix):
+```js
+app.use('/api', require('./routes/orders-notificaciones'));
+app.use('/api', require('./routes/orders-fotos'));
+app.use('/api', require('./routes/orders-cliente')); // antes de orders.js — crítico
+app.use('/api', require('./routes/orders'));
+```
 
 ---
 
