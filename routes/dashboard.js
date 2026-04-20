@@ -1,9 +1,30 @@
-const express = require('express');
-const router  = express.Router();
-const db      = require('../utils/db');
-const bcrypt  = require('bcrypt');
+const express   = require('express');
+const router    = express.Router();
+const rateLimit = require('express-rate-limit');
+const db        = require('../utils/db');
+const bcrypt    = require('bcrypt');
 const { requireInterno } = require('../middleware/auth');
 const log = require('../utils/logger');
+
+const keyByUser = (req) => String(req.session?.user?.uid_usuario || req.ip);
+
+// 60 req/min — dashboard KPIs y listados de clientes/funcionarios/inventario
+const dashLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 60,
+  keyGenerator: keyByUser,
+  message: { error: 'Demasiadas solicitudes. Espere un momento.' },
+  standardHeaders: true, legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
+});
+
+// 30 req/min — búsquedas (más restrictivo por costo de query)
+const searchLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 30,
+  keyGenerator: keyByUser,
+  message: { error: 'Demasiadas búsquedas. Espere un momento.' },
+  standardHeaders: true, legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
+});
 
 router.use((req, res, next) => {
   if (req.path === '/cliente/mis-ordenes'
@@ -30,7 +51,7 @@ router.get('/config/estados', (req, res) => {
 });
 
 // ── Dashboard KPIs ─────────────────────────────────────────────────────────────
-router.get('/dashboard', async (req, res) => {
+router.get('/dashboard', dashLimiter, async (req, res) => {
   try {
     const raw = String(req.query.mes || '');
     const now  = new Date();
@@ -156,7 +177,7 @@ router.get('/dashboard', async (req, res) => {
 });
 
 // ── Clientes ───────────────────────────────────────────────────────────────────
-router.get('/clientes/search', async (req, res) => {
+router.get('/clientes/search', searchLimiter, async (req, res) => {
   try {
     const q = String(req.query.q || '').trim();
     if (!q) return res.json([]);

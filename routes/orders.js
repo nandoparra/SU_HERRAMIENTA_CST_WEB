@@ -10,8 +10,29 @@ const {
 } = require('../utils/schema');
 const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
+const rateLimit = require('express-rate-limit');
 const { requireInterno } = require('../middleware/auth');
 const log = require('../utils/logger');
+
+const keyByUser = (req) => String(req.session?.user?.uid_usuario || req.ip);
+
+// 60 req/min — listados y detalle
+const ordersLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 60,
+  keyGenerator: keyByUser,
+  message: { error: 'Demasiadas solicitudes. Espere un momento.' },
+  standardHeaders: true, legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
+});
+
+// 30 req/min — búsquedas
+const searchLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 30,
+  keyGenerator: keyByUser,
+  message: { error: 'Demasiadas búsquedas. Espere un momento.' },
+  standardHeaders: true, legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
+});
 
 router.use(requireInterno);
 
@@ -27,7 +48,7 @@ const ESTADOS_VALIDOS = [
 ];
 
 // Órdenes recientes
-router.get('/orders', async (req, res) => {
+router.get('/orders', ordersLimiter, async (req, res) => {
   try {
     const limit = Math.max(1, Math.min(50, parseInt(req.query.limit || '10', 10)));
     const tenantId = req.tenant?.uid_tenant ?? 1;
@@ -54,7 +75,7 @@ router.get('/orders', async (req, res) => {
 });
 
 // Búsqueda
-router.get('/orders/search', async (req, res) => {
+router.get('/orders/search', searchLimiter, async (req, res) => {
   try {
     const qRaw = String(req.query.q || '').trim();
     if (!qRaw) return res.json([]);
@@ -513,7 +534,7 @@ router.patch('/equipment-order/:equipmentOrderId/observaciones', async (req, res
 });
 
 // Vista de detalle para la página de consulta de órdenes
-router.get('/orders/:orderId/detalle', async (req, res) => {
+router.get('/orders/:orderId/detalle', ordersLimiter, async (req, res) => {
   try {
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
