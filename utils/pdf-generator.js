@@ -2,7 +2,7 @@
 const PDFDocument = require('pdfkit');
 const path        = require('path');
 const fs          = require('fs');
-const UPLOADS_DIR = require('./uploads');
+const { UPLOADS_DIR } = require('./uploads');
 
 const LOGO = path.join(__dirname, '..', 'public', 'assets', 'logo.png');
 

@@ -17,7 +17,8 @@ function sessionMatchesTenant(req) {
 }
 
 function requireLogin(req, res, next) {
-  const isApi = req.xhr || req.headers['content-type'] === 'application/json' || req.path.startsWith('/api/');
+  const isApi = req.xhr || req.headers['content-type'] === 'application/json'
+    || req.originalUrl.startsWith('/api/');
 
   if (!req.session.user || !sessionMatchesTenant(req)) {
     // Destruir sesión si pertenece a otro tenant (evita cross-tenant session hijacking)
