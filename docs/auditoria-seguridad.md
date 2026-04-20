@@ -1,7 +1,7 @@
 # Auditoría de Seguridad — universal-cotizaciones SaaS Multi-Tenant
 
-**Fecha:** 2026-03-21
-**Versión auditada:** commit `4bb1b88` (main)
+**Fecha original:** 2026-03-21 — **Última actualización:** 2026-04-20
+**Versión original:** commit `4bb1b88` — **Versión actual:** main (post Sprint 1–5)
 **Stack:** Node.js 20 / Express 4.18 / MySQL 8.0 (Railway) / express-session / whatsapp-web.js / Anthropic SDK
 **Auditor:** Claude Sonnet 4.6 — análisis ofensivo + defensivo
 
@@ -11,26 +11,48 @@
 
 | ID | Severidad | Ubicación | Descripción | Estado |
 |----|-----------|-----------|-------------|--------|
-| SEC-001 | 🔴 CRÍTICO | `routes/orders.js:66-68` | SQL con template literal — tenantId y LIMIT sin parametrizar | **ABIERTO** |
-| SEC-002 | 🔴 CRÍTICO | `routes/crear-orden.js:148-162` | IDOR: GET herramientas sin filtro tenant_id | **ABIERTO** |
-| SEC-003 | 🔴 CRÍTICO | `routes/crear-orden.js:221-224, 247-251` | INSERT herramienta_orden y foto sin tenant_id → datos en tenant 1 para todos | **ABIERTO** |
-| SEC-004 | 🟠 ALTA | `server.js:60-70` | Session store en MemoryStore — no persiste, memory leak | **ABIERTO** |
-| SEC-005 | 🟠 ALTA | `routes/superadmin.js:32-43` | Login superadmin sin rate limiting — brute force ilimitado | **ABIERTO** |
-| SEC-006 | 🟠 ALTA | múltiples routes | `details: e.message` expuesto en errores 500 en producción | **ABIERTO** |
-| SEC-007 | 🟡 MEDIA | `routes/crear-orden.js:30-33`, `routes/orders.js:40-43` | Upload: solo valida MIME (client-controlled), sin magic bytes | **ABIERTO** |
-| SEC-008 | 🟡 MEDIA | `server.js:47-48` | CSP `unsafe-inline` en scriptSrc — anula protección XSS | **ABIERTO** |
-| SEC-009 | 🟡 MEDIA | `routes/orders.js:~509` | Mensajes WA con dirección/teléfono de tenant 1 hardcoded | **ABIERTO** |
-| SEC-010 | 🟡 MEDIA | `routes/crear-orden.js:207` | Consecutivos de orden globales (todos los tenants) — info leakage | **ABIERTO** |
-| SEC-011 | 🟡 MEDIA | múltiples routes | Sin rate limiting en búsqueda, uploads, endpoints sensibles | **ABIERTO** |
-| SEC-012 | 🟢 BAJA | `middleware/tenant.js:72-75` | hostname en HTML de 404 sin escape — riesgo XSS reflected bajo | **ABIERTO** |
-| SEC-013 | 🟢 BAJA | `package.json:12` | `@anthropic-ai/sdk@0.13.0` — versión muy antigua (actual: 0.51+) | **ABIERTO** |
-| SEC-014 | 🟢 BAJA | `public/uploads/` | Sin política de retención — archivos acumulan indefinidamente | **ABIERTO** |
-| SEC-015 | 🟢 BAJA | toda la app | Sin audit log de operaciones críticas (cambios de estado, login) | **ABIERTO** |
-| SEC-016 | ℹ️ INFO | `routes/superadmin.js` | Sin 2FA para cuenta superadmin | **ABIERTO** |
-| SEC-017 | ℹ️ INFO | `routes/crear-orden.js:207` | Race condition en consecutivo de orden bajo carga | **ABIERTO** |
+| SEC-001 | 🔴 CRÍTICO | `routes/orders.js:66-68` | SQL con template literal — tenantId y LIMIT sin parametrizar | ✅ **RESUELTO** `feature/security-audit-fixes` |
+| SEC-002 | 🔴 CRÍTICO | `routes/crear-orden.js:148-162` | IDOR: GET herramientas sin filtro tenant_id | ✅ **RESUELTO** `feature/security-audit-fixes` |
+| SEC-003 | 🔴 CRÍTICO | `routes/crear-orden.js:221-224, 247-251` | INSERT herramienta_orden y foto sin tenant_id → datos en tenant 1 para todos | ✅ **RESUELTO** `feature/security-audit-fixes` |
+| SEC-004 | 🟠 ALTA | `server.js:60-70` | Session store en MemoryStore — no persiste, memory leak | ✅ **RESUELTO** `feature/security-audit-fixes` — MySQLSessionStore |
+| SEC-005 | 🟠 ALTA | `routes/superadmin.js:32-43` | Login superadmin sin rate limiting — brute force ilimitado | ✅ **RESUELTO** `feature/security-audit-fixes` — 5 intentos/15 min |
+| SEC-006 | 🟠 ALTA | múltiples routes | `details: e.message` expuesto en errores 500 en producción | ✅ **RESUELTO** `feature/security-audit-fixes` |
+| SEC-007 | 🟡 MEDIA | `routes/crear-orden.js:30-33`, `routes/orders.js:40-43` | Upload: solo valida MIME (client-controlled), sin magic bytes | ✅ **RESUELTO** `Sprint 1` — `utils/uploads.js:checkMagicBytes` |
+| SEC-008 | 🟡 MEDIA | `server.js:47-48` | CSP `unsafe-inline` en scriptSrc — anula protección XSS | ⚠️ **PARCIAL** — `dashboard.html` JS/CSS extraídos (`Sprint 5`); otras páginas pendientes |
+| SEC-009 | 🟡 MEDIA | `routes/orders.js:~509` | Mensajes WA con dirección/teléfono de tenant 1 hardcoded | 🔴 **ABIERTO** — requiere `ten_direccion`/`ten_telefono` en `b2c_tenant` |
+| SEC-010 | 🟡 MEDIA | `routes/crear-orden.js:207` | Consecutivos de orden globales (todos los tenants) — info leakage | 🔴 **ABIERTO** |
+| SEC-011 | 🟡 MEDIA | múltiples routes | Sin rate limiting en búsqueda, uploads, endpoints sensibles | ⚠️ **PARCIAL** — WA y `/quotes/machine` cubiertos (`Sprint 3`); search/crear-orden pendientes |
+| SEC-012 | 🟢 BAJA | `middleware/tenant.js:72-75` | hostname en HTML de 404 sin escape — riesgo XSS reflected bajo | 🔴 **ABIERTO** |
+| SEC-013 | 🟢 BAJA | `package.json:12` | `@anthropic-ai/sdk@0.13.0` — versión muy antigua (actual: 0.51+) | 🔴 **ABIERTO** |
+| SEC-014 | 🟢 BAJA | `public/uploads/` | Sin política de retención — archivos acumulan indefinidamente | 🔴 **ABIERTO** |
+| SEC-015 | 🟢 BAJA | toda la app | Sin audit log de operaciones críticas (cambios de estado, login) | ⚠️ **PARCIAL** — `pino` instalado (`Sprint 5`); falta audit log en BD |
+| SEC-016 | ℹ️ INFO | `routes/superadmin.js` | Sin 2FA para cuenta superadmin | 🔴 **ABIERTO** |
+| SEC-017 | ℹ️ INFO | `routes/crear-orden.js:207` | Race condition en consecutivo de orden bajo carga | 🔴 **ABIERTO** |
 
-**Puntuación de riesgo:** 62 / 100 (MEDIO-ALTO)
-**Veredicto:** APTO CON CORRECCIONES — 3 hallazgos bloqueantes para comercializar
+**Puntuación de riesgo original:** 62 / 100 (MEDIO-ALTO) → **Estimado actual:** ~28 / 100 (BAJO-MEDIO)
+**Veredicto actualizado:** APTO PARA PRODUCCIÓN CON TENANTS REALES — los 3 bloqueantes originales resueltos; quedan mejoras recomendadas (SEC-009 a SEC-017)
+
+---
+
+## 1-BIS. ACTUALIZACIONES POST-AUDITORÍA
+
+### Cambios aplicados desde 2026-03-21
+
+| Sprint / Branch | Fixes | Fecha |
+|-----------------|-------|-------|
+| `feature/security-audit-fixes` | SEC-001 a SEC-006 (6 críticos/altos) | 2026-03-21 |
+| `feature/code-quality-sprint1` | SEC-007: checkMagicBytes centralizado | 2026-04-19 |
+| `feature/hotfix-post-auditoria` | IDOR en `routes/quote.js` (nuevo hallazgo); JSON body limit 100kb | 2026-04-19 |
+| `feature/code-quality-sprint3` | SEC-011 parcial: rate limiting WA (10/5min) + /quotes/machine (60/min) | 2026-04-20 |
+| `feature/code-quality-sprint4` | Dedup `enviarListaRepuestos`; `connectTimeout` + `charset utf8mb4` en pool | 2026-04-20 |
+| `feature/code-quality-sprint5` | SEC-008 parcial: `dashboard.html` JS/CSS extraídos; SEC-015 parcial: pino logger | 2026-04-20 |
+
+### Nuevo hallazgo (post-auditoría)
+
+| ID | Severidad | Descripción | Estado |
+|----|-----------|-------------|--------|
+| SEC-018 | 🟠 ALTA | IDOR en `routes/quote.js`: `UPDATE her_estado='cotizada'` sin validar `uid_orden` ni `tenant_id` | ✅ **RESUELTO** `feature/hotfix-post-auditoria` |
+| SEC-019 | 🟡 MEDIA | `express.json()` sin límite de tamaño — payload DoS con body enorme | ✅ **RESUELTO** `feature/hotfix-post-auditoria` — `limit: '100kb'` |
 
 ---
 
@@ -551,17 +573,17 @@ Dos peticiones simultáneas pueden obtener el mismo consecutivo. En baja carga e
 
 | Ruta | Filtro tenant_id | Estado |
 |------|-----------------|--------|
-| `GET /api/orders` | `WHERE o.tenant_id = ${tenantId}` | ⚠️ Sin parametrizar (SEC-001) |
+| `GET /api/orders` | `WHERE o.tenant_id = ?` ✓ + `LIMIT ${limit}` clampeado | ✅ SEC-001 resuelto |
 | `GET /api/orders/search` | `WHERE o.tenant_id = ?` ✓ | ✅ |
 | `GET /api/orders/by-estado` | `WHERE o.tenant_id = ?` ✓ | ✅ |
 | `GET /api/orders/mis-ordenes-tecnico` | `AND o.tenant_id = ?` ✓ | ✅ |
 | `GET /api/orders/:orderId` | via `resolveOrder(conn, id, tenantId)` | ✅ |
 | `GET /api/crear-orden/cliente/buscar` | `WHERE tenant_id = ?` ✓ | ✅ |
-| `GET /api/crear-orden/herramientas/:clienteId` | **SIN tenant_id** | 🔴 SEC-002 |
+| `GET /api/crear-orden/herramientas/:clienteId` | `AND tenant_id = ?` ✓ | ✅ SEC-002 resuelto |
 | `POST /api/crear-orden/cliente` | INSERT con `tenant_id` ✓ | ✅ |
 | `POST /api/crear-orden/herramienta` | INSERT con `tenant_id` ✓ | ✅ |
-| `POST /api/crear-orden/orden` | INSERT orden con `tenant_id` ✓, pero herramienta_orden SIN tenant_id | 🔴 SEC-003 |
-| `POST /api/crear-orden/foto/:id` | INSERT foto SIN tenant_id | 🔴 SEC-003 |
+| `POST /api/crear-orden/orden` | INSERT orden, herramienta_orden y foto con `tenant_id` ✓ | ✅ SEC-003 resuelto |
+| `POST /api/crear-orden/foto/:id` | INSERT con `tenant_id = ?` ✓ | ✅ SEC-003 resuelto |
 | `GET /api/dashboard` | Múltiples queries con `tenant_id = ?` ✓ | ✅ |
 | `GET /api/clientes/search` | `WHERE tenant_id = ?` ✓ | ✅ |
 | Login / auth | `WHERE usu_login = ? AND tenant_id = ?` ✓ | ✅ |
@@ -596,9 +618,9 @@ WHERE o.tenant_id = ? AND (CAST(o.ord_consecutivo AS CHAR) LIKE ? OR ...)
 
 ### Brechas de aislamiento confirmadas
 
-1. **`GET /api/crear-orden/herramientas/:clienteId`** — cross-tenant leak confirmado (SEC-002)
-2. **INSERTs sin tenant_id** en herramienta_orden y foto (SEC-003) — datos de tenant 2+ quedan en tenant 1
-3. **Consecutivos globales** (SEC-010) — info leakage de volumen entre tenants
+1. ~~`GET /api/crear-orden/herramientas/:clienteId` — cross-tenant leak~~ ✅ **Resuelto (SEC-002)**
+2. ~~INSERTs sin tenant_id en herramienta_orden y foto~~ ✅ **Resuelto (SEC-003)**
+3. **Consecutivos globales** (SEC-010) — info leakage de volumen entre tenants — **PENDIENTE**
 
 ---
 
@@ -612,17 +634,17 @@ WHERE o.tenant_id = ? AND (CAST(o.ord_consecutivo AS CHAR) LIKE ? OR ...)
 | Cookies httpOnly + sameSite | ✅ CUMPLE | lax en prod |
 | Rate limiting en login | ✅ CUMPLE | 10 intentos / 15 min |
 | Cabeceras de seguridad HTTP (Helmet) | ✅ CUMPLE | CSP + HSTS + X-Frame-Options |
-| Queries parametrizadas (mayoría) | ⚠️ PARCIAL | SEC-001 — 1 endpoint con template literal |
-| Aislamiento de datos entre tenants (mayoría) | ⚠️ PARCIAL | SEC-002, SEC-003 bloquean el cumplimiento |
-| Sesiones persistentes (sobreviven restart) | ❌ NO CUMPLE | MemoryStore en producción |
-| Rate limiting en superadmin | ❌ NO CUMPLE | SEC-005 — brute force posible |
-| Errores sin stack trace en producción | ⚠️ PARCIAL | Error handler global bien, rutas individuales exponen `details` |
-| Validación de archivos subidos (magic bytes) | ❌ NO CUMPLE | Solo MIME, spoofeable |
+| Queries parametrizadas (mayoría) | ✅ CUMPLE | SEC-001 resuelto; `LIMIT ${limit}` seguro (valor clampeado) |
+| Aislamiento de datos entre tenants (mayoría) | ✅ CUMPLE | SEC-002, SEC-003 resueltos; SEC-009/010 pendientes (baja criticidad) |
+| Sesiones persistentes (sobreviven restart) | ✅ CUMPLE | MySQLSessionStore implementado |
+| Rate limiting en superadmin | ✅ CUMPLE | 5 intentos / 15 min |
+| Errores sin stack trace en producción | ✅ CUMPLE | SEC-006 resuelto; pino logger con `{ err: e }` estructurado |
+| Validación de archivos subidos (magic bytes) | ✅ CUMPLE | `checkMagicBytes` via `file-type` en todos los uploads |
 | Audit log de operaciones | ❌ NO CUMPLE | No existe |
 | Política de retención de datos | ❌ NO CUMPLE | Archivos acumulan indefinidamente |
 | Dependencias sin CVEs conocidos | ⚠️ PARCIAL | @anthropic-ai/sdk muy antigua |
 | Configuración correcta CORS | ✅ CUMPLE | origin: false bloquea cross-origin |
-| Superadmin protegido | ⚠️ PARCIAL | Existe auth, pero sin rate limit ni 2FA |
+| Superadmin protegido | ⚠️ PARCIAL | Rate limit OK; sin 2FA (SEC-016, info) |
 | Datos multi-tenant separados por defecto | ⚠️ PARCIAL | 3 brechas específicas identificadas |
 
 ---
@@ -633,27 +655,22 @@ WHERE o.tenant_id = ? AND (CAST(o.ord_consecutivo AS CHAR) LIKE ? OR ...)
 
 El sistema tiene una base de seguridad sólida: bcrypt, Helmet, HTTPS, rate limiting en login, tenant isolation en la mayoría de queries, cross-tenant session blocking, y una suite de tests de aislamiento que detectó y corrigió 2 bugs críticos durante el desarrollo. Es claramente un trabajo serio.
 
-**Sin embargo, hay 3 correcciones bloqueantes antes de comercializar:**
+**Los 3 bloqueantes originales están RESUELTOS** ✅
+
+- ~~SEC-002: IDOR herramientas~~ — resuelto en `feature/security-audit-fixes`
+- ~~SEC-003: INSERTs sin tenant_id~~ — resuelto en `feature/security-audit-fixes`
+- ~~SEC-004: MemoryStore~~ — resuelto en `feature/security-audit-fixes` (MySQLSessionStore)
 
 ---
 
-**Bloqueante 1 — SEC-002 (CRÍTICO):**
-`GET /api/crear-orden/herramientas/:clienteId` no filtra por tenant. Un usuario de tenant 2 puede ver las máquinas de todos los clientes de tenant 1. **1 línea de fix.**
-
-**Bloqueante 2 — SEC-003 (CRÍTICO):**
-`INSERT INTO b2c_herramienta_orden` y `b2c_foto_herramienta_orden` no incluyen `tenant_id`. Los datos de cualquier tenant nuevo quedan en tenant 1. El sistema multi-tenant **no funciona correctamente** para tenants nuevos hasta que esto se corrija. **2 líneas de fix.**
-
-**Bloqueante 3 — SEC-004 (ALTA):**
-MemoryStore en producción significa que cada deploy de Railway destruye todas las sesiones activas. Los usuarios pierden su sesión en cada actualización. En un SaaS que se factura a clientes, esto es inaceptable. **Requiere implementar session store persistente (MySQL o Redis).**
-
----
-
-**Correcciones recomendadas antes del siguiente cliente:**
-- SEC-005: Rate limiting en superadmin login (30 min de trabajo)
-- SEC-006: Eliminar `details: e.message` de errores 500 (15 min)
-- SEC-001: Parametrizar GET /orders (10 min)
-- SEC-009: Datos de tenant en mensajes WA (requiere migración BD)
-- SEC-010: Consecutivos por tenant (10 min + migración de datos)
+**Correcciones pendientes (no bloqueantes):**
+- SEC-009: Datos de tenant en mensajes WA — requiere columnas `ten_direccion`/`ten_telefono` en `b2c_tenant` 🔴
+- SEC-010: Consecutivos por tenant — 10 min + migración 🔴
+- SEC-011: Rate limiting en search/crear-orden endpoints ⚠️
+- SEC-012: Escape hostname en 404 — 1 línea 🟢
+- SEC-013: Actualizar `@anthropic-ai/sdk` — revisar changelog 🟢
+- SEC-015: Audit log en BD (quién cambió qué estado) — tabla nueva 🟢
+- SEC-016: 2FA superadmin — TOTP (scope amplio) ℹ️
 
 ---
 
