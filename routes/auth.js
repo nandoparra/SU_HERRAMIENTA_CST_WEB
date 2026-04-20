@@ -81,6 +81,12 @@ router.post('/login', loginLimiter, async (req, res) => {
 
     const user = userResult;
     const tipo = String(user.usu_tipo || '').toUpperCase();
+
+    // TTL diferenciado: técnicos y clientes obtienen 24h; admin/F usan SESSION_TTL_HOURS (default 8h)
+    const baseTTL = Math.max(1, parseInt(process.env.SESSION_TTL_HOURS || '8', 10));
+    const rolTTL  = (tipo === 'T' || tipo === 'C') ? Math.max(baseTTL, 24) : baseTTL;
+    req.session.cookie.maxAge = rolTTL * 60 * 60 * 1000;
+
     req.session.user = {
       id:        user.uid_usuario,
       nombre:    user.usu_nombre,
