@@ -6,6 +6,7 @@ const path = require('path');
 const fs   = require('fs');
 const { UPLOADS_DIR } = require('../utils/uploads');
 const { enviarListaRepuestos } = require('../utils/repuestos-notifier');
+const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
 
 // Rutas de portal cliente — NO requieren requireInterno (tipo C).
@@ -201,6 +202,8 @@ router.patch('/cliente/maquina/:uid_herramienta_orden/autorizar', async (req, re
       await conn.rollback();
       throw e;
     }
+
+    await logAudit(db, { tenantId, userId: user.id, accion: decision === 'autorizada' ? 'cotizacion_autorizada' : 'cotizacion_rechazada', entidad: 'herramienta_orden', uidEntidad: uid, datosDespues: { decision }, ip: req.ip });
 
     if (decision === 'autorizada') {
       try {

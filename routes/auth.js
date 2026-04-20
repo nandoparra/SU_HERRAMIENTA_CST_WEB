@@ -5,6 +5,8 @@ const bcrypt     = require('bcrypt');
 const rateLimit  = require('express-rate-limit');
 const db         = require('../utils/db');
 const { invalidateTenantCache } = require('../middleware/tenant');
+const { logAudit } = require('../utils/audit');
+const log = require('../utils/logger');
 
 // Máximo 10 intentos de login por IP en 15 minutos
 const loginLimiter = rateLimit({
@@ -21,7 +23,6 @@ const ROLES = { A: 'admin', F: 'funcionario', T: 'tecnico', C: 'cliente' };
 router.get('/login', (req, res) => {
   if (req.session.user) return res.redirect('/');
   res.sendFile(require('path').join(__dirname, '..', 'public', 'login.html'));
-const log = require('../utils/logger');
 });
 
 // POST /login — protegido con rate limiting
@@ -63,7 +64,10 @@ router.post('/login', loginLimiter, async (req, res) => {
         }
       }
 
-      if (!passwordOk) return res.status(401).json({ success: false, error: 'Usuario o contraseña incorrectos' });
+      if (!passwordOk) {
+        await logAudit(db, { tenantId, userId: user.uid_usuario, accion: 'login_fallido', entidad: 'usuario', uidEntidad: user.uid_usuario, ip: req.ip });
+        return res.status(401).json({ success: false, error: 'Usuario o contraseña incorrectos' });
+      }
 
       // Lock del slug tras el primer login exitoso del tenant
       if (req.tenant && !req.tenant.ten_slug_locked) {
@@ -96,6 +100,7 @@ router.post('/login', loginLimiter, async (req, res) => {
       tenant_id: tenantId,
     };
 
+    await logAudit(db, { tenantId, userId: user.uid_usuario, accion: 'login_ok', entidad: 'usuario', uidEntidad: user.uid_usuario, ip: req.ip });
     const redirect = tipo === 'C' ? '/seguimiento.html' : '/dashboard.html';
     res.json({ success: true, rol: req.session.user.rol, redirect });
   } catch (e) {

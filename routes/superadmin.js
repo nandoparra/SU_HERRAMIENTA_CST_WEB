@@ -10,6 +10,7 @@ const db         = require('../utils/db');
 const { requireSuperadmin } = require('../middleware/requireSuperadmin');
 const { invalidateTenantCache } = require('../middleware/tenant');
 const { initTenantClient }      = require('../utils/whatsapp-client');
+const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
 
 // Máx 5 intentos de login cada 15 minutos por IP
@@ -115,6 +116,7 @@ router.post('/tenants', requireSuperadmin, async (req, res) => {
         ten_vence           || null,
       ]
     );
+    await logAudit(db, { tenantId: null, userId: null, accion: 'tenant_creado', entidad: 'superadmin', uidEntidad: result.insertId, datosDespues: { ten_nombre, ten_slug }, ip: req.ip });
     res.status(201).json({ success: true, uid_tenant: result.insertId });
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY') {
@@ -158,6 +160,7 @@ router.patch('/tenants/:id', requireSuperadmin, async (req, res) => {
       `UPDATE b2c_tenant SET ${set} WHERE uid_tenant = ?`,
       [...values, id]
     );
+    await logAudit(db, { tenantId: null, userId: null, accion: 'tenant_editado', entidad: 'superadmin', uidEntidad: id, datosDespues: Object.fromEntries(fields.map((f, i) => [f, values[i]])), ip: req.ip });
 
     // Invalida caché de tenant para que se recargue
     // (invalidamos por slug y dominio si los conocemos)
@@ -236,6 +239,7 @@ router.post('/tenants/:id/usuarios', requireSuperadmin, async (req, res) => {
        VALUES (?, ?, ?, ?, 'A', ?)`,
       [usu_nombre, usu_login, hash, usu_tipo, id]
     );
+    await logAudit(db, { tenantId: id, userId: null, accion: 'usuario_creado_superadmin', entidad: 'superadmin', uidEntidad: result.insertId, datosDespues: { usu_login, usu_tipo, tenant_id: id }, ip: req.ip });
     res.status(201).json({ success: true, uid_usuario: result.insertId });
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY') {

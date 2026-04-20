@@ -4,6 +4,7 @@ const rateLimit = require('express-rate-limit');
 const db        = require('../utils/db');
 const bcrypt    = require('bcrypt');
 const { requireInterno } = require('../middleware/auth');
+const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
 
 const keyByUser = (req) => String(req.session?.user?.uid_usuario || req.ip);
@@ -342,6 +343,7 @@ router.post('/funcionarios', async (req, res) => {
          VALUES (?, ?, ?, ?, 'A', ?)`,
         [nombre, login, hash, tipo, tenantId]
       );
+      await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'funcionario_creado', entidad: 'usuario', uidEntidad: r.insertId, datosDespues: { usu_login: login, usu_tipo: tipo }, ip: req.ip });
       res.json({ success: true, uid_usuario: r.insertId });
     } finally {
       conn.release();

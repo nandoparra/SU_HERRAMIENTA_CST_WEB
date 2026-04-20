@@ -10,6 +10,7 @@ const { requireInterno } = require('../middleware/auth');
 const { addDiasHabiles, toISODate } = require('../utils/dias-habiles');
 const { UPLOADS_DIR, checkMagicBytes } = require('../utils/uploads');
 const log = require('../utils/logger');
+const { logAudit } = require('../utils/audit');
 
 // Todas las rutas de crear-orden requieren rol interno
 router.use(requireInterno);
@@ -134,6 +135,7 @@ router.post('/crear-orden/cliente', async (req, res) => {
       );
 
       await conn.commit();
+      await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'cliente_creado', entidad: 'cliente', uidEntidad: cRes.insertId, datosDespues: { cli_identificacion, cli_razon_social }, ip: req.ip });
       res.json({
         success: true,
         clave_acceso: clave ? null : claveRaw, // solo se devuelve si fue autogenerada
@@ -263,6 +265,7 @@ router.post('/crear-orden/orden', async (req, res) => {
       }
 
       await conn.commit();
+      await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'orden_creada', entidad: 'orden', uidEntidad: uid_orden, datosDespues: { ord_consecutivo: consecutivo, uid_cliente, maquinas: herramientasCreadas.length }, ip: req.ip });
       res.json({ success: true, uid_orden, ord_consecutivo: consecutivo, herramientas: herramientasCreadas });
     } catch (innerErr) {
       await conn.rollback();

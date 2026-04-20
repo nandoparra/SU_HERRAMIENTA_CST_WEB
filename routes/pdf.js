@@ -11,6 +11,7 @@ const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { MessageMedia }  = require('whatsapp-web.js');
 const { requireInterno } = require('../middleware/auth');
 const { UPLOADS_DIR } = require('../utils/uploads');
+const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
 
 // ─── Helper: buscar informe existente para esta máquina en esta orden ────────
@@ -183,6 +184,7 @@ router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireInterno,
       const observation = await generateText(buildMaintenancePrompt(machine, machine.descripcion_trabajo, items), 350);
       const pdf = await generateMaintenancePDF({ order, machine, items, observation, photos });
       await saveInforme(conn, order.uid_orden, req.params.equipmentOrderId, pdf, order.ord_consecutivo);
+      await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'informe_generado', entidad: 'herramienta_orden', uidEntidad: req.params.equipmentOrderId, datosDespues: { uid_orden: order.uid_orden }, ip: req.ip });
 
       const fname = 'mantenimiento-' + order.ord_consecutivo + '-' + (machine.her_nombre || 'maquina').replace(/\s+/g, '-') + '.pdf';
       const fnameAscii = fname.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.\-]/g, '-');
@@ -253,6 +255,7 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireIn
       const observation = await generateText(buildMaintenancePrompt(machine, machine.descripcion_trabajo, items), 350);
       const pdf   = await generateMaintenancePDF({ order, machine, items, observation, photos });
       await saveInforme(conn, order.uid_orden, req.params.equipmentOrderId, pdf, order.ord_consecutivo);
+      await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'informe_generado', entidad: 'herramienta_orden', uidEntidad: req.params.equipmentOrderId, datosDespues: { uid_orden: order.uid_orden }, ip: req.ip });
 
       const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
       await sendWAMessage(tenantId, getPhone(order), media);

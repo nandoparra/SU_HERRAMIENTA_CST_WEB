@@ -13,6 +13,7 @@ const { parseColombianPhones } = require('../utils/phones');
 const rateLimit = require('express-rate-limit');
 const { requireInterno } = require('../middleware/auth');
 const log = require('../utils/logger');
+const { logAudit } = require('../utils/audit');
 
 const keyByUser = (req) => String(req.session?.user?.uid_usuario || req.ip);
 
@@ -502,6 +503,7 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
         }
       }
 
+      await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'estado_cambiado', entidad: 'herramienta_orden', uidEntidad: equipmentOrderId, datosDespues: { estado: status }, ip: req.ip });
       res.json({ success: true, status, changed_at: logRow?.changed_at || null });
     } finally {
       conn.release();
