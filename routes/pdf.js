@@ -11,6 +11,7 @@ const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { MessageMedia }  = require('whatsapp-web.js');
 const { requireInterno } = require('../middleware/auth');
 const { UPLOADS_DIR } = require('../utils/uploads');
+const log = require('../utils/logger');
 
 // ─── Helper: buscar informe existente para esta máquina en esta orden ────────
 async function getExistingInforme(conn, uid_herramienta_orden) {
@@ -155,7 +156,7 @@ router.get('/orders/:orderId/pdf/quote', requireInterno, async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error generando PDF cotizaci\u00f3n:', e);
+    log.error({ err: e }, 'Error generando PDF cotizaci\u00f3n:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -191,7 +192,7 @@ router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireInterno,
       conn.release();
     }
   } catch (e) {
-    console.error('Error generando PDF mantenimiento:', e);
+    log.error({ err: e }, 'Error generando PDF mantenimiento:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -220,7 +221,7 @@ router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) 
       conn.release();
     }
   } catch (e) {
-    console.error('Error enviando PDF cotizaci\u00f3n:', e);
+    log.error({ err: e }, 'Error enviando PDF cotizaci\u00f3n:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
@@ -260,7 +261,7 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireIn
       conn.release();
     }
   } catch (e) {
-    console.error('Error enviando PDF mantenimiento:', e);
+    log.error({ err: e }, 'Error enviando PDF mantenimiento:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
@@ -285,7 +286,7 @@ router.get('/informes/:uid_informe', requireInterno, async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error sirviendo informe:', e);
+    log.error({ err: e }, 'Error sirviendo informe:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -365,7 +366,7 @@ router.get('/orders/:orderId/pdf/orden', requireInterno, async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error generando PDF orden:', e);
+    log.error({ err: e }, 'Error generando PDF orden:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -382,7 +383,7 @@ router.get('/orders/:orderId/print/orden', requireInterno, async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error en print/orden:', e);
+    log.error({ err: e }, 'Error en print/orden:');
     res.status(500).send('Error interno del servidor');
   }
 });
@@ -418,7 +419,7 @@ router.post('/orders/:orderId/send-pdf/orden', requireInterno, async (req, res) 
         const textMsg = `Hola, le saluda *Su Herramienta CST* 🔧\n\nHemos recibido su(s) equipo(s) para revisión. Orden #${ordenRow.ord_consecutivo}:\n\n${machineList}\n\nLe notificaremos cuando la revisión esté lista. ¡Gracias por confiar en nosotros!`;
         await sendWAMessage(tenantId, phone, textMsg);
       } catch (waErr) {
-        console.warn('WA no disponible para envío PDF orden:', waErr.message);
+        log.warn({ err: waErr.message }, 'WA no disponible para envío PDF orden:');
         waWarning = waErr.message;
       }
 
@@ -427,7 +428,7 @@ router.post('/orders/:orderId/send-pdf/orden', requireInterno, async (req, res) 
       conn.release();
     }
   } catch (e) {
-    console.error('Error enviando PDF orden de servicio:', e);
+    log.error({ err: e }, 'Error enviando PDF orden de servicio:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });

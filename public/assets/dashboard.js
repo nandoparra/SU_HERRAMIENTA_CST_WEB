@@ -1,0 +1,2711 @@
+const API = '/api';
+let _currentUser = null;
+
+// ── Días hábiles colombianos ──────────────────────────────────────────────────
+(function() {
+  function pascua(y) {
+    const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,
+          f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),
+          h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,
+          l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),
+          mo=Math.floor((h+l-7*m+114)/31),dy=((h+l-7*m+114)%31)+1;
+    return new Date(y,mo-1,dy);
+  }
+  function proxLunes(d) {
+    const r=new Date(d), dow=r.getDay();
+    if(dow===1) return r;
+    r.setDate(r.getDate()+(dow===0?1:8-dow));
+    return r;
+  }
+  const _cacheF={};
+  function getFestivos(y) {
+    if(_cacheF[y]) return _cacheF[y];
+    const s=new Set();
+    const add=d=>s.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+    [[1,1],[5,1],[7,20],[8,7],[12,8],[12,25]].forEach(([m,d])=>add(new Date(y,m-1,d)));
+    [[1,6],[3,19],[6,29],[8,15],[10,12],[11,1],[11,11]].forEach(([m,d])=>add(proxLunes(new Date(y,m-1,d))));
+    const p=pascua(y);
+    [-3,-2].forEach(o=>{const d=new Date(p);d.setDate(d.getDate()+o);add(d);});
+    [39,60,68].forEach(o=>{const d=new Date(p);d.setDate(d.getDate()+o);add(proxLunes(d));});
+    return (_cacheF[y]=s);
+  }
+  function esNoHabil(d) {
+    const dow=d.getDay();
+    if(dow===0||dow===6) return true;
+    const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return getFestivos(d.getFullYear()).has(k);
+  }
+  window.addDiasHabiles = function(desde, n) {
+    const d=new Date(desde); d.setHours(0,0,0,0);
+    let c=0;
+    while(c<n){d.setDate(d.getDate()+1);if(!esNoHabil(d))c++;}
+    return d;
+  };
+  window.toInputDate = function(d) {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+})();
+
+// ── Shared utilities ──────────────────────────────────────────────────────────
+function fmtFecha(raw) {
+  const m = String(raw || '').match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  const iso = String(raw || '').match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  return raw || '-';
+}
+function money(n) { return '$' + Number(n || 0).toLocaleString('es-CO', {maximumFractionDigits:0}); }
+function esc(s)   { return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ── Badge de garantía para result-cards ───────────────────────────────────────
+function ord_garantiaBadges(o) {
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+
+  // Badge vencimiento garantía
+  let venceBadge = '';
+  if (o.ord_garantia_vence) {
+    const vence = new Date(o.ord_garantia_vence); vence.setHours(0,0,0,0);
+    const dias = Math.round((vence - hoy) / 86400000);
+    if (dias < 0)
+      venceBadge = `<span style="background:#c0392b;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">🔴 Garantía vencida</span>`;
+    else if (dias <= 7)
+      venceBadge = `<span style="background:#e67e22;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">⚠️ Vence en ${dias}d</span>`;
+  }
+
+  // Badge límite de revisión (48h hábiles)
+  let revBadge = '';
+  if (o.ord_revision_limite) {
+    const rev = new Date(o.ord_revision_limite); rev.setHours(0,0,0,0);
+    const dias = Math.round((rev - hoy) / 86400000);
+    if (dias < 0)
+      revBadge = `<span style="background:#922b21;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">⚠️ Revisión vencida</span>`;
+    else if (dias === 0)
+      revBadge = `<span style="background:#e67e22;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">🔔 Revisar hoy</span>`;
+    else
+      revBadge = `<span style="background:#2980b9;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">Revisar antes: ${fmtFecha(o.ord_revision_limite)}</span>`;
+  }
+
+  const sinFactura = !o.ord_factura
+    ? `<span style="background:#fff3cd;color:#856404;border:1px solid #ffc107;font-size:10px;padding:1px 6px;border-radius:4px;">⚠️ Sin factura</span>`
+    : '';
+  return `<div style="margin:2px 0 3px;display:flex;flex-wrap:wrap;gap:3px;align-items:center;">
+    <span style="background:#c0392b;color:#fff;font-size:10px;padding:1px 7px;border-radius:4px;font-weight:700;">GARANTÍA</span>
+    ${revBadge}${venceBadge}${sinFactura}
+  </div>`;
+}
+function showToast(msg, ms=3000) {
+  const t = document.getElementById('_toast');
+  t.textContent = msg; t.style.opacity = '1';
+  clearTimeout(t._t); t._t = setTimeout(() => t.style.opacity='0', ms);
+}
+function isAdmin()   { return _currentUser?.tipo === 'A'; }
+function isTecnico() { return _currentUser?.tipo === 'T'; }
+
+// ── Modal Cotizar por máquina ──────────────────────────────────────────────────
+window.ord_abrirCotizar = (orderId, equipmentOrderId) => {
+  document.getElementById('cotizarIframe').src =
+    `/generador-cotizaciones.html?orden=${orderId}&maquina=${equipmentOrderId}`;
+  document.getElementById('cotizarModal').style.display = 'flex';
+};
+window.cerrarModalCotizar = () => {
+  document.getElementById('cotizarModal').style.display = 'none';
+  document.getElementById('cotizarIframe').src = '';
+};
+window.addEventListener('message', e => {
+  if (e.origin !== window.location.origin) return;
+  if (e.data?.type === 'cotizacionGuardada') {
+    cerrarModalCotizar();
+    if (location.hash === '#cotizaciones') {
+      cot_cargarPendientes();
+    } else {
+      ord_verDetalle(e.data.orderId);
+    }
+  }
+});
+document.getElementById('cotizarModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('cotizarModal')) cerrarModalCotizar();
+});
+
+// ── Sidebar / navigation shell ────────────────────────────────────────────────
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sbOverlay').classList.toggle('show');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sbOverlay').classList.remove('show');
+}
+
+const VIEW_LABELS = {
+  inicio:'Inicio', ordenes:'Órdenes', cotizaciones:'Cotizaciones',
+  clientes:'Clientes', funcionarios:'Funcionarios', inventario:'Inventario',
+  nuevaOrden:'Nueva Orden',
+  misOrdenes:'Mis Órdenes', buscarOrden:'Buscar Orden'
+};
+
+const TEC_VIEWS = ['misOrdenes', 'buscarOrden'];
+
+function navigate(viewName) {
+  if (!Views[viewName]) return;
+  // Técnicos solo pueden ver sus vistas
+  if (isTecnico() && !TEC_VIEWS.includes(viewName)) return;
+  closeSidebar();
+  document.querySelectorAll('.nav-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.view === viewName));
+  document.getElementById('topbarTitle').textContent = VIEW_LABELS[viewName] || viewName;
+  const vc = document.getElementById('viewContainer');
+  vc.scrollTop = 0;
+  vc.innerHTML = Views[viewName].render();
+  Views[viewName].init();
+  location.hash = viewName;
+}
+
+async function doLogout() {
+  await fetch('/logout', { method:'POST' });
+  location.href = '/login';
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: INICIO
+// ════════════════════════════════════════════════════════════════════════════
+const Views = {};
+
+Views.inicio = {
+  render() {
+    const now = new Date();
+    const mes = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    return `
+      <div class="dash-wrap">
+        <div class="dash-header">
+          <h2>Resumen del negocio</h2>
+          <div class="mes-selector">
+            <input type="month" id="mesInput" value="${mes}" onchange="ini_load()">
+          </div>
+        </div>
+        <div class="kpi-grid" id="kpiGrid">
+          <div class="kpi-card kc-grey" style="grid-column:1/-1;justify-content:center;align-items:center;min-height:80px;">
+            <span style="color:#aaa;font-size:13px;">Cargando...</span>
+          </div>
+        </div>
+        <div class="alertas-section" id="garantiasSection" style="display:none">
+          <div class="alertas-header">
+            <h3>🔴 Órdenes de garantía activas</h3>
+          </div>
+          <div id="garantiasList"></div>
+        </div>
+        <div class="alertas-section" id="alertasSection" style="display:none">
+          <div class="alertas-header">
+            <h3>⚠️ Equipos reparados pendientes de entrega</h3>
+            <div class="alertas-legend">
+              <div class="legend-dot"><div class="dot dot-y"></div>7-14 días</div>
+              <div class="legend-dot"><div class="dot dot-o"></div>15-29 días</div>
+              <div class="legend-dot"><div class="dot dot-r"></div>30+ días</div>
+            </div>
+          </div>
+          <div id="alertasList"></div>
+        </div>
+        <div class="alertas-section" id="revSinCotSection" style="display:none">
+          <div class="alertas-header">
+            <h3>📝 Equipos revisados pendientes de cotizar</h3>
+          </div>
+          <div id="revSinCotList"></div>
+        </div>
+      </div>`;
+  },
+  async init() {
+    window.ini_load = async () => {
+      const mes = document.getElementById('mesInput')?.value || '';
+      const data = await fetch(`${API}/dashboard?mes=${mes}`).then(r=>r.json()).catch(()=>null);
+      if (!data) return;
+      const k = data.kpis;
+      const _mes = document.getElementById('mesInput')?.value || '';
+      document.getElementById('kpiGrid').innerHTML = `
+        <div class="kpi-card kc-blue" onclick="navigate('ordenes');setTimeout(()=>ord_filtrarPorEstado('','Órdenes del mes','${mes}'),80)">
+          <div class="kpi-icon">📋</div>
+          <div class="kpi-val">${k.total_ordenes}</div>
+          <div class="kpi-lbl">Órdenes del mes</div>
+        </div>
+        <div class="kpi-card kc-orange" onclick="navigate('ordenes');setTimeout(()=>ord_filtrarPorEstado('cotizada','Cotizadas — esperando respuesta',''),80)">
+          <div class="kpi-icon">💬</div>
+          <div class="kpi-val">${k.cotizadas}</div>
+          <div class="kpi-lbl">Cotizadas — esperando respuesta</div>
+        </div>
+        <div class="kpi-card kc-green" onclick="navigate('ordenes');setTimeout(()=>ord_filtrarPorEstado('autorizada','Autorizadas — en reparación',''),80)">
+          <div class="kpi-icon">✅</div>
+          <div class="kpi-val">${k.autorizadas}</div>
+          <div class="kpi-lbl">Autorizadas — en reparación</div>
+        </div>
+        <div class="kpi-card kc-purple" onclick="navigate('ordenes');setTimeout(()=>ord_filtrarPorEstado('reparada','Reparadas — pendientes entrega',''),80)">
+          <div class="kpi-icon">🔧</div>
+          <div class="kpi-val">${k.reparadas}</div>
+          <div class="kpi-lbl">Reparadas — pendientes entrega</div>
+        </div>
+        <div class="kpi-card kc-red" onclick="navigate('ordenes');setTimeout(()=>ord_filtrarPorEstado('no_autorizada','No autorizadas',''),80)">
+          <div class="kpi-icon">🚫</div>
+          <div class="kpi-val">${k.no_autorizadas}</div>
+          <div class="kpi-lbl">No autorizadas</div>
+        </div>
+        <div class="kpi-card kc-teal" onclick="navigate('ordenes');setTimeout(()=>ord_filtrarPorEstado('entregada','Entregadas',''),80)">
+          <div class="kpi-icon">📦</div>
+          <div class="kpi-val">${k.entregadas}</div>
+          <div class="kpi-lbl">Entregadas</div>
+        </div>
+        <div class="kpi-card kc-grey" onclick="navigate('ordenes');setTimeout(()=>ord_filtrarPorEstado('pendiente_revision','Pendientes de revisión',''),80)">
+          <div class="kpi-icon">🔍</div>
+          <div class="kpi-val">${k.pendiente_revision + k.revisadas}</div>
+          <div class="kpi-lbl">Pendientes de revisión</div>
+        </div>`;
+
+      const sec = document.getElementById('alertasSection');
+      const lst = document.getElementById('alertasList');
+      if (!data.alertas.length) {
+        sec.style.display = 'block';
+        lst.innerHTML = '<div class="alertas-empty">✅ Sin equipos reparados pendientes de entrega</div>';
+      } else {
+        sec.style.display = 'block';
+        lst.innerHTML = data.alertas.map(a => `
+          <div class="alerta-row alerta-${a.rango}" onclick="navigate('ordenes');setTimeout(()=>ord_verDetalle(${a.uid_orden}),50)">
+            <div class="alerta-info">
+              <div class="alerta-maq">${esc(a.her_nombre||'')} ${esc(a.her_marca||'')}</div>
+              <div class="alerta-cli">${esc(a.cliente)}</div>
+              <div class="alerta-orden">Orden #${a.ord_consecutivo}</div>
+            </div>
+            <div class="dias-badge dias-${a.rango}">${a.dias} día${a.dias!==1?'s':''}</div>
+          </div>`).join('');
+      }
+
+      const rsc = data.revisadasSinCotizar || [];
+      const rscSec = document.getElementById('revSinCotSection');
+      const rscLst = document.getElementById('revSinCotList');
+      if (rscSec && rscLst) {
+        rscSec.style.display = 'block';
+        if (!rsc.length) {
+          rscLst.innerHTML = '<div class="alertas-empty">✅ Todas las máquinas revisadas ya tienen cotización</div>';
+        } else {
+          rscLst.innerHTML = rsc.map(r => `
+            <div class="alerta-row alerta-amarillo" onclick="navigate('cotizaciones');setTimeout(()=>cot_loadById(${r.uid_orden}),80)" style="cursor:pointer">
+              <div class="alerta-info">
+                <div class="alerta-maq">${esc(r.her_nombre||'')} ${esc(r.her_marca||'')}</div>
+                <div class="alerta-cli">${esc(r.cliente)}</div>
+                <div class="alerta-orden">Orden #${r.ord_consecutivo}</div>
+              </div>
+              <div class="dias-badge dias-amarillo">Cotizar</div>
+            </div>`).join('');
+        }
+      }
+
+      // Garantías activas
+      const garantias = data.garantiasActivas || [];
+      const garSec = document.getElementById('garantiasSection');
+      const garLst = document.getElementById('garantiasList');
+      if (garSec && garLst) {
+        if (!garantias.length) {
+          garSec.style.display = 'none';
+        } else {
+          garSec.style.display = 'block';
+          garLst.innerHTML = garantias.map(g => {
+            const hoy = new Date(); hoy.setHours(0,0,0,0);
+
+            // Badge vencimiento garantía (30 días hábiles)
+            let venceBadge = '';
+            if (g.ord_garantia_vence) {
+              const vence = new Date(g.ord_garantia_vence); vence.setHours(0,0,0,0);
+              const dias = Math.round((vence - hoy) / 86400000);
+              if (dias < 0)
+                venceBadge = `<span class="dias-badge" style="background:#c0392b;color:#fff;">🔴 Garantía vencida</span>`;
+              else if (dias <= 7)
+                venceBadge = `<span class="dias-badge" style="background:#e67e22;color:#fff;">⚠️ Vence en ${dias}d</span>`;
+              else
+                venceBadge = `<span class="dias-badge" style="background:#27ae60;color:#fff;">Vence: ${fmtFecha(g.ord_garantia_vence)}</span>`;
+            }
+
+            // Badge límite de revisión (48h hábiles)
+            let revBadge = '';
+            if (g.ord_revision_limite) {
+              const rev = new Date(g.ord_revision_limite); rev.setHours(0,0,0,0);
+              const dias = Math.round((rev - hoy) / 86400000);
+              if (dias < 0)
+                revBadge = `<span class="dias-badge" style="background:#922b21;color:#fff;">⚠️ Revisión vencida</span>`;
+              else if (dias === 0)
+                revBadge = `<span class="dias-badge" style="background:#e67e22;color:#fff;">🔔 Revisar hoy</span>`;
+              else
+                revBadge = `<span class="dias-badge" style="background:#2980b9;color:#fff;">Revisar antes: ${fmtFecha(g.ord_revision_limite)}</span>`;
+            }
+
+            const sinFactura = g.sin_factura
+              ? `<span style="display:inline-block;font-size:11px;background:#fff3cd;color:#856404;border:1px solid #ffc107;border-radius:4px;padding:1px 7px;">⚠️ Sin factura adjunta</span>`
+              : '';
+            return `
+              <div class="alerta-row alerta-rojo" onclick="navigate('ordenes');setTimeout(()=>ord_verDetalle(${g.uid_orden}),50)" style="cursor:pointer;">
+                <div class="alerta-info" style="flex:1;">
+                  <div class="alerta-maq" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                    <span style="background:#c0392b;color:#fff;font-size:11px;padding:1px 7px;border-radius:4px;font-weight:700;">GARANTÍA</span>
+                    ${esc(g.maquinas||'')}
+                  </div>
+                  <div class="alerta-cli">${esc(g.cliente)}</div>
+                  <div class="alerta-orden">Orden #${g.ord_consecutivo} · Ingreso: ${fmtFecha(g.ord_fecha)}</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;">
+                    ${revBadge}${venceBadge}${sinFactura}
+                  </div>
+                </div>
+              </div>`;
+          }).join('');
+        }
+      }
+    };
+
+    await window.ini_load();
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: ÓRDENES
+// ════════════════════════════════════════════════════════════════════════════
+Views.ordenes = {
+  _timer: null,
+  render() {
+    return `
+      <div class="two-panel" id="ordPanel">
+        <div class="pnl-left">
+          <div class="search-box">
+            <h2>Buscar orden</h2>
+            <div class="concept-row">
+              <select id="ordConcepto" onchange="ord_placeholder()">
+                <option value="consecutivo">Número de orden</option>
+                <option value="cedula">Cédula / NIT</option>
+                <option value="nombre">Nombre del cliente</option>
+              </select>
+            </div>
+            <div class="input-row">
+              <input id="ordSearch" type="text" placeholder="Ej: 7833" oninput="ord_debounce()">
+              <button onclick="ord_buscar()">🔍</button>
+            </div>
+          </div>
+          <div class="results-list" id="ordResults">
+            <div class="results-empty">Escribe para buscar</div>
+          </div>
+        </div>
+        <div class="pnl-right" id="ordRight">
+          <div class="mobile-back" onclick="ord_back()">← Volver a resultados</div>
+          <div class="empty-state">
+            <div class="es-icon">📋</div>
+            <p>Selecciona una orden para ver el detalle</p>
+          </div>
+        </div>
+      </div>`;
+  },
+  init() {
+    const PLCH = { consecutivo:'Ej: 7833', cedula:'Ej: 8914110164', nombre:'Ej: Cliente X' };
+    const ELBL = { pendiente_revision:'Pendiente revisión',revisada:'Revisada',cotizada:'Cotizada',autorizada:'Autorizada',no_autorizada:'No autorizada',reparada:'Reparada',entregada:'Entregada' };
+
+    window.ord_placeholder = () => {
+      const v = document.getElementById('ordConcepto')?.value;
+      const si = document.getElementById('ordSearch');
+      if (si) { si.placeholder = PLCH[v]||''; si.value=''; }
+      const rl = document.getElementById('ordResults');
+      if (rl) rl.innerHTML = '<div class="results-empty">Escribe para buscar</div>';
+    };
+    window.ord_debounce = () => {
+      clearTimeout(Views.ordenes._timer);
+      Views.ordenes._timer = setTimeout(ord_buscar, 350);
+    };
+    window.ord_buscar = async () => {
+      const q = document.getElementById('ordSearch')?.value.trim();
+      if (!q) return;
+      const rl = document.getElementById('ordResults');
+      if (!rl) return;
+      rl.innerHTML = '<div class="results-empty">Buscando...</div>';
+      const data = await fetch(`${API}/orders/search?q=${encodeURIComponent(q)}`).then(r=>r.json()).catch(()=>[]);
+      if (!data.length) { rl.innerHTML='<div class="results-empty">Sin resultados</div>'; return; }
+      rl.innerHTML = data.map(o=>`
+        <div class="result-card" onclick="ord_verDetalle(${o.uid_orden})">
+          <div class="rc-top">
+            <span class="rc-num">Orden #${o.ord_consecutivo}</span>
+            <span class="rc-fecha">${fmtFecha(o.ord_fecha)}</span>
+          </div>
+          ${o.ord_tipo==='garantia' ? ord_garantiaBadges(o) : ''}
+          <div class="rc-cliente">${esc(o.cli_razon_social||'')}</div>
+          <div class="rc-maq">${esc(o.maquinas_resumen||(o.maquinas?o.maquinas+' máquina(s)':''))}</div>
+        </div>`).join('');
+    };
+    window.ord_back = () => {
+      document.getElementById('ordPanel')?.classList.remove('immersive');
+    };
+    window.ord_verDetalle = async (uid) => {
+      document.querySelectorAll('#ordResults .result-card').forEach(el => {
+        el.classList.toggle('active', el.onclick?.toString().includes(`(${uid})`));
+      });
+      const right = document.getElementById('ordRight');
+      if (!right) return;
+      document.getElementById('ordPanel')?.classList.add('immersive');
+      right.innerHTML = `
+        <div class="mobile-back" onclick="ord_back()">← Volver a resultados</div>
+        <div style="padding:20px;color:#888;text-align:center;">Cargando...</div>`;
+      const data = await fetch(`${API}/orders/${uid}/detalle`).then(r=>r.json()).catch(e=>({error:e.message}));
+      if (data.error) { right.innerHTML=`<div class="mobile-back" onclick="ord_back()">← Volver</div><div style="padding:20px;color:#e74c3c;">${data.error}</div>`; return; }
+      const {orden,maquinas,tieneCotizacion,cotOrden} = data;
+
+      const maqHtml = maquinas.map(m => {
+        const lbl = ELBL[m.her_estado]||m.her_estado||'-';
+        const bc  = 'badge b-'+(m.her_estado||'pendiente_revision');
+        const sub = [m.her_marca,m.her_serial?'S/N: '+m.her_serial:null,m.her_referencia?'Ref: '+m.her_referencia:null].filter(Boolean).join(' | ');
+        const opts = Object.entries(ELBL).map(([v,l])=>`<option value="${v}"${(m.her_estado||'pendiente_revision')===v?' selected':''}>${l}</option>`).join('');
+        const fotosRecHtml = (m.fotos||[]).map(f=>`
+          <div class="foto-thumb" id="fr-${f.uid_foto_herramienta_orden}">
+            <img src="/uploads/fotos-recepcion/${f.fho_archivo}" onclick="window.open(this.src,'_blank')" alt="">
+            <button class="del-btn" onclick="ord_delFotoRec(${f.uid_foto_herramienta_orden},event)">✕</button>
+          </div>`).join('');
+        const fotosRec = `<div class="foto-row" id="fr-row-${m.uid_herramienta_orden}">${fotosRecHtml || '<div class=\'sin-fotos\'>Sin fotos de recepción</div>'}</div>`;
+        const fotosTrab = (m.fotos_trabajo||[]).map(f=>`
+          <div class="foto-thumb" id="ft-${f.uid_foto_herramienta_orden}">
+            <img src="/uploads/fotos-recepcion/${f.fho_archivo}" onclick="window.open(this.src,'_blank')" alt="">
+            <button class="del-btn" onclick="ord_delFoto(${f.uid_foto_herramienta_orden},event)">✕</button>
+          </div>`).join('');
+        const informesHtml = (m.informes?.length)
+          ? m.informes.map(inf=>{
+              const fd = new Date(inf.inf_fecha).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+              return `<div class="informe-row"><span>${fd}</span><a href="${API}/informes/${inf.uid_informe}" target="_blank">⬇ Descargar</a></div>`;
+            }).join('')
+          : '<div class="sin-informes">Sin informes generados</div>';
+        let cotHtml = '';
+        if (m.cotizacion) {
+          const c = m.cotizacion;
+          cotHtml = `<div class="cot-section">
+            <div class="cot-title">💰 Cotización</div>
+            <div class="cot-row"><span class="lbl">Mano de obra</span><span class="val">${money(c.mano_obra)}</span></div>
+            ${c.descripcion_trabajo?`<div class="cot-row" style="flex-direction:column;gap:2px;"><span class="lbl">Trabajo</span><span style="font-size:12px;color:#444;margin-top:2px;">${esc(c.descripcion_trabajo)}</span></div>`:''}
+            ${c.items.length?`<div class="cot-items">${c.items.map(it=>`<div class="cot-item">${it.cantidad}x ${esc(it.nombre)} — ${money(it.precio)} c/u</div>`).join('')}</div>`:''}
+            <div class="cot-subtotal"><span>Subtotal</span><span>${money(c.subtotal)}</span></div>
+          </div>`;
+        }
+        const garantiaBadge = m.hor_es_garantia ? (() => {
+          const hoy = new Date(); hoy.setHours(0,0,0,0);
+          let vb = '';
+          if (m.hor_garantia_vence) {
+            const vd = new Date(m.hor_garantia_vence); vd.setHours(0,0,0,0);
+            const dias = Math.round((vd - hoy) / 86400000);
+            if (dias < 0) vb = `<span style="background:#c0392b;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">🔴 Garantía vencida</span>`;
+            else if (dias <= 7) vb = `<span style="background:#e67e22;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">⚠️ Vence en ${dias}d</span>`;
+            else vb = `<span style="background:#2980b9;color:#fff;font-size:10px;padding:1px 6px;border-radius:4px;">Garantía: ${fmtFecha(m.hor_garantia_vence)}</span>`;
+          }
+          return `<div style="margin:3px 0;display:flex;flex-wrap:wrap;gap:3px;">
+            <span style="background:#c0392b;color:#fff;font-size:10px;padding:1px 7px;border-radius:4px;font-weight:700;">GARANTÍA</span>
+            ${vb}
+            ${!m.hor_garantia_factura ? `<span style="background:#fff3cd;color:#856404;border:1px solid #ffc107;font-size:10px;padding:1px 6px;border-radius:4px;">⚠️ Sin factura</span>` : ''}
+          </div>`;
+        })() : '';
+        return `
+          <div class="maq-card">
+            <div class="maq-top">
+              <div>
+                <div class="maq-nombre">${esc(m.her_nombre||'-')}</div>
+                ${sub?`<div class="maq-sub">${esc(sub)}</div>`:''}
+                ${garantiaBadge}
+              </div>
+              <span id="badge-${m.uid_herramienta_orden}" class="${bc}">${lbl}</span>
+            </div>
+            <div class="maq-actions">
+              <select class="estado-select" data-prev="${m.her_estado||'pendiente_revision'}"
+                      onchange="ord_cambiarEstado(${m.uid_herramienta_orden},${orden.uid_orden},this)">${opts}</select>
+              <button class="btn btn-sm btn-mid" onclick="ord_abrirCotizar(${orden.uid_orden},${m.uid_herramienta_orden})">✏️ Cotizar</button>
+              <button class="btn btn-sm btn-teal" onclick="ord_verInforme(${orden.uid_orden},${m.uid_herramienta_orden})">📋 Informe</button>
+              ${m.informes?.length?`<button class="btn btn-sm btn-green" onclick="ord_enviarInformeWA(${orden.uid_orden},${m.uid_herramienta_orden},this)">📤 WA Informe</button>`:''}
+              ${m.hor_es_garantia && m.hor_garantia_factura ? `<a class="btn btn-sm btn-teal" href="/uploads/facturas-garantia/${esc(m.hor_garantia_factura)}" target="_blank">📄 Factura</a>` : ''}
+              ${m.hor_es_garantia && !m.hor_garantia_factura ? `<label class="btn btn-sm btn-teal" style="cursor:pointer;">📎 Adjuntar factura<input type="file" accept=".pdf" style="display:none" onchange="ord_subirFacturaMaquina(${orden.uid_orden},${m.uid_herramienta_orden},this)"></label>` : ''}
+            </div>
+            ${m.hor_observaciones?`<div class="maq-obs"><div class="maq-obs-lbl">Observaciones</div>${esc(m.hor_observaciones)}</div>`:''}
+            <div class="fotos-seccion">
+              <div class="fotos-lbl">Recepción</div>
+              ${fotosRec}
+              <label class="upload-foto-btn">+ Agregar foto
+                <input type="file" accept="image/*" style="display:none"
+                  onchange="ord_uploadFotoRec(${orden.uid_orden},${m.uid_herramienta_orden},this)">
+              </label>
+            </div>
+            <div class="fotos-seccion">
+              <div class="fotos-lbl fotos-trabajo-lbl">Del trabajo</div>
+              <div class="foto-row" id="ft-row-${m.uid_herramienta_orden}">${fotosTrab}</div>
+              <label class="upload-foto-btn">+ Agregar foto
+                <input type="file" accept="image/*" style="display:none"
+                  onchange="ord_uploadFoto(${orden.uid_orden},${m.uid_herramienta_orden},this)">
+              </label>
+            </div>
+            <div class="informes-section">
+              <div class="informes-title">📋 Informes de mantenimiento</div>${informesHtml}
+            </div>
+            ${cotHtml}
+          </div>`;
+      }).join('');
+
+      const totalHtml = cotOrden ? `
+        <div class="total-card">
+          <div class="tc-item"><div class="tc-lbl">Subtotal</div><div class="tc-val">${money(cotOrden.subtotal)}</div></div>
+          ${Number(cotOrden.iva)>0?`<div class="tc-item"><div class="tc-lbl">IVA</div><div class="tc-val">${money(cotOrden.iva)}</div></div>`:''}
+          <div class="tc-item"><div class="tc-lbl">Total</div><div class="tc-val big">${money(cotOrden.total)}</div></div>
+        </div>` : '';
+
+      right.innerHTML = `
+        <div class="mobile-back" onclick="ord_back()">← Volver a resultados</div>
+        <div style="padding:22px;">
+          <div class="ord-detail-header">
+            <span class="ord-num">Orden #${orden.ord_consecutivo}</span>
+            <span class="ord-fecha">${fmtFecha(orden.ord_fecha)}</span>
+          </div>
+          <div class="card">
+            <div class="card-title">Cliente</div>
+            <div class="client-grid">
+              <div class="field"><span class="lbl">Nombre / Razón social</span><span class="val">${esc(orden.cli_razon_social||'-')}</span></div>
+              <div class="field"><span class="lbl">Cédula / NIT</span><span class="val">${esc(orden.cli_identificacion||'-')}</span></div>
+              <div class="field"><span class="lbl">Teléfono</span><span class="val">${esc(orden.cli_telefono||'-')}</span></div>
+              <div class="field"><span class="lbl">Dirección</span><span class="val">${esc(orden.cli_direccion||'-')}</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+              <span>Equipos (${maquinas.length})</span>
+              <button class="btn btn-sm btn-primary" onclick="ord_abrirAgregarMaquina(${orden.uid_orden},${orden.uid_cliente})">+ Agregar máquina</button>
+            </div>
+            ${maqHtml}
+          </div>
+          ${totalHtml}
+          <div class="ord-acciones">
+            <a class="btn btn-dark" href="${API}/orders/${orden.uid_orden}/print/orden" target="_blank">🖨️ Imprimir orden</a>
+            ${orden.ord_tipo==='garantia' && orden.ord_factura ? `<a class="btn btn-teal" href="/uploads/facturas-garantia/${orden.ord_factura}" target="_blank">📄 Factura garantía</a>` : ''}
+            ${orden.ord_tipo==='garantia' && !orden.ord_factura ? `<label class="btn btn-teal" style="cursor:pointer;">📎 Adjuntar factura<input type="file" accept=".pdf" style="display:none" onchange="ord_subirFactura(${orden.uid_orden},this)"></label>` : ''}
+            ${tieneCotizacion?`
+            <a class="btn btn-purple" href="${API}/orders/${orden.uid_orden}/pdf/quote" target="_blank">📄 PDF Cotización</a>
+            <button class="btn btn-mid" onclick="ord_enviarPDFCotWA(${orden.uid_orden},this)">📤 PDF Cotización WA</button>
+            <button class="btn btn-orange" onclick="ord_generarMsgCot(${orden.uid_orden},this)">🤖 Generar mensaje</button>
+            <button class="btn btn-orange" id="btnSendCotWA-${orden.uid_orden}" onclick="ord_enviarCotWA(${orden.uid_orden},this)" disabled>📱 Enviar WA</button>
+            <div id="msgPreview-${orden.uid_orden}" style="display:none;margin:8px 0;padding:10px 12px;background:#f1f8e9;border-left:3px solid #66bb6a;border-radius:4px;white-space:pre-wrap;font-size:13px;line-height:1.5;max-height:220px;overflow-y:auto;"></div>
+            `:''}
+          </div>
+        </div>`;
+    };
+    window.ord_cambiarEstado = async (uid, uidOrden, sel) => {
+      const nuevo = sel.value; const prev = sel.dataset.prev||nuevo;
+      sel.disabled = true;
+      try {
+        const r = await fetch(`${API}/equipment-order/${uid}/status`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:nuevo})});
+        const d = await r.json();
+        if (d.success) {
+          sel.dataset.prev = nuevo;
+          const b = document.getElementById(`badge-${uid}`);
+          if (b) { b.className='badge b-'+nuevo; b.textContent=ELBL[nuevo]||nuevo; }
+          // WA automático según estado
+          if (nuevo === 'autorizada') {
+            try {
+              const rp = await fetch(`${API}/orders/${uidOrden}/notify-parts`,{method:'POST'}).then(r=>r.json());
+              showToast(rp.success ? '✅ Lista repuestos enviada al encargado' : '⚠️ '+(rp.error||'Error'));
+            } catch(e) { showToast('⚠️ WA repuestos: '+e.message); }
+          } else if (nuevo === 'reparada') {
+            showToast('✅ Estado actualizado — WA enviado automáticamente al cliente');
+          } else if (nuevo === 'entregada') {
+            try {
+              const rd = await fetch(`${API}/orders/${uidOrden}/notify-delivered`,{method:'POST'}).then(r=>r.json());
+              showToast(rd.success ? '✅ Entrega confirmada por WA al cliente' : '⚠️ '+(rd.error||'Error'));
+            } catch(e) { showToast('⚠️ WA entrega: '+e.message); }
+          }
+        } else { alert('Error: '+(d.error||'desconocido')); sel.value=prev; }
+      } catch(e) { alert(e.message); sel.value=prev; }
+      sel.disabled = false;
+    };
+    window._cotMsgs = {};
+    window.ord_generarMsgCot = async (uidOrden, btn) => {
+      const orig=btn.textContent; btn.disabled=true; btn.textContent='⏳ Generando...';
+      try {
+        const r = await fetch(`${API}/quotes/order/${uidOrden}/generate-message`,{method:'POST'}).then(r=>r.json());
+        if (!r.success) throw new Error(r.error||'Error generando mensaje');
+        window._cotMsgs[uidOrden] = r.message || '';
+        const preview = document.getElementById(`msgPreview-${uidOrden}`);
+        if (preview) { preview.textContent = window._cotMsgs[uidOrden]; preview.style.display='block'; }
+        const sendBtn = document.getElementById(`btnSendCotWA-${uidOrden}`);
+        if (sendBtn) sendBtn.disabled = false;
+        showToast('✅ Mensaje generado — revísalo y envíalo');
+      } catch(e) { alert('⚠️ '+e.message); }
+      btn.disabled=false; btn.textContent=orig;
+    };
+    window.ord_subirFactura = async (uidOrden, input) => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const label = input.parentElement;
+      const orig = label.childNodes[0].textContent;
+      label.childNodes[0].textContent = '⏳ Subiendo...';
+      try {
+        const fd = new FormData();
+        fd.append('factura', file);
+        const r = await fetch(`${API}/crear-orden/factura/${uidOrden}`, { method: 'POST', body: fd }).then(r=>r.json());
+        if (!r.success) throw new Error(r.error || 'Error subiendo');
+        showToast('✅ Factura adjuntada correctamente');
+        ord_verDetalle(uidOrden);
+      } catch(e) {
+        label.childNodes[0].textContent = orig;
+        showToast('⚠️ Error: ' + e.message);
+      }
+    };
+
+    window.ord_subirFacturaMaquina = async (uidOrden, uidHerramientaOrden, input) => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const label = input.parentElement;
+      const orig = label.childNodes[0].textContent;
+      label.childNodes[0].textContent = '⏳ Subiendo...';
+      try {
+        const fd = new FormData();
+        fd.append('factura', file);
+        const r = await fetch(`${API}/orders/${uidOrden}/factura-maquina/${uidHerramientaOrden}`, { method: 'POST', body: fd }).then(r=>r.json());
+        if (!r.success) throw new Error(r.error || 'Error subiendo');
+        showToast('✅ Factura adjuntada correctamente');
+        ord_verDetalle(uidOrden);
+      } catch(e) {
+        label.childNodes[0].textContent = orig;
+        showToast('⚠️ Error: ' + e.message);
+      }
+    };
+
+    // ── Modal agregar máquina ─────────────────────────────────────────────────
+    let _amUidOrden = null, _amUidCliente = null, _amModoNueva = false;
+
+    window.ord_abrirAgregarMaquina = async (uidOrden, uidCliente) => {
+      _amUidOrden = uidOrden; _amUidCliente = uidCliente; _amModoNueva = false;
+      // Resetear estado
+      document.getElementById('amNuevaForm').style.display = 'none';
+      document.getElementById('amObsRow').style.display = 'none';
+      document.getElementById('amNuevaError').style.display = 'none';
+      document.getElementById('amObservaciones').value = '';
+      document.getElementById('amNuevaObs').value = '';
+      ['amNombre','amMarca','amSerial','amRef'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('amBtnAgregar').disabled = true;
+      document.getElementById('amBtnNueva').style.display = 'inline-block';
+      document.getElementById('amBtnNueva').textContent = '+ Crear nueva máquina';
+      document.getElementById('amSeparador').style.display = 'block';
+      document.getElementById('amSelectMaquina').closest('.no-fgroup').style.display = 'block';
+      // Reset guarantee
+      document.getElementById('amChkGarantia').checked = false;
+      document.getElementById('amGarantiaFields').style.display = 'none';
+      document.getElementById('amGarantiaVence').value = '';
+      document.getElementById('amFacturaFile').value = '';
+      document.getElementById('amFacturaLabel').firstChild.textContent = '📄 Seleccionar PDF';
+      // Cargar máquinas del cliente
+      const sel = document.getElementById('amSelectMaquina');
+      sel.innerHTML = '<option value="">-- Cargando... --</option>';
+      const modal = document.getElementById('agregarMaquinaModal');
+      modal.style.display = 'flex';
+      try {
+        const maquinas = await fetch(`${API}/crear-orden/herramientas/${uidCliente}`).then(r=>r.json());
+        if (maquinas.length === 0) {
+          sel.innerHTML = '<option value="">-- Este cliente no tiene máquinas registradas --</option>';
+        } else {
+          sel.innerHTML = '<option value="">-- Seleccionar máquina --</option>' +
+            maquinas.map(m => `<option value="${m.uid_herramienta}">${esc(m.her_nombre)}${m.her_marca?' — '+esc(m.her_marca):''}${m.her_serial?' ('+esc(m.her_serial)+')':''}</option>`).join('');
+        }
+        document.getElementById('amBtnNueva').style.display = 'inline-block';
+      } catch(e) {
+        sel.innerHTML = '<option value="">-- Error cargando máquinas --</option>';
+        document.getElementById('amBtnNueva').style.display = 'inline-block';
+      }
+    };
+
+    window.ord_cerrarAgregarMaquina = () => {
+      document.getElementById('agregarMaquinaModal').style.display = 'none';
+      _amUidOrden = null; _amUidCliente = null;
+    };
+
+    window.ord_onSelectMaquina = (sel) => {
+      const obsRow = document.getElementById('amObsRow');
+      const btn = document.getElementById('amBtnAgregar');
+      if (sel.value) {
+        obsRow.style.display = 'block';
+        btn.disabled = false;
+        if (_amModoNueva) {
+          _amModoNueva = false;
+          document.getElementById('amNuevaForm').style.display = 'none';
+          document.getElementById('amBtnNueva').textContent = '+ Crear nueva máquina';
+          document.getElementById('amSeparador').style.display = 'block';
+        }
+      } else {
+        obsRow.style.display = 'none';
+        btn.disabled = _amModoNueva ? false : true;
+      }
+    };
+
+    window.ord_toggleNuevaMaquina = () => {
+      _amModoNueva = !_amModoNueva;
+      document.getElementById('amNuevaForm').style.display = _amModoNueva ? 'block' : 'none';
+      document.getElementById('amBtnNueva').textContent = _amModoNueva ? '✕ Cancelar nueva máquina' : '+ Crear nueva máquina';
+      // Ocultar selector y separador en modo nueva
+      document.getElementById('amSelectMaquina').closest('.no-fgroup').style.display = _amModoNueva ? 'none' : 'block';
+      document.getElementById('amSeparador').style.display = _amModoNueva ? 'none' : 'block';
+      if (_amModoNueva) {
+        document.getElementById('amSelectMaquina').value = '';
+        document.getElementById('amObsRow').style.display = 'none';
+        document.getElementById('amBtnAgregar').disabled = false;
+      } else {
+        document.getElementById('amBtnAgregar').disabled = !document.getElementById('amSelectMaquina').value;
+      }
+    };
+
+    window.am_toggleGarantia = (checked) => {
+      document.getElementById('amGarantiaFields').style.display = checked ? 'block' : 'none';
+      if (checked) {
+        const vence = addDiasHabiles(new Date(), 30);
+        document.getElementById('amGarantiaVence').value = toInputDate(vence);
+      } else {
+        document.getElementById('amGarantiaVence').value = '';
+      }
+    };
+    window.am_onFacturaChange = (input) => {
+      const lbl = document.getElementById('amFacturaLabel');
+      if (lbl) lbl.firstChild.textContent = input.files?.[0]?.name ? '✅ ' + input.files[0].name : '📄 Seleccionar PDF';
+    };
+
+    window.ord_confirmarAgregarMaquina = async () => {
+      const btn = document.getElementById('amBtnAgregar');
+      btn.disabled = true; btn.textContent = '⏳ Agregando...';
+      try {
+        const esGarantia   = document.getElementById('amChkGarantia').checked;
+        const garantiaVence = document.getElementById('amGarantiaVence').value;
+        const facturaFile  = document.getElementById('amFacturaFile').files?.[0] || null;
+
+        if (esGarantia && !garantiaVence) {
+          showToast('⚠️ La fecha de vencimiento es obligatoria para máquinas en garantía');
+          btn.disabled = false; btn.textContent = 'Agregar a la orden'; return;
+        }
+
+        let uidHerramienta;
+        let observaciones;
+        if (_amModoNueva) {
+          // Crear nueva máquina primero
+          const nombre = document.getElementById('amNombre').value.trim();
+          if (!nombre) {
+            document.getElementById('amNuevaError').textContent = 'El nombre de la máquina es obligatorio';
+            document.getElementById('amNuevaError').style.display = 'block';
+            btn.disabled = false; btn.textContent = 'Agregar a la orden'; return;
+          }
+          const r = await fetch(`${API}/crear-orden/herramienta`, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+              uid_cliente: _amUidCliente,
+              her_nombre: nombre,
+              her_marca: document.getElementById('amMarca').value.trim(),
+              her_serial: document.getElementById('amSerial').value.trim(),
+              her_referencia: document.getElementById('amRef').value.trim(),
+            })
+          }).then(r=>r.json());
+          if (!r.uid_herramienta) throw new Error(r.error || 'Error creando máquina');
+          uidHerramienta = r.uid_herramienta;
+          observaciones = document.getElementById('amNuevaObs').value.trim();
+        } else {
+          uidHerramienta = parseInt(document.getElementById('amSelectMaquina').value);
+          observaciones = document.getElementById('amObservaciones').value.trim();
+        }
+        const r2 = await fetch(`${API}/orders/${_amUidOrden}/agregar-maquina`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ uid_herramienta: uidHerramienta, observaciones,
+            es_garantia: esGarantia, garantia_vence: garantiaVence || null })
+        }).then(r=>r.json());
+        if (!r2.success) throw new Error(r2.error || 'Error agregando');
+
+        // Subir factura si se adjuntó
+        if (esGarantia && facturaFile && r2.uid_herramienta_orden) {
+          const fd = new FormData();
+          fd.append('factura', facturaFile);
+          await fetch(`${API}/orders/${_amUidOrden}/factura-maquina/${r2.uid_herramienta_orden}`, { method: 'POST', body: fd });
+        }
+
+        showToast('✅ Máquina agregada a la orden');
+        ord_cerrarAgregarMaquina();
+        ord_verDetalle(_amUidOrden);
+      } catch(e) {
+        showToast('⚠️ ' + e.message);
+        btn.disabled = false; btn.textContent = 'Agregar a la orden';
+      }
+    };
+    // ─────────────────────────────────────────────────────────────────────────
+
+    window.ord_enviarCotWA = async (uidOrden, btn) => {
+      const orig=btn.textContent; btn.disabled=true; btn.textContent='⏳ Enviando...';
+      try {
+        const r = await fetch(`${API}/quotes/order/${uidOrden}/send-whatsapp`,{method:'POST'}).then(r=>r.json());
+        if (!r.success) throw new Error(r.error||'Error enviando');
+        showToast('✅ Mensaje WA enviado');
+        const preview = document.getElementById(`msgPreview-${uidOrden}`);
+        if (preview) preview.style.display='none';
+        btn.disabled=true;
+      } catch(e) { alert('⚠️ '+e.message); btn.disabled=false; }
+      btn.textContent=orig;
+    };
+    window.ord_enviarPDFCotWA = async (uidOrden, btn) => {
+      const orig=btn.textContent; btn.disabled=true; btn.textContent='⏳...';
+      try {
+        const d = await fetch(`${API}/orders/${uidOrden}/send-pdf/quote`,{method:'POST'}).then(r=>r.json());
+        if (!d.success) throw new Error(d.error||'Error');
+        showToast('✅ PDF cotización enviado por WA');
+      } catch(e) { alert('⚠️ '+e.message); }
+      btn.disabled=false; btn.textContent=orig;
+    };
+    window.ord_uploadFotoRec = async (uidOrden, uidHo, input) => {
+      if (!input.files[0]) return;
+      const fd = new FormData(); fd.append('foto', input.files[0]);
+      input.value='';
+      try {
+        const r = await fetch(`${API}/orders/${uidOrden}/fotos-recepcion/${uidHo}`,{method:'POST',body:fd});
+        const d = await r.json();
+        if (d.success) {
+          const row = document.getElementById(`fr-row-${uidHo}`);
+          const sinFotos = row?.querySelector('.sin-fotos');
+          if (sinFotos) sinFotos.remove();
+          const div = document.createElement('div');
+          div.className='foto-thumb'; div.id=`fr-${d.uid_foto}`;
+          div.innerHTML=`<img src="${d.url}" onclick="window.open(this.src,'_blank')" alt=""><button class="del-btn" onclick="ord_delFotoRec(${d.uid_foto},event)">✕</button>`;
+          row?.appendChild(div);
+        } else alert('Error al subir foto: '+(d.error||''));
+      } catch(e) { alert(e.message); }
+    };
+    window.ord_delFotoRec = async (uid, e) => {
+      e.stopPropagation();
+      if (!confirm('¿Eliminar esta foto de recepción?')) return;
+      await fetch(`${API}/orders/fotos-recepcion/${uid}`,{method:'DELETE'});
+      document.getElementById(`fr-${uid}`)?.remove();
+    };
+    window.ord_uploadFoto = async (uidOrden, uidHo, input) => {
+      if (!input.files[0]) return;
+      const fd = new FormData(); fd.append('foto', input.files[0]);
+      input.value='';
+      try {
+        const r = await fetch(`${API}/orders/${uidOrden}/fotos-trabajo/${uidHo}`,{method:'POST',body:fd});
+        const d = await r.json();
+        if (d.success) {
+          const row = document.getElementById(`ft-row-${uidHo}`);
+          const div = document.createElement('div');
+          div.className='foto-thumb'; div.id=`ft-${d.uid_foto}`;
+          div.innerHTML=`<img src="${d.url}" onclick="window.open(this.src,'_blank')" alt=""><button class="del-btn" onclick="ord_delFoto(${d.uid_foto},event)">✕</button>`;
+          row?.appendChild(div);
+        } else alert('Error al subir foto: '+(d.error||''));
+      } catch(e) { alert(e.message); }
+    };
+    window.ord_delFoto = async (uid, e) => {
+      e.stopPropagation();
+      if (!confirm('¿Eliminar esta foto?')) return;
+      await fetch(`${API}/orders/fotos-trabajo/${uid}`,{method:'DELETE'});
+      document.getElementById(`ft-${uid}`)?.remove();
+    };
+    // Trigger load by order ID (called from dashboard alerts or cotizaciones)
+    window.ord_verDetalleById = window.ord_verDetalle;
+
+    window.ord_verInforme = async (orderId, uid) => {
+      const r = await fetch(`${API}/orders/${orderId}/pdf/maintenance/${uid}`);
+      if (r.status === 404) {
+        const d = await r.json().catch(() => ({}));
+        showToast('⚠️ ' + (d.error || 'No hay cotización para esta máquina. Cotízala primero.'), 5000);
+        return;
+      }
+      if (!r.ok) { showToast('⚠️ Error generando informe', 4000); return; }
+      const blob = await r.blob();
+      const url  = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    };
+    window.ord_enviarInformeWA = async (uidOrden, uidHo, btn) => {
+      const orig=btn.textContent; btn.disabled=true; btn.textContent='⏳...';
+      try {
+        const d = await fetch(`${API}/orders/${uidOrden}/send-pdf/maintenance/${uidHo}`,{method:'POST'}).then(r=>r.json());
+        if (!d.success) throw new Error(d.error||'Error');
+        showToast('✅ Informe enviado por WA');
+      } catch(e) { alert('⚠️ '+e.message); }
+      btn.disabled=false; btn.textContent=orig;
+    };
+  }
+};
+
+async function ord_filtrarPorEstado(estado, label, mes) {
+  const rl = document.getElementById('ordResults');
+  if (!rl) return;
+  rl.innerHTML = '<div class="results-empty">Cargando...</div>';
+
+  const params = new URLSearchParams();
+  if (estado) params.set('estado', estado);
+  if (mes)    params.set('mes', mes);
+  const data = await fetch(`${API}/orders/by-estado?${params}`).then(r=>r.json()).catch(()=>[]);
+
+  if (!data.length) {
+    rl.innerHTML = `<div class="results-empty">Sin órdenes en este estado</div>`;
+    return;
+  }
+  rl.innerHTML = `
+    <div style="padding:8px 12px 4px;font-size:12px;font-weight:600;color:#1d3557;border-bottom:1px solid #eee;margin-bottom:4px;">
+      ${esc(label)} (${data.length})
+    </div>` +
+    data.map(o=>`
+      <div class="result-card" onclick="ord_verDetalle(${o.uid_orden})">
+        <div class="rc-top">
+          <span class="rc-num">Orden #${o.ord_consecutivo}</span>
+          <span class="rc-fecha">${fmtFecha(o.ord_fecha)}</span>
+        </div>
+        ${o.ord_tipo==='garantia' ? ord_garantiaBadges(o) : ''}
+        <div class="rc-cliente">${esc(o.cli_razon_social||'')}</div>
+        <div class="rc-maq">${esc(o.maquinas_resumen||'')}</div>
+      </div>`).join('');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: COTIZACIONES
+// ════════════════════════════════════════════════════════════════════════════
+Views.cotizaciones = {
+  render() {
+    return `
+      <div class="card" style="margin:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h2 style="margin:0;font-size:18px;color:#1d3557">📝 Pendientes de cotizar</h2>
+          <button class="btn btn-sm" onclick="cot_cargarPendientes()">🔄 Actualizar</button>
+        </div>
+        <div id="cotPendList"><div class="loading-state">Cargando...</div></div>
+      </div>`;
+  },
+  async init() {
+    await cot_cargarPendientes();
+  }
+};
+
+window.cot_cargarPendientes = async () => {
+  const el = document.getElementById('cotPendList');
+  if (!el) return;
+  el.innerHTML = '<div class="loading-state">Cargando...</div>';
+  try {
+    const mes = new Date().toISOString().slice(0, 7);
+    const data = await fetch(`${API}/dashboard?mes=${mes}`).then(r => r.json());
+    const rsc = data.revisadasSinCotizar || [];
+    if (!rsc.length) {
+      el.innerHTML = '<div class="empty-state"><div class="es-icon">✅</div><p>No hay máquinas pendientes de cotizar</p></div>';
+      return;
+    }
+    el.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <thead>
+          <tr style="background:#f0f4f8;text-align:left">
+            <th style="padding:10px 12px;font-weight:600;color:#555">Cliente</th>
+            <th style="padding:10px 12px;font-weight:600;color:#555">Orden</th>
+            <th style="padding:10px 12px;font-weight:600;color:#555">Máquina</th>
+            <th style="padding:10px 12px;font-weight:600;color:#555">Ingreso</th>
+            <th style="padding:10px 12px;font-weight:600;color:#555"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rsc.map(r => `
+            <tr style="border-bottom:1px solid #eee">
+              <td style="padding:10px 12px">${esc(r.cliente)}</td>
+              <td style="padding:10px 12px;white-space:nowrap">#${r.ord_consecutivo}</td>
+              <td style="padding:10px 12px">${esc(r.her_nombre || '')} ${esc(r.her_marca || '')}</td>
+              <td style="padding:10px 12px;white-space:nowrap;color:#666">${fmtFecha(r.ord_fecha)}</td>
+              <td style="padding:10px 12px;text-align:right">
+                <button class="btn btn-sm btn-mid" onclick="ord_abrirCotizar(${r.uid_orden},${r.uid_herramienta_orden})">✏️ Cotizar</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch(e) {
+    el.innerHTML = `<div class="empty-state">Error cargando: ${esc(e.message)}</div>`;
+  }
+};
+
+// Las funciones cot_ de búsqueda se mantienen para compatibilidad con el modal
+{
+  const S = { orderId:null, equipment:[], technicians:[], selected:null, items:[], finalMsg:'', fromOrden:null };
+  // fromOrden se preserva: lo setea el botón en Órdenes y lo limpia cot_volverAOrden / sidebar
+    const PLCH = {consecutivo:'Ej: 7833',cedula:'Ej: 8914110164',nombre:'Ej: Cliente X'};
+    const ESTADOS = [
+      {value:'pendiente_revision',label:'Pendiente de revisión',color:'#888'},
+      {value:'revisada',label:'Revisada',color:'#2196F3'},
+      {value:'cotizada',label:'Cotizada',color:'#FF9800'},
+      {value:'autorizada',label:'Autorizada',color:'#4CAF50'},
+      {value:'no_autorizada',label:'No autorizada',color:'#F44336'},
+      {value:'reparada',label:'Reparada',color:'#9C27B0'},
+      {value:'entregada',label:'Entregada',color:'#009688'},
+    ];
+
+    window.cot_placeholder = () => {
+      const v = document.getElementById('cotConcepto')?.value;
+      const si = document.getElementById('cotSearch');
+      if (si) { si.placeholder=PLCH[v]||''; si.value=''; }
+      const rl = document.getElementById('cotResults');
+      if (rl) rl.innerHTML='<div class="results-empty">Escribe para buscar</div>';
+    };
+    window.cot_debounce = () => {
+      clearTimeout(Views.cotizaciones._timer);
+      Views.cotizaciones._timer = setTimeout(cot_buscar, 350);
+    };
+    window.cot_buscar = async () => {
+      const q = document.getElementById('cotSearch')?.value.trim(); if (!q) return;
+      const rl = document.getElementById('cotResults'); if (!rl) return;
+      rl.innerHTML='<div class="results-empty">Buscando...</div>';
+      const data = await fetch(`${API}/orders/search?q=${encodeURIComponent(q)}`).then(r=>r.json()).catch(()=>[]);
+      if (!data.length) { rl.innerHTML='<div class="results-empty">Sin resultados</div>'; return; }
+      rl.innerHTML = data.map(o=>`
+        <div class="result-card" onclick="cot_loadOrder(${o.uid_orden})">
+          <div class="rc-top">
+            <span class="rc-num">Orden #${o.ord_consecutivo}</span>
+            <span class="rc-fecha">${fmtFecha(o.ord_fecha)}</span>
+          </div>
+          <div class="rc-cliente">${esc(o.cli_razon_social||'')}</div>
+          <div class="rc-maq">${esc(o.maquinas_resumen||(o.maquinas?o.maquinas+' máquina(s)':''))}</div>
+        </div>`).join('');
+    };
+    window.cot_back = () => document.getElementById('cotPanel')?.classList.remove('immersive');
+    window.cot_loadById = (uid) => cot_loadOrder(uid);
+    window.cot_volverAOrden = (uid) => {
+      S.fromOrden = null;
+      navigate('ordenes');
+      setTimeout(() => ord_verDetalle(uid), 80);
+    };
+    window.cot_loadOrder = async (uid) => {
+      const data = await fetch(`${API}/orders/${uid}`).then(r=>r.json()).catch(()=>null);
+      if (!data) return;
+      S.orderId = data.order.uid_orden;
+      S.equipment = data.equipment||[];
+      S.technicians = data.technicians||[];
+      S.selected = S.equipment[0]||null;
+      S.items = []; S.finalMsg = '';
+      document.getElementById('cotPanel')?.classList.add('immersive');
+      // Render left panel order info
+      const op = document.getElementById('cotOrderPanel');
+      if (op) {
+        op.style.display='block';
+        op.innerHTML = cot_renderOrderPanel(data);
+      }
+      // Render right panel
+      cot_renderRight();
+      await cot_refreshSavedCount();
+      await cot_loadPartsSelect();
+      if (S.selected) await cot_loadSavedQuote();
+    };
+
+    function cot_renderOrderPanel(data) {
+      const o = data.order;
+      const eqOpts = S.equipment.map((eq,i)=>`<option value="${eq.uid_herramienta_orden}">${i+1}. ${esc(eq.her_nombre||'-')} ${esc(eq.her_marca||'')}</option>`).join('');
+      const techOpts = '<option value="">(Sin asignar)</option>' +
+        S.technicians.map(t=>`<option value="${t.uid_usuario}">${esc(t.usr_nombre||t.uid_usuario)}</option>`).join('');
+      return `
+        <div class="orden-badge">
+          <span class="num">Orden #${o.ord_consecutivo}</span>
+          ${S.fromOrden ? `<button class="btn btn-sm btn-dark" onclick="cot_volverAOrden(${S.fromOrden})" style="margin-left:auto">← Volver a la orden</button>` : ''}
+          <button class="back-btn" onclick="cot_back()">← Volver</button>
+        </div>
+        <div class="info-field"><strong>Cliente:</strong> ${esc(o.cli_razon_social||'-')}</div>
+        <div class="info-field"><strong>Fecha:</strong> ${fmtFecha(o.ord_fecha)}</div>
+        <div class="info-field"><strong>Tel:</strong> ${esc(o.cli_telefono||'-')}</div>
+        <div class="info-field" style="color:#666"><span id="cotEqCount">${S.equipment.length}</span> equipo(s) | <span id="cotSavedCount">0</span> cotizado(s)</div>
+        <div class="slabel">Máquina a cotizar</div>
+        <div class="maq-sel"><select id="cotEqSel" onchange="cot_onEqChange()">${eqOpts}</select></div>
+        <div class="eq-info" id="cotEqInfo"></div>
+        <div class="slabel">Notificaciones WhatsApp</div>
+        <div class="wa-buttons">
+          <button class="wa-btn btn-parts" onclick="cot_notifyParts()">📦 Lista repuestos al encargado</button>
+          <button class="wa-btn btn-ready" onclick="cot_notifyReady()">🔧 Cliente — máquinas listas</button>
+          <button class="wa-btn btn-deliv" onclick="cot_notifyDeliv()">✅ Confirmar entrega</button>
+        </div>
+        <div class="slabel">Técnico asignado</div>
+        <div class="tech-row">
+          <select id="cotTechSel" onchange="cot_onTechChange()">${techOpts}</select>
+          <button onclick="cot_assignAll()">A todas</button>
+        </div>`;
+    }
+
+    function cot_renderRight() {
+      const right = document.getElementById('cotRight'); if (!right) return;
+      if (!S.orderId) {
+        right.innerHTML='<div class="mobile-back" onclick="cot_back()">← Volver</div><div class="empty-state"><div class="es-icon">💰</div><p>Selecciona una orden</p></div>';
+        return;
+      }
+      right.innerHTML = `
+        <div class="mobile-back" onclick="cot_back()">← Volver a resultados</div>
+        <div style="padding:18px;">
+          <div class="card">
+            <div class="card-title">💰 Cotizar máquina seleccionada</div>
+            <div style="margin-bottom:12px;">
+              <label style="font-size:13px;font-weight:600;color:#555;display:block;margin-bottom:4px;">Mano de obra ($)</label>
+              <input type="number" id="cotLabor" placeholder="Ej: 50000" min="0" style="width:100%;padding:9px 11px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none;" onchange="cot_updateSummary()">
+            </div>
+            <div>
+              <label style="font-size:13px;font-weight:600;color:#555;display:block;margin-bottom:4px;">Descripción del trabajo</label>
+              <textarea id="cotDesc" rows="3" style="width:100%;padding:9px 11px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:inherit;outline:none;" placeholder="Describe el trabajo..."></textarea>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">⚙️ Repuestos</div>
+            <div class="items-container" id="cotItemsContainer"><p style="color:#999;text-align:center;padding:16px;">(Sin repuestos aún)</p></div>
+            <div class="add-item-group">
+              <select id="cotPartSel"><option value="">-- Catálogo --</option></select>
+              <input type="number" id="cotPartQty" value="1" min="1" placeholder="Cant.">
+              <input type="text" id="cotCustomPart" placeholder="O escribir repuesto">
+              <button onclick="cot_addItem()">+ Agregar</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">📊 Resumen</div>
+            <div class="summary-box">
+              <div class="summary-row"><span>Subtotal máquina:</span><strong id="cotSubtotal">$0</strong></div>
+              <div class="summary-row"><span>IVA:</span><strong id="cotIva">$0</strong></div>
+              <div class="summary-total"><span>TOTAL:</span><span id="cotTotal">$0</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">⚡ Acciones</div>
+            <div class="btn-group">
+              <button class="btn btn-dark" id="cotSaveBtn" onclick="cot_save()">💾 Guardar máquina</button>
+              <button class="btn btn-purple" id="cotGenBtn" onclick="cot_genMsg()">🤖 Mensaje final</button>
+              <button class="btn btn-green" id="cotSendBtn" onclick="cot_sendWA()" disabled>📱 Enviar WA</button>
+              <button class="btn btn-grey" onclick="cot_reset()">🔄 Limpiar</button>
+            </div>
+            <div style="margin-top:12px;font-size:11px;color:#888;">📄 PDF cotización</div>
+            <div class="btn-group" style="margin-top:4px;">
+              <button class="btn btn-mid" onclick="cot_dlPDF()">📄 Descargar PDF</button>
+              <button class="btn btn-mid" id="cotSendPdfBtn" onclick="cot_sendPDF()">📤 Enviar WA PDF</button>
+            </div>
+            <div style="margin-top:10px;font-size:11px;color:#888;">🔧 Informe de mantenimiento</div>
+            <div class="btn-group" style="margin-top:4px;">
+              <button class="btn btn-teal" onclick="cot_dlMaint()">📄 Descargar Informe</button>
+              <button class="btn btn-teal" id="cotSendMaintBtn" onclick="cot_sendMaint()">📤 Enviar Informe WA</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">👀 Vista previa WhatsApp</div>
+            <div class="preview-box"><div class="preview-content" id="cotPreview">Aquí aparecerá el mensaje final...</div></div>
+          </div>
+        </div>`;
+      cot_syncEqInfo();
+    }
+
+    window.cot_onEqChange = async () => {
+      const id = document.getElementById('cotEqSel')?.value;
+      S.selected = S.equipment.find(e=>String(e.uid_herramienta_orden)===String(id))||null;
+      cot_syncEqInfo();
+      cot_syncTech();
+      await cot_loadSavedQuote();
+    };
+    function cot_syncEqInfo() {
+      const el = document.getElementById('cotEqInfo'); if (!el) return;
+      el.textContent = S.selected ? `${S.selected.her_nombre||''} ${S.selected.her_marca||''}` : '';
+    }
+    function cot_syncTech() {
+      const sel = document.getElementById('cotTechSel'); if (!sel) return;
+      sel.value = S.selected?.tecnico_id ? String(S.selected.tecnico_id) : '';
+    }
+    window.cot_onTechChange = async () => {
+      if (!S.orderId||!S.selected) return;
+      const tid = document.getElementById('cotTechSel')?.value||null;
+      await fetch(`${API}/equipment-order/${S.selected.uid_herramienta_orden}/assign-technician`,
+        {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({technicianId:tid})});
+    };
+    window.cot_assignAll = async () => {
+      if (!S.orderId) return;
+      const tid = document.getElementById('cotTechSel')?.value||null;
+      await fetch(`${API}/orders/${S.orderId}/assign-technician`,
+        {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({technicianId:tid})});
+      showToast('Técnico asignado a todas las máquinas');
+    };
+    window.cot_addItem = () => {
+      const psel = document.getElementById('cotPartSel');
+      const qty  = parseInt(document.getElementById('cotPartQty')?.value||'1',10)||1;
+      const cust = document.getElementById('cotCustomPart')?.value.trim();
+      let name, price;
+      if (psel?.value) {
+        const opt = psel.options[psel.selectedIndex];
+        name=opt.textContent.split(' ($')[0]; price=Number(opt.dataset.price||0);
+      } else if (cust) { name=cust; price=0; }
+      else { alert('Selecciona o escribe un repuesto'); return; }
+      S.items.push({id:Date.now(),name,quantity:qty,price});
+      cot_renderItems(); cot_updateSummary();
+      if (psel) psel.value='';
+      const qEl = document.getElementById('cotPartQty'); if (qEl) qEl.value='1';
+      const cEl = document.getElementById('cotCustomPart'); if (cEl) cEl.value='';
+    };
+    function cot_renderItems() {
+      const c = document.getElementById('cotItemsContainer'); if (!c) return;
+      if (!S.items.length) { c.innerHTML='<p style="color:#999;text-align:center;padding:16px;">(Sin repuestos aún)</p>'; return; }
+      c.innerHTML = S.items.map(it=>`
+        <div class="item-row">
+          <div><input type="text" value="${esc(it.name)}" readonly style="background:#fff;border:none;font-weight:500;padding:5px;width:100%;"></div>
+          <div><input type="number" value="${it.quantity}" min="1" style="width:100%;" onchange="cot_updQty(${it.id},this.value)"></div>
+          <div><input type="number" value="${it.price}" min="0" style="width:100%;" onchange="cot_updPrice(${it.id},this.value)"></div>
+          <button class="del-item" onclick="cot_delItem(${it.id})">❌</button>
+        </div>`).join('');
+    }
+    window.cot_updQty   = (id,v) => { const it=S.items.find(x=>x.id===id); if(it){it.quantity=parseInt(v)||1;cot_updateSummary();} };
+    window.cot_updPrice = (id,v) => { const it=S.items.find(x=>x.id===id); if(it){it.price=Number(v)||0;cot_updateSummary();} };
+    window.cot_delItem  = (id)   => { S.items=S.items.filter(x=>x.id!==id); cot_renderItems(); cot_updateSummary(); };
+    window.cot_updateSummary = () => {
+      const labor = Number(document.getElementById('cotLabor')?.value)||0;
+      const sub = labor + S.items.reduce((s,it)=>s+(it.quantity||0)*(it.price||0),0);
+      const el = (id,v) => { const e=document.getElementById(id); if(e) e.textContent=v; };
+      el('cotSubtotal',money(sub)); el('cotIva',money(0)); el('cotTotal',money(sub));
+    };
+    window.cot_reset = () => {
+      S.items=[];
+      ['cotLabor','cotDesc'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+      cot_renderItems(); cot_updateSummary();
+    };
+    async function cot_loadSavedQuote() {
+      cot_reset();
+      if (!S.orderId||!S.selected) return;
+      const r = await fetch(`${API}/quotes/machine?orderId=${S.orderId}&equipmentOrderId=${S.selected.uid_herramienta_orden}`).then(r=>r.json()).catch(()=>null);
+      if (!r?.exists) return;
+      const mq = r.machineQuote;
+      const lEl = document.getElementById('cotLabor'); if(lEl) lEl.value=mq?.mano_obra??'';
+      const dEl = document.getElementById('cotDesc');  if(dEl) dEl.value=mq?.descripcion_trabajo??'';
+      S.items = (r.items||[]).map(it=>({id:it.id||Date.now()+Math.random(),name:it.nombre,quantity:Number(it.cantidad||1),price:Number(it.precio||0)}));
+      cot_renderItems(); cot_updateSummary();
+    }
+    async function cot_loadPartsSelect() {
+      const parts = await fetch(`${API}/quote/catalog?type=R`).then(r=>r.json()).catch(()=>[]);
+      const sel = document.getElementById('cotPartSel'); if (!sel) return;
+      sel.innerHTML='<option value="">-- Catálogo --</option>'+
+        parts.map(p=>`<option value="${p.uid_concepto_costo}" data-price="${p.cco_valor}">${esc(p.cco_descripcion)} ($${Number(p.cco_valor||0).toLocaleString('es-CO')})</option>`).join('');
+    }
+    async function cot_refreshSavedCount() {
+      if (!S.orderId) return;
+      const r = await fetch(`${API}/quotes/order/${S.orderId}`).then(r=>r.json()).catch(()=>null);
+      const el = document.getElementById('cotSavedCount'); if(el&&r?.success) el.textContent=String(r.savedCount||0);
+    }
+    window.cot_save = async () => {
+      if (!S.orderId||!S.selected) return;
+      const btn = document.getElementById('cotSaveBtn'); if(btn){btn.disabled=true;btn.textContent='💾 Guardando...';}
+      try {
+        const r = await fetch(`${API}/quotes/machine`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+          orderId:S.orderId, equipmentOrderId:String(S.selected.uid_herramienta_orden),
+          technicianId:document.getElementById('cotTechSel')?.value||null,
+          laborCost:Number(document.getElementById('cotLabor')?.value)||0,
+          workDescription:document.getElementById('cotDesc')?.value||'',
+          items:S.items
+        })});
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error||'Error');
+        showToast('✅ Cotización guardada'); await cot_refreshSavedCount();
+      } catch(e) { alert('⚠️ '+e.message); }
+      if(btn){btn.disabled=false;btn.textContent='💾 Guardar máquina';}
+    };
+    window.cot_genMsg = async () => {
+      if (!S.orderId) return;
+      const btn = document.getElementById('cotGenBtn'); if(btn){btn.disabled=true;btn.textContent='⏳ Generando...';}
+      const prev = document.getElementById('cotPreview'); if(prev) prev.textContent='Generando mensaje...';
+      try {
+        const r = await fetch(`${API}/quotes/order/${S.orderId}/generate-message`,{method:'POST'});
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error||'Error');
+        S.finalMsg = d.message;
+        if(prev) prev.textContent=S.finalMsg;
+        const sb = document.getElementById('cotSendBtn'); if(sb) sb.disabled=false;
+      } catch(e) { if(prev) prev.textContent='⚠️ '+e.message; }
+      if(btn){btn.disabled=false;btn.textContent='🤖 Mensaje final';}
+    };
+    window.cot_sendWA = async () => {
+      if (!S.orderId) return;
+      const btn = document.getElementById('cotSendBtn'); if(btn){btn.disabled=true;btn.textContent='📤 Enviando...';}
+      try {
+        const r = await fetch(`${API}/quotes/order/${S.orderId}/send-whatsapp`,{method:'POST'});
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error||'Error');
+        alert('✅ Mensaje enviado a '+d.cliente);
+      } catch(e) { alert('⚠️ '+e.message); }
+      if(btn){btn.disabled=false;btn.textContent='📱 Enviar WA';}
+    };
+    window.cot_dlPDF    = () => { if(!S.orderId)return; window.open(`${API}/orders/${S.orderId}/pdf/quote`,'_blank'); };
+    window.cot_dlMaint  = () => { if(!S.orderId||!S.selected)return; window.open(`${API}/orders/${S.orderId}/pdf/maintenance/${S.selected.uid_herramienta_orden}`,'_blank'); };
+    window.cot_sendPDF  = async () => {
+      if (!S.orderId) return;
+      const btn=document.getElementById('cotSendPdfBtn'); if(btn){btn.disabled=true;btn.textContent='⏳...';}
+      try { const r=await fetch(`${API}/orders/${S.orderId}/send-pdf/quote`,{method:'POST'}); const d=await r.json(); if(!d.success)throw new Error(d.error); showToast('✅ PDF enviado'); } catch(e){alert('⚠️ '+e.message);}
+      if(btn){btn.disabled=false;btn.textContent='📤 Enviar WA PDF';}
+    };
+    window.cot_sendMaint = async () => {
+      if (!S.orderId||!S.selected) return;
+      const btn=document.getElementById('cotSendMaintBtn'); if(btn){btn.disabled=true;btn.textContent='⏳...';}
+      try { const r=await fetch(`${API}/orders/${S.orderId}/send-pdf/maintenance/${S.selected.uid_herramienta_orden}`,{method:'POST'}); const d=await r.json(); if(!d.success)throw new Error(d.error); showToast('✅ Informe enviado'); } catch(e){alert('⚠️ '+e.message);}
+      if(btn){btn.disabled=false;btn.textContent='📤 Enviar Informe WA';}
+    };
+    window.cot_notifyParts = async () => {
+      if(!S.orderId)return;
+      const r=await fetch(`${API}/orders/${S.orderId}/notify-parts`,{method:'POST'}).then(r=>r.json()).catch(()=>({success:false}));
+      if(r.success)showToast(`📦 Lista enviada al encargado (${r.maquinas} máquina${r.maquinas!==1?'s':''})`);
+      else alert('Error: '+(r.error||''));
+    };
+    window.cot_notifyReady = async () => {
+      if(!S.orderId)return;
+      const r=await fetch(`${API}/orders/${S.orderId}/notify-ready`,{method:'POST'}).then(r=>r.json()).catch(()=>({success:false}));
+      if(r.success)showToast(`🔧 Cliente notificado (${r.maquinas} reparada${r.maquinas!==1?'s':''})`);
+      else alert('Error: '+(r.error||''));
+    };
+    window.cot_notifyDeliv = async () => {
+      if(!S.orderId)return;
+      const r=await fetch(`${API}/orders/${S.orderId}/notify-delivered`,{method:'POST'}).then(r=>r.json()).catch(()=>({success:false}));
+      if(r.success)showToast(`✅ Entrega confirmada`);
+      else alert('Error: '+(r.error||''));
+    };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: CLIENTES
+// ════════════════════════════════════════════════════════════════════════════
+Views.clientes = {
+  _timer: null,
+  render() {
+    return `
+      <div class="two-panel" id="cliPanel">
+        <div class="pnl-left">
+          <div class="search-box">
+            <h2>Buscar cliente</h2>
+            <div class="input-row" style="margin-top:0;">
+              <input id="cliSearch" type="text" placeholder="Nombre, NIT o teléfono" oninput="cli_debounce()">
+              <button onclick="cli_buscar()">🔍</button>
+            </div>
+          </div>
+          <div class="results-list" id="cliResults">
+            <div class="results-empty">Escribe para buscar</div>
+          </div>
+        </div>
+        <div class="pnl-right" id="cliRight">
+          <div class="mobile-back" onclick="cli_back()">← Volver a resultados</div>
+          <div class="empty-state">
+            <div class="es-icon">👥</div>
+            <p>Selecciona un cliente para ver su detalle</p>
+          </div>
+        </div>
+      </div>`;
+  },
+  init() {
+    window.cli_debounce = () => {
+      clearTimeout(Views.clientes._timer);
+      Views.clientes._timer = setTimeout(cli_buscar, 350);
+    };
+    window.cli_back = () => document.getElementById('cliPanel')?.classList.remove('immersive');
+    window.cli_buscar = async () => {
+      const q = document.getElementById('cliSearch')?.value.trim(); if (!q) return;
+      const rl = document.getElementById('cliResults'); if (!rl) return;
+      rl.innerHTML='<div class="results-empty">Buscando...</div>';
+      const data = await fetch(`${API}/clientes/search?q=${encodeURIComponent(q)}`).then(r=>r.json()).catch(()=>[]);
+      if (!data.length) { rl.innerHTML='<div class="results-empty">Sin resultados</div>'; return; }
+      rl.innerHTML = data.map(c=>`
+        <div class="result-card" onclick="cli_verDetalle(${c.uid_cliente})">
+          <div class="rc-top">
+            <span class="rc-num">${esc(c.cli_razon_social||c.cli_contacto||'-')}</span>
+            <span style="font-size:11px;color:${c.cli_estado==='A'?'#27ae60':'#e74c3c'}">${c.cli_estado==='A'?'Activo':'Inactivo'}</span>
+          </div>
+          <div class="rc-cliente">${esc(c.cli_identificacion||'')}</div>
+          <div class="rc-maq">${c.total_ordenes||0} orden(es) | ${esc(c.cli_telefono||'')}</div>
+        </div>`).join('');
+    };
+    window.cli_verDetalle = async (uid) => {
+      const right = document.getElementById('cliRight'); if (!right) return;
+      document.getElementById('cliPanel')?.classList.add('immersive');
+      right.innerHTML='<div class="mobile-back" onclick="cli_back()">← Volver</div><div style="padding:20px;color:#888;text-align:center;">Cargando...</div>';
+      const data = await fetch(`${API}/clientes/${uid}`).then(r=>r.json()).catch(()=>null);
+      if (!data) { right.innerHTML='<div class="mobile-back" onclick="cli_back()">← Volver</div><div style="padding:20px;color:#e74c3c;">Error cargando cliente</div>'; return; }
+      cli_renderDetalle(uid, data);
+    };
+
+    window.cli_renderDetalle = (uid, data) => {
+      const right = document.getElementById('cliRight'); if (!right) return;
+      const c = data.cliente;
+      const ordsHtml = data.ordenes.length
+        ? `<table class="ordenes-list-table">
+            <thead><tr><th>Orden</th><th>Fecha</th><th>Estado</th><th></th></tr></thead>
+            <tbody>${data.ordenes.map(o=>`
+              <tr>
+                <td><strong>#${o.ord_consecutivo}</strong></td>
+                <td>${fmtFecha(o.ord_fecha)}</td>
+                <td><span class="badge b-${o.ord_estado||'pendiente_revision'}" style="font-size:10px;">${o.ord_estado||'-'}</span></td>
+                <td><span class="ord-link" onclick="navigate('ordenes');setTimeout(()=>ord_verDetalle(${o.uid_orden}),80)">Ver →</span></td>
+              </tr>`).join('')}
+            </tbody>
+           </table>`
+        : '<div style="color:#aaa;font-size:13px;padding:8px 0;">Sin órdenes registradas</div>';
+      right.innerHTML = `
+        <div class="mobile-back" onclick="cli_back()">← Volver a resultados</div>
+        <div style="padding:22px;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
+            <div>
+              <div class="cli-name">${esc(c.cli_razon_social||c.cli_contacto||'-')}</div>
+              <div class="cli-sub">NIT / CC: ${esc(c.cli_identificacion||'-')}</div>
+            </div>
+            <button class="btn btn-mid" onclick="cli_abrirEditar(${uid})">✏️ Editar</button>
+          </div>
+          <div class="card" id="cli-info-card-${uid}">
+            <div class="card-title">Información de contacto</div>
+            <div class="client-grid">
+              <div class="field"><span class="lbl">Teléfono</span><span class="val">${esc(c.cli_telefono||'-')}</span></div>
+              <div class="field"><span class="lbl">Contacto</span><span class="val">${esc(c.cli_contacto||'-')}</span></div>
+              <div class="field"><span class="lbl">Tel. contacto</span><span class="val">${esc(c.cli_tel_contacto||'-')}</span></div>
+              <div class="field"><span class="lbl">Dirección</span><span class="val">${esc(c.cli_direccion||'-')}</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Historial de órdenes (${data.ordenes.length})</div>
+            ${ordsHtml}
+          </div>
+        </div>`;
+      // guardar datos del cliente para el form de edición
+      right._cliData = data;
+    };
+
+    window.cli_abrirEditar = (uid) => {
+      const right = document.getElementById('cliRight'); if (!right) return;
+      const data = right._cliData; if (!data) return;
+      const c = data.cliente;
+      const card = document.getElementById(`cli-info-card-${uid}`); if (!card) return;
+      card.innerHTML = `
+        <div class="card-title">Editar información</div>
+        <div class="no-fgroup">
+          <label class="no-lbl">Razón social / Nombre <span class="no-req">*</span></label>
+          <input class="no-input" id="cli_e_razon" value="${esc(c.cli_razon_social||'')}">
+        </div>
+        <div class="no-grid2" style="margin-top:10px;">
+          <div class="no-fgroup">
+            <label class="no-lbl">Teléfono <span class="no-req">*</span></label>
+            <input class="no-input" id="cli_e_tel" value="${esc(c.cli_telefono||'')}">
+          </div>
+          <div class="no-fgroup">
+            <label class="no-lbl">Nombre contacto</label>
+            <input class="no-input" id="cli_e_contacto" value="${esc(c.cli_contacto||'')}">
+          </div>
+        </div>
+        <div class="no-grid2" style="margin-top:10px;">
+          <div class="no-fgroup">
+            <label class="no-lbl">Tel. contacto</label>
+            <input class="no-input" id="cli_e_tel_contacto" value="${esc(c.cli_tel_contacto||'')}">
+          </div>
+          <div class="no-fgroup">
+            <label class="no-lbl">Dirección</label>
+            <input class="no-input" id="cli_e_direccion" value="${esc(c.cli_direccion||'')}">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button class="btn btn-dark" onclick="cli_guardarEditar(${uid})">💾 Guardar</button>
+          <button class="btn btn-mid" onclick="cli_renderDetalle(${uid}, document.getElementById('cliRight')._cliData)">Cancelar</button>
+        </div>
+        <div id="cli-edit-err-${uid}" class="no-alert-err" style="display:none;margin-top:8px;"></div>`;
+    };
+
+    window.cli_guardarEditar = async (uid) => {
+      const razon = document.getElementById('cli_e_razon')?.value.trim();
+      const tel   = document.getElementById('cli_e_tel')?.value.trim();
+      const errEl = document.getElementById(`cli-edit-err-${uid}`);
+      if (!razon || !tel) {
+        errEl.textContent = 'Razón social y teléfono son obligatorios'; errEl.style.display='block'; return;
+      }
+      errEl.style.display = 'none';
+      const body = {
+        cli_razon_social:  razon,
+        cli_telefono:      tel,
+        cli_contacto:      document.getElementById('cli_e_contacto')?.value.trim() || '',
+        cli_tel_contacto:  document.getElementById('cli_e_tel_contacto')?.value.trim() || '',
+        cli_direccion:     document.getElementById('cli_e_direccion')?.value.trim() || '',
+      };
+      const r = await fetch(`${API}/clientes/${uid}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) }).then(x=>x.json()).catch(()=>null);
+      if (!r?.success) { errEl.textContent = r?.error||'Error al guardar'; errEl.style.display='block'; return; }
+      // actualizar datos en memoria y re-renderizar
+      const right = document.getElementById('cliRight');
+      Object.assign(right._cliData.cliente, body);
+      cli_renderDetalle(uid, right._cliData);
+      showToast('Cliente actualizado');
+    };
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: FUNCIONARIOS
+// ════════════════════════════════════════════════════════════════════════════
+Views.funcionarios = {
+  render() {
+    return `<div style="padding:22px;" id="funcWrap">
+      <div class="func-header">
+        <h2>Funcionarios</h2>
+        ${isAdmin()?`<button class="btn btn-dark" onclick="fun_openCreate()">+ Nuevo funcionario</button>`:''}
+      </div>
+      <div class="card" style="overflow-x:auto;">
+        <table class="func-table" id="funcTable">
+          <thead><tr><th>Nombre</th><th>Login</th><th>Rol</th><th>Estado</th>${isAdmin()?'<th>Acciones</th>':''}</tr></thead>
+          <tbody><tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px;">Cargando...</td></tr></tbody>
+        </table>
+      </div>
+    </div>`;
+  },
+  async init() {
+    const TIPOS = {A:'Administrador',F:'Funcionario',T:'Técnico'};
+    async function fun_reload() {
+      const rows = await fetch(`${API}/funcionarios`).then(r=>r.json()).catch(()=>[]);
+      const tb = document.querySelector('#funcTable tbody'); if (!tb) return;
+      if (!rows.length) { tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px;">Sin funcionarios</td></tr>'; return; }
+      tb.innerHTML = rows.map(u=>`
+        <tr>
+          <td style="font-weight:600">${esc(u.usu_nombre||'-')}</td>
+          <td style="color:#666">${esc(u.usu_login||'-')}</td>
+          <td><span class="tipo-badge tipo-${u.usu_tipo}">${TIPOS[u.usu_tipo]||u.usu_tipo}</span></td>
+          <td><span class="estado-pill est-${u.usu_estado}">${u.usu_estado==='A'?'Activo':'Inactivo'}</span></td>
+          ${isAdmin()?`<td style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-dark" onclick="fun_openEdit(${u.uid_usuario},'${esc(u.usu_nombre||'')}','${u.usu_tipo}')">Editar</button>
+            <button class="btn btn-sm btn-grey" onclick="fun_toggleEstado(${u.uid_usuario},'${u.usu_estado==='A'?'I':'A'}')">${u.usu_estado==='A'?'Desactivar':'Activar'}</button>
+          </td>`:''}
+        </tr>`).join('');
+    }
+    window.fun_openCreate = () => {
+      const bg = document.createElement('div'); bg.className='modal-bg'; bg.id='funModal';
+      bg.innerHTML=`<div class="modal">
+        <h3>Nuevo Funcionario</h3>
+        <label>Nombre completo</label><input id="funNombre" type="text" placeholder="Ej: Juan Pérez">
+        <label>Login</label><input id="funLogin" type="text" placeholder="Ej: jperez">
+        <label>Contraseña inicial</label><input id="funClave" type="password" placeholder="Mínimo 6 caracteres">
+        <label>Rol</label>
+        <select id="funTipo"><option value="T">Técnico</option><option value="F">Funcionario</option><option value="A">Administrador</option></select>
+        <div class="modal-actions">
+          <button class="btn btn-grey" onclick="document.getElementById('funModal').remove()">Cancelar</button>
+          <button class="btn btn-dark" onclick="fun_create()">Crear</button>
+        </div>
+      </div>`;
+      document.body.appendChild(bg);
+    };
+    window.fun_create = async () => {
+      const nombre=document.getElementById('funNombre')?.value.trim();
+      const login =document.getElementById('funLogin')?.value.trim();
+      const clave =document.getElementById('funClave')?.value;
+      const tipo  =document.getElementById('funTipo')?.value;
+      if (!nombre||!login||!clave) { alert('Completa todos los campos'); return; }
+      if (clave.length<6) { alert('La contraseña debe tener al menos 6 caracteres'); return; }
+      const r = await fetch(`${API}/funcionarios`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,login,clave,tipo})}).then(r=>r.json()).catch(()=>({success:false}));
+      if (r.success) { document.getElementById('funModal')?.remove(); showToast('✅ Funcionario creado'); await fun_reload(); }
+      else alert('Error: '+(r.error||'Error desconocido'));
+    };
+    window.fun_openEdit = (uid, nombre, tipo) => {
+      const bg = document.createElement('div'); bg.className='modal-bg'; bg.id='funEditModal';
+      bg.innerHTML=`<div class="modal">
+        <h3>Editar Funcionario</h3>
+        <label>Nombre completo</label><input id="editNombre" type="text" value="${nombre}">
+        <label>Rol</label>
+        <select id="editTipo">
+          <option value="T"${tipo==='T'?' selected':''}>Técnico</option>
+          <option value="F"${tipo==='F'?' selected':''}>Funcionario</option>
+          <option value="A"${tipo==='A'?' selected':''}>Administrador</option>
+        </select>
+        <label>Nueva contraseña <span style="color:#999;font-weight:400">(dejar vacío para no cambiar)</span></label>
+        <input id="editClave" type="password" placeholder="Opcional">
+        <div class="modal-actions">
+          <button class="btn btn-grey" onclick="document.getElementById('funEditModal').remove()">Cancelar</button>
+          <button class="btn btn-dark" onclick="fun_save(${uid})">Guardar</button>
+        </div>
+      </div>`;
+      document.body.appendChild(bg);
+    };
+    window.fun_save = async (uid) => {
+      const nombre = document.getElementById('editNombre')?.value.trim();
+      const tipo   = document.getElementById('editTipo')?.value;
+      const clave  = document.getElementById('editClave')?.value;
+      if (!nombre) { alert('El nombre es requerido'); return; }
+      const body = { nombre, tipo };
+      if (clave) { if (clave.length<6){alert('La contraseña debe tener al menos 6 caracteres');return;} body.clave=clave; }
+      const r = await fetch(`${API}/funcionarios/${uid}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json()).catch(()=>({success:false}));
+      if (r.success) { document.getElementById('funEditModal')?.remove(); showToast('✅ Funcionario actualizado'); await fun_reload(); }
+      else alert('Error: '+(r.error||'Error desconocido'));
+    };
+    window.fun_toggleEstado = async (uid, nuevoEstado) => {
+      const r = await fetch(`${API}/funcionarios/${uid}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({estado:nuevoEstado})}).then(r=>r.json()).catch(()=>({success:false}));
+      if (r.success) { showToast('✅ Estado actualizado'); await fun_reload(); }
+      else alert('Error: '+(r.error||''));
+    };
+    await fun_reload();
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: INVENTARIO
+// ════════════════════════════════════════════════════════════════════════════
+Views.inventario = {
+  render() {
+    return `<div style="padding:22px;">
+      <div class="inv-header">
+        <h2>Inventario de repuestos</h2>
+        ${isAdmin()?`<button class="btn btn-dark" onclick="inv_openCreate()">+ Nuevo repuesto</button>`:''}
+      </div>
+      <div class="card" style="overflow-x:auto;">
+        <table class="inv-table" id="invTable">
+          <thead><tr><th>Descripción</th><th>Tipo</th><th>Precio</th><th>Estado</th>${isAdmin()?'<th>Acciones</th>':''}</tr></thead>
+          <tbody><tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px;">Cargando...</td></tr></tbody>
+        </table>
+      </div>
+    </div>`;
+  },
+  async init() {
+    const TIPOS = {R:'Repuesto',S:'Servicio',M:'Mano de obra'};
+    async function inv_reload() {
+      const rows = await fetch(`${API}/inventario`).then(r=>r.json()).catch(()=>[]);
+      const tb = document.querySelector('#invTable tbody'); if (!tb) return;
+      if (!rows.length) { tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px;">Sin ítems</td></tr>'; return; }
+      tb.innerHTML = rows.map(p=>`
+        <tr>
+          <td style="font-weight:500">${esc(p.cco_descripcion||'-')}</td>
+          <td style="color:#666">${TIPOS[p.cco_tipo]||p.cco_tipo||'-'}</td>
+          <td class="inv-precio">${money(p.cco_valor)}</td>
+          <td><span class="estado-pill est-${p.cco_estado}">${p.cco_estado==='A'?'Activo':'Inactivo'}</span></td>
+          ${isAdmin()?`<td style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-mid" onclick="inv_edit(${p.uid_concepto_costo},'${esc(p.cco_descripcion)}',${p.cco_valor},'${p.cco_tipo}')">Editar</button>
+            <button class="btn btn-sm btn-grey" onclick="inv_toggle(${p.uid_concepto_costo},'${p.cco_estado==='A'?'I':'A'}')">${p.cco_estado==='A'?'Desactivar':'Activar'}</button>
+          </td>`:''}
+        </tr>`).join('');
+    }
+    window.inv_openCreate = () => inv_openModal();
+    window.inv_edit = (id, desc, val, tipo) => inv_openModal(id, desc, val, tipo);
+    function inv_openModal(id=null, desc='', val=0, tipo='R') {
+      document.getElementById('invModal')?.remove();
+      const bg = document.createElement('div'); bg.className='modal-bg'; bg.id='invModal';
+      bg.innerHTML=`<div class="modal">
+        <h3>${id?'Editar repuesto':'Nuevo repuesto'}</h3>
+        <label>Descripción</label><input id="invDesc" type="text" value="${esc(desc)}" placeholder="Ej: Carbones de motor">
+        <label>Precio ($)</label><input id="invVal" type="number" value="${val}" min="0" placeholder="0">
+        <label>Tipo</label>
+        <select id="invTipo">
+          <option value="R"${tipo==='R'?' selected':''}>Repuesto</option>
+          <option value="S"${tipo==='S'?' selected':''}>Servicio</option>
+          <option value="M"${tipo==='M'?' selected':''}>Mano de obra</option>
+        </select>
+        <div class="modal-actions">
+          <button class="btn btn-grey" onclick="document.getElementById('invModal').remove()">Cancelar</button>
+          <button class="btn btn-dark" onclick="inv_save(${id||'null'})">${id?'Guardar':'Crear'}</button>
+        </div>
+      </div>`;
+      document.body.appendChild(bg);
+    }
+    window.inv_save = async (id) => {
+      const desc=document.getElementById('invDesc')?.value.trim();
+      const val =document.getElementById('invVal')?.value;
+      const tipo=document.getElementById('invTipo')?.value;
+      if (!desc) { alert('Escribe una descripción'); return; }
+      let r;
+      if (id) {
+        r = await fetch(`${API}/inventario/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({descripcion:desc,valor:Number(val)||0})}).then(r=>r.json()).catch(()=>({success:false}));
+      } else {
+        r = await fetch(`${API}/inventario`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({descripcion:desc,valor:Number(val)||0,tipo})}).then(r=>r.json()).catch(()=>({success:false}));
+      }
+      if (r.success) { document.getElementById('invModal')?.remove(); showToast('✅ Guardado'); await inv_reload(); }
+      else alert('Error: '+(r.error||''));
+    };
+    window.inv_toggle = async (id, estado) => {
+      const r = await fetch(`${API}/inventario/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({estado})}).then(r=>r.json()).catch(()=>({success:false}));
+      if (r.success) { showToast('✅ Actualizado'); await inv_reload(); }
+      else alert('Error: '+(r.error||''));
+    };
+    await inv_reload();
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: NUEVA ORDEN (wizard)
+// ════════════════════════════════════════════════════════════════════════════
+Views.nuevaOrden = {
+  render() {
+    return `
+    <div class="no-wrap">
+      <div class="no-steps">
+        <div class="no-step active" id="no_step1_tab">1. Cliente</div>
+        <div class="no-step" id="no_step2_tab">2. Máquinas</div>
+        <div class="no-step" id="no_step3_tab">3. Confirmar</div>
+      </div>
+
+      <!-- STEP 1: CLIENTE -->
+      <div id="no_step1">
+        <div class="card">
+          <h2 style="font-size:16px;color:var(--dark);margin-bottom:16px;">Buscar cliente</h2>
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <input id="no_clientSearch" type="text"
+              style="flex:1;padding:9px 11px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none;"
+              placeholder="Cédula, NIT, nombre o teléfono..." oninput="no_buscarCliente()">
+          </div>
+          <div id="no_clientResults"></div>
+          <div id="no_selectedClientCard" style="display:none;"></div>
+          <hr class="no-divider">
+          <button class="no-toggle-link" onclick="no_toggleNewClient()">+ Crear nuevo cliente</button>
+          <div id="no_newClientForm" style="display:none;margin-top:16px;">
+            <h3 style="font-size:14px;color:#333;margin-bottom:12px;">Nuevo cliente</h3>
+            <div class="no-grid2">
+              <div class="no-fgroup">
+                <label>Identificación <span class="no-req">*</span></label>
+                <input id="no_nc_id" type="text" placeholder="Cédula o NIT" inputmode="numeric"
+                  oninput="this.value=this.value.replace(/[^0-9]/g,'')" onblur="no_sugerirClave()">
+              </div>
+              <div class="no-fgroup">
+                <label>Razón Social <span class="no-req">*</span></label>
+                <input id="no_nc_nombre" type="text" placeholder="Nombre o empresa">
+              </div>
+            </div>
+            <div class="no-grid2">
+              <div class="no-fgroup">
+                <label>Teléfono <span class="no-req">*</span></label>
+                <input id="no_nc_tel" type="text" inputmode="numeric" placeholder="Teléfono"
+                  oninput="this.value=this.value.replace(/[^0-9\\s\\/\\-]/g,'')">
+              </div>
+              <div class="no-fgroup">
+                <label>Dirección</label>
+                <input id="no_nc_dir" type="text" placeholder="Dirección">
+              </div>
+            </div>
+            <div class="no-grid2">
+              <div class="no-fgroup">
+                <label>Contacto</label>
+                <input id="no_nc_contacto" type="text" placeholder="Nombre del contacto">
+              </div>
+              <div class="no-fgroup">
+                <label>Teléfono Contacto</label>
+                <input id="no_nc_tel_contacto" type="text" inputmode="numeric" placeholder="Teléfono contacto"
+                  oninput="this.value=this.value.replace(/[^0-9\\s\\/\\-]/g,'')">
+              </div>
+            </div>
+            <div class="no-fgroup" style="max-width:220px;">
+              <label>Clave asignada <span class="no-req">*</span></label>
+              <input id="no_nc_clave" type="text" placeholder="Últimos 4 dígitos">
+              <div class="no-muted" style="margin-top:4px;">Por defecto: últimos 4 dígitos de la identificación</div>
+            </div>
+            <div id="no_newClientError" class="no-alert-err" style="display:none;"></div>
+            <button class="btn btn-dark" onclick="no_crearCliente()">Crear cliente</button>
+          </div>
+        </div>
+        <div class="no-nav-row">
+          <span></span>
+          <button class="btn btn-dark" id="no_btnStep1Next" onclick="no_goStep2()" disabled>Siguiente →</button>
+        </div>
+      </div>
+
+      <!-- STEP 2: MÁQUINAS -->
+      <div id="no_step2" style="display:none;">
+        <div class="card">
+          <div id="no_step2ClientCard"></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <h2 style="font-size:16px;color:var(--dark);margin:0;">Máquinas en esta orden</h2>
+            <button class="btn btn-dark" onclick="no_abrirModalMaquina()">+ Agregar máquina</button>
+          </div>
+          <div id="no_maquinasEnOrden"></div>
+        </div>
+        <div class="no-nav-row">
+          <button class="btn btn-grey" onclick="no_goStep1()">← Atrás</button>
+          <button class="btn btn-dark" id="no_btnStep2Next" onclick="no_goStep3()" disabled>Siguiente →</button>
+        </div>
+      </div>
+
+      <!-- Modal agregar máquina nueva orden -->
+      <div id="no_modalMaquina" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);align-items:center;justify-content:center;">
+        <div style="background:#fff;width:94%;max-width:520px;border-radius:12px;overflow:hidden;max-height:90vh;display:flex;flex-direction:column;">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #e5e7eb;">
+            <span style="font-weight:600;font-size:15px;">Agregar máquina a la orden</span>
+            <button onclick="no_cerrarModalMaquina()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#666;">✕</button>
+          </div>
+          <div style="padding:16px;overflow-y:auto;">
+            <div id="no_mm_selectRow" class="no-fgroup">
+              <label>Máquinas del cliente</label>
+              <select id="no_mm_select" style="width:100%;" onchange="no_onSelectMaquinaModal(this)">
+                <option value="">-- Seleccionar máquina --</option>
+              </select>
+            </div>
+            <div id="no_mm_obsRow" style="display:none;" class="no-fgroup">
+              <label>Observaciones de recepción</label>
+              <textarea id="no_mm_obs" rows="3" style="width:100%;resize:vertical;" placeholder="Estado visible, falla reportada, accesorios..."></textarea>
+            </div>
+            <div id="no_mm_separador" style="text-align:center;margin:12px 0;color:#999;font-size:13px;">— o —</div>
+            <button id="no_mm_btnNueva" class="no-toggle-link" style="width:100%;text-align:center;" onclick="no_toggleNuevaMaqModal()">+ Crear nueva máquina</button>
+            <div id="no_mm_nuevaForm" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;">
+              <div class="no-grid2">
+                <div class="no-fgroup"><label>Nombre <span class="no-req">*</span></label><input id="no_mm_nombre" type="text" placeholder="Ej: Taladro, Esmeril..."></div>
+                <div class="no-fgroup"><label>Marca</label><input id="no_mm_marca" type="text" placeholder="Bosch, DeWalt..."></div>
+                <div class="no-fgroup"><label>Serial</label><input id="no_mm_serial" type="text"></div>
+                <div class="no-fgroup"><label>Referencia</label><input id="no_mm_ref" type="text"></div>
+              </div>
+              <div class="no-fgroup">
+                <label>Observaciones de recepción</label>
+                <textarea id="no_mm_nuevaObs" rows="3" style="width:100%;resize:vertical;" placeholder="Estado visible, falla reportada, accesorios..."></textarea>
+              </div>
+              <div id="no_mm_error" class="no-alert-err" style="display:none;"></div>
+            </div>
+            <!-- Bloque garantía por máquina -->
+            <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" id="no_mm_chkGarantia" onchange="no_mm_toggleGarantia(this.checked)"
+                  style="width:16px;height:16px;cursor:pointer;accent-color:var(--dark);">
+                <span style="font-size:13px;font-weight:600;">¿Esta máquina está en garantía?</span>
+                <span style="font-size:11px;font-weight:700;background:#c0392b;color:#fff;padding:1px 7px;border-radius:4px;letter-spacing:.3px;">GARANTÍA</span>
+              </label>
+              <div id="no_mm_garantiaFields" style="display:none;margin-top:10px;">
+                <div class="no-fgroup">
+                  <label>Fecha de vencimiento <span class="no-req">*</span></label>
+                  <input type="date" id="no_mm_garantiaVence" style="max-width:200px;">
+                </div>
+                <div class="no-fgroup" style="margin-top:8px;">
+                  <label>Factura de compra (PDF) <span style="font-size:11px;color:#888;">— opcional</span></label>
+                  <label class="upload-foto-btn" id="no_mm_facturaLabel" style="display:inline-block;padding:6px 12px;background:#f0f4f8;border:1px solid #ddd;border-radius:6px;cursor:pointer;font-size:12px;">📄 Seleccionar PDF
+                    <input type="file" id="no_mm_facturaFile" accept=".pdf" style="display:none"
+                      onchange="no_mm_onFacturaChange(this)">
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="padding:12px 16px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px;">
+            <button class="btn btn-grey" onclick="no_cerrarModalMaquina()">Cancelar</button>
+            <button id="no_mm_btnAgregar" class="btn btn-dark" onclick="no_confirmarAgregarMaquina()" disabled>Agregar a la orden</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 3: CONFIRMAR -->
+      <div id="no_step3" style="display:none;">
+        <div class="card">
+          <h2 style="font-size:16px;color:var(--dark);margin-bottom:12px;">Confirmar orden</h2>
+          <div id="no_resumenOrden"></div>
+          <div id="no_step3Error" class="no-alert-err" style="display:none;margin-top:12px;"></div>
+        </div>
+        <div class="no-nav-row">
+          <button class="btn btn-grey" onclick="no_goStep2()">← Atrás</button>
+          <button class="btn btn-green" id="no_btnCrear" onclick="no_crearOrden()">✓ Crear Orden</button>
+        </div>
+      </div>
+
+      <!-- ÉXITO -->
+      <div id="no_stepSuccess" style="display:none;">
+        <div class="card no-success">
+          <div style="font-size:40px;">✅</div>
+          <div class="no-snum" id="no_successConsecutivo"></div>
+          <div class="no-slbl">Orden creada exitosamente</div>
+          <div class="no-slist" id="no_successMaqList"></div>
+          <div id="no_ordenAcciones"></div>
+          <hr class="no-divider">
+          <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+            <button class="btn btn-dark" onclick="navigate('cotizaciones')">Ir a Cotizaciones</button>
+            <button class="btn btn-grey" onclick="no_nuevaOrden()">Nueva Orden</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  },
+  init() {
+    // Revoke any blob URLs from a previous session
+    if (typeof window.no_nuevaOrden === 'function') window.no_nuevaOrden();
+
+    let no_cliente       = null;
+    let no_maquinas      = [];
+    let no_ordenCreada   = null;
+    let no_clientMap     = {};
+    let no_herramientaMap= {};
+    let no_buscarTimer   = null;
+
+    function no_setStep(n) {
+      ['no_step1','no_step2','no_step3','no_stepSuccess'].forEach((id,i) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = (i === n-1 || (n===4 && i===3)) ? 'block' : 'none';
+      });
+      [1,2,3].forEach(i => {
+        const t = document.getElementById(`no_step${i}_tab`);
+        if (!t) return;
+        t.className = 'no-step' + (i < n ? ' done' : i === n ? ' active' : '');
+      });
+    }
+
+    window.no_goStep1 = () => no_setStep(1);
+
+    window.no_goStep2 = async () => {
+      if (!no_cliente) return;
+      no_setStep(2);
+      const c = no_cliente;
+      const cc = document.getElementById('no_step2ClientCard');
+      if (cc) cc.innerHTML = `
+        <div class="no-cli-card" style="margin-bottom:16px;">
+          <div>
+            <div class="no-cli-name">${esc(c.cli_razon_social)}</div>
+            <div class="no-cli-sub">NIT/CC: ${esc(c.cli_identificacion)} | Tel: ${esc(c.cli_telefono||'-')}</div>
+          </div>
+        </div>`;
+      await no_cargarHistorial();
+      no_renderMaquinasEnOrden();
+    };
+
+    window.no_goStep3 = () => {
+      if (!no_maquinas.length) return;
+      no_setStep(3);
+      no_renderResumen();
+    };
+
+    window.no_buscarCliente = () => {
+      clearTimeout(no_buscarTimer);
+      no_buscarTimer = setTimeout(async () => {
+        const q = document.getElementById('no_clientSearch')?.value.trim() || '';
+        const resEl = document.getElementById('no_clientResults');
+        if (!resEl) return;
+        if (q.length < 2) { resEl.innerHTML = ''; return; }
+        const data = await fetch(`${API}/crear-orden/cliente/buscar?q=${encodeURIComponent(q)}`)
+          .then(r=>r.json()).catch(()=>[]);
+        if (!data.length) { resEl.innerHTML = '<div class="no-muted">No se encontraron clientes.</div>'; return; }
+        data.forEach(c => { no_clientMap[c.uid_cliente] = c; });
+        resEl.innerHTML = data.map(c => `
+          <div class="no-result-item" onclick="no_seleccionarCliente(${c.uid_cliente})">
+            <div>
+              <div class="no-result-name">${esc(c.cli_razon_social)}</div>
+              <div class="no-result-sub">CC/NIT: ${esc(c.cli_identificacion)} | Tel: ${esc(c.cli_telefono||'-')}</div>
+            </div>
+            <button class="btn btn-dark btn-sm">Seleccionar</button>
+          </div>`).join('');
+      }, 300);
+    };
+
+    window.no_seleccionarCliente = (uid) => {
+      const c = no_clientMap[uid];
+      if (!c) return;
+      no_cliente = c;
+      const resEl   = document.getElementById('no_clientResults');
+      const searchEl= document.getElementById('no_clientSearch');
+      const formEl  = document.getElementById('no_newClientForm');
+      const cardEl  = document.getElementById('no_selectedClientCard');
+      const btnEl   = document.getElementById('no_btnStep1Next');
+      if (resEl)    resEl.innerHTML = '';
+      if (searchEl) searchEl.value = '';
+      if (formEl)   formEl.style.display = 'none';
+      if (cardEl) {
+        cardEl.style.display = 'block';
+        cardEl.innerHTML = `
+          <div class="no-cli-card">
+            <div>
+              <div class="no-cli-name">${esc(c.cli_razon_social)}</div>
+              <div class="no-cli-sub">CC/NIT: ${esc(c.cli_identificacion)} | Tel: ${esc(c.cli_telefono||'-')} | ${esc(c.cli_direccion||'')}</div>
+            </div>
+            <button class="btn btn-grey btn-sm" onclick="no_deseleccionarCliente()">Cambiar</button>
+          </div>`;
+      }
+      if (btnEl) btnEl.disabled = false;
+    };
+
+    window.no_deseleccionarCliente = () => {
+      no_cliente = null;
+      const cardEl = document.getElementById('no_selectedClientCard');
+      const btnEl  = document.getElementById('no_btnStep1Next');
+      if (cardEl) { cardEl.style.display = 'none'; cardEl.innerHTML = ''; }
+      if (btnEl)  btnEl.disabled = true;
+    };
+
+    window.no_toggleNewClient = () => {
+      const f = document.getElementById('no_newClientForm');
+      if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    };
+
+    window.no_sugerirClave = () => {
+      const idEl = document.getElementById('no_nc_id');
+      const clEl = document.getElementById('no_nc_clave');
+      if (idEl && clEl && idEl.value.length >= 4) clEl.value = idEl.value.slice(-4);
+    };
+
+    window.no_crearCliente = async () => {
+      const errEl = document.getElementById('no_newClientError');
+      if (errEl) errEl.style.display = 'none';
+      const body = {
+        cli_identificacion: document.getElementById('no_nc_id')?.value.trim() || '',
+        cli_razon_social:   document.getElementById('no_nc_nombre')?.value.trim() || '',
+        cli_telefono:       document.getElementById('no_nc_tel')?.value.trim() || '',
+        cli_direccion:      document.getElementById('no_nc_dir')?.value.trim() || '',
+        cli_contacto:       document.getElementById('no_nc_contacto')?.value.trim() || '',
+        cli_tel_contacto:   document.getElementById('no_nc_tel_contacto')?.value.trim() || '',
+        clave:              document.getElementById('no_nc_clave')?.value.trim() || '',
+      };
+      const res = await fetch(`${API}/crear-orden/cliente`, {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+      }).then(r=>r.json()).catch(()=>({success:false,error:'Error de red'}));
+      if (!res.success) {
+        if (errEl) { errEl.textContent = res.error||'Error'; errEl.style.display = 'block'; }
+        return;
+      }
+      if (res.clave_acceso) alert(`✅ Cliente creado.\n\nClave de acceso al portal: ${res.clave_acceso}\n\nAnótela — no se volverá a mostrar.`);
+      no_clientMap[res.cliente.uid_cliente] = res.cliente;
+      window.no_seleccionarCliente(res.cliente.uid_cliente);
+      const f = document.getElementById('no_newClientForm');
+      if (f) f.style.display = 'none';
+    };
+
+    async function no_cargarHistorial() {
+      // cargarHistorial solo carga el mapa, el modal lo usa al abrir
+      const data = await fetch(`${API}/crear-orden/herramientas/${no_cliente.uid_cliente}`)
+        .then(r=>r.json()).catch(()=>[]);
+      data.forEach(h => { no_herramientaMap[h.uid_herramienta] = h; });
+    }
+
+    let _no_mmModoNueva = false;
+
+    window.no_abrirModalMaquina = async () => {
+      _no_mmModoNueva = false;
+      document.getElementById('no_mm_select').innerHTML = '<option value="">-- Cargando... --</option>';
+      document.getElementById('no_mm_obsRow').style.display = 'none';
+      document.getElementById('no_mm_obs').value = '';
+      document.getElementById('no_mm_nuevaForm').style.display = 'none';
+      document.getElementById('no_mm_btnNueva').textContent = '+ Crear nueva máquina';
+      document.getElementById('no_mm_error').style.display = 'none';
+      document.getElementById('no_mm_nuevaObs').value = '';
+      ['no_mm_nombre','no_mm_marca','no_mm_serial','no_mm_ref'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('no_mm_btnAgregar').disabled = true;
+      // Reset guarantee fields
+      document.getElementById('no_mm_chkGarantia').checked = false;
+      document.getElementById('no_mm_garantiaFields').style.display = 'none';
+      document.getElementById('no_mm_garantiaVence').value = '';
+      document.getElementById('no_mm_facturaFile').value = '';
+      document.getElementById('no_mm_facturaLabel').firstChild.textContent = '📄 Seleccionar PDF';
+      document.getElementById('no_modalMaquina').style.display = 'flex';
+      const data = await fetch(`${API}/crear-orden/herramientas/${no_cliente.uid_cliente}`)
+        .then(r=>r.json()).catch(()=>[]);
+      data.forEach(h => { no_herramientaMap[h.uid_herramienta] = h; });
+      const sel = document.getElementById('no_mm_select');
+      if (!data.length) {
+        sel.innerHTML = '<option value="">-- Este cliente no tiene máquinas registradas --</option>';
+      } else {
+        sel.innerHTML = '<option value="">-- Seleccionar máquina --</option>' +
+          data.map(h => {
+            const ya = no_maquinas.find(m => m.uid_herramienta === h.uid_herramienta);
+            return `<option value="${h.uid_herramienta}" ${ya?'disabled':''}>${esc(h.her_nombre)}${h.her_marca?' — '+esc(h.her_marca):''}${h.her_serial?' ('+esc(h.her_serial)+')':''}${ya?' ✓ ya en orden':''}</option>`;
+          }).join('');
+      }
+    };
+
+    window.no_cerrarModalMaquina = () => {
+      document.getElementById('no_modalMaquina').style.display = 'none';
+    };
+
+    window.no_onSelectMaquinaModal = (sel) => {
+      const obsRow = document.getElementById('no_mm_obsRow');
+      const btn = document.getElementById('no_mm_btnAgregar');
+      if (sel.value) {
+        obsRow.style.display = 'block'; btn.disabled = false;
+        if (_no_mmModoNueva) {
+          _no_mmModoNueva = false;
+          document.getElementById('no_mm_nuevaForm').style.display = 'none';
+          document.getElementById('no_mm_btnNueva').textContent = '+ Crear nueva máquina';
+        }
+      } else {
+        obsRow.style.display = 'none';
+        btn.disabled = _no_mmModoNueva ? false : true;
+      }
+    };
+
+    window.no_toggleNuevaMaqModal = () => {
+      _no_mmModoNueva = !_no_mmModoNueva;
+      document.getElementById('no_mm_nuevaForm').style.display = _no_mmModoNueva ? 'block' : 'none';
+      document.getElementById('no_mm_btnNueva').textContent = _no_mmModoNueva ? '✕ Cancelar nueva máquina' : '+ Crear nueva máquina';
+      // Ocultar/mostrar selector según modo
+      document.getElementById('no_mm_selectRow').style.display = _no_mmModoNueva ? 'none' : 'block';
+      document.getElementById('no_mm_separador').style.display = _no_mmModoNueva ? 'none' : 'block';
+      if (_no_mmModoNueva) {
+        document.getElementById('no_mm_select').value = '';
+        document.getElementById('no_mm_obsRow').style.display = 'none';
+        document.getElementById('no_mm_btnAgregar').disabled = false;
+      } else {
+        document.getElementById('no_mm_btnAgregar').disabled = !document.getElementById('no_mm_select').value;
+      }
+    };
+
+    window.no_mm_toggleGarantia = (checked) => {
+      document.getElementById('no_mm_garantiaFields').style.display = checked ? 'block' : 'none';
+      if (checked) {
+        const vence = addDiasHabiles(new Date(), 30);
+        document.getElementById('no_mm_garantiaVence').value = toInputDate(vence);
+      } else {
+        document.getElementById('no_mm_garantiaVence').value = '';
+      }
+    };
+
+    window.no_mm_onFacturaChange = (input) => {
+      const lbl = document.getElementById('no_mm_facturaLabel');
+      if (lbl) lbl.firstChild.textContent = input.files?.[0]?.name ? '✅ ' + input.files[0].name : '📄 Seleccionar PDF';
+    };
+
+    window.no_confirmarAgregarMaquina = async () => {
+      const btn = document.getElementById('no_mm_btnAgregar');
+      btn.disabled = true; btn.textContent = '⏳ Agregando...';
+      try {
+        // Leer campos de garantía (comunes para ambos modos)
+        const esGarantia   = document.getElementById('no_mm_chkGarantia').checked;
+        const garantiaVence = document.getElementById('no_mm_garantiaVence').value;
+        const facturaFile  = document.getElementById('no_mm_facturaFile').files?.[0] || null;
+        const errEl = document.getElementById('no_mm_error');
+
+        if (esGarantia && !garantiaVence) {
+          errEl.textContent = 'La fecha de vencimiento es obligatoria para máquinas en garantía';
+          errEl.style.display = 'block';
+          btn.disabled = false; btn.textContent = 'Agregar a la orden'; return;
+        }
+
+        if (_no_mmModoNueva) {
+          errEl.style.display = 'none';
+          const body = {
+            uid_cliente:    no_cliente.uid_cliente,
+            her_nombre:     document.getElementById('no_mm_nombre').value.trim(),
+            her_marca:      document.getElementById('no_mm_marca').value.trim(),
+            her_serial:     document.getElementById('no_mm_serial').value.trim(),
+            her_referencia: document.getElementById('no_mm_ref').value.trim(),
+          };
+          if (!body.her_nombre) {
+            errEl.textContent = 'El nombre es obligatorio'; errEl.style.display = 'block';
+            btn.disabled = false; btn.textContent = 'Agregar a la orden'; return;
+          }
+          const res = await fetch(`${API}/crear-orden/herramienta`, {
+            method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+          }).then(r=>r.json()).catch(()=>({success:false,error:'Error de red'}));
+          if (!res.success) {
+            errEl.textContent = res.error||'Error'; errEl.style.display = 'block';
+            btn.disabled = false; btn.textContent = 'Agregar a la orden'; return;
+          }
+          const obs = document.getElementById('no_mm_nuevaObs').value.trim();
+          no_maquinas.push({ ...res.herramienta, observaciones: obs, fotos: [],
+            es_garantia: esGarantia, garantia_vence: garantiaVence, factura: facturaFile });
+        } else {
+          const uid = parseInt(document.getElementById('no_mm_select').value);
+          const h = no_herramientaMap[uid];
+          const obs = document.getElementById('no_mm_obs').value.trim();
+          no_maquinas.push({ ...h, observaciones: obs, fotos: [],
+            es_garantia: esGarantia, garantia_vence: garantiaVence, factura: facturaFile });
+        }
+        no_renderMaquinasEnOrden();
+        no_cerrarModalMaquina();
+      } catch(e) {
+        document.getElementById('no_mm_error').textContent = e.message;
+        document.getElementById('no_mm_error').style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Agregar a la orden';
+      }
+    };
+
+    window.no_quitarMaquina = (uid) => {
+      no_maquinas = no_maquinas.filter(m => m.uid_herramienta !== uid);
+      no_renderMaquinasEnOrden();
+    };
+
+    window.no_setObservacion = (uid, val) => {
+      const m = no_maquinas.find(m => m.uid_herramienta === uid);
+      if (m) m.observaciones = val;
+    };
+
+    function no_renderMaquinasEnOrden() {
+      const el  = document.getElementById('no_maquinasEnOrden');
+      const btn = document.getElementById('no_btnStep2Next');
+      if (btn) btn.disabled = no_maquinas.length === 0;
+      if (!el) return;
+      if (!no_maquinas.length) {
+        el.innerHTML = '<div class="no-muted" style="margin-bottom:12px;">Ninguna máquina agregada aún.</div>';
+        return;
+      }
+      el.innerHTML = no_maquinas.map((m,i) => `
+        <div class="card no-maq-item">
+          <div class="no-maq-hdr">
+            <div>
+              <div class="no-maq-title">${i+1}. ${esc(m.her_nombre)} ${esc(m.her_marca||'')}${m.es_garantia ? ' <span style="font-size:11px;font-weight:700;background:#c0392b;color:#fff;padding:1px 6px;border-radius:4px;vertical-align:middle;">GARANTÍA</span>' : ''}</div>
+              <div class="no-maq-sub">${m.her_serial ? 'S/N: '+esc(m.her_serial) : 'Sin serial'}${m.her_referencia ? ' | Ref: '+esc(m.her_referencia) : ''}${m.es_garantia && m.garantia_vence ? ' | Vence: '+esc(m.garantia_vence) : ''}${m.es_garantia && m.factura ? ' | 📄 '+esc(m.factura.name) : ''}</div>
+            </div>
+            <button class="btn btn-red btn-sm" onclick="no_quitarMaquina(${m.uid_herramienta})">Quitar</button>
+          </div>
+          <div class="no-fgroup">
+            <label>Observaciones de recepción</label>
+            <textarea placeholder="Estado visible, accesorios entregados, falla reportada..."
+              onchange="no_setObservacion(${m.uid_herramienta}, this.value)">${esc(m.observaciones||'')}</textarea>
+          </div>
+          <div class="no-fgroup" style="margin-top:8px;">
+            <label>Fotos de recepción</label>
+            <div class="no-foto-row" id="no_fotoPreview_${m.uid_herramienta}"></div>
+            <label style="display:inline-block;margin-top:6px;padding:6px 12px;background:#f0f4f8;border:1px solid #ddd;border-radius:6px;cursor:pointer;font-size:12px;">
+              📷 Agregar fotos
+              <input type="file" accept="image/*" multiple style="display:none;"
+                onchange="no_agregarFotosPreview(${m.uid_herramienta}, this.files)">
+            </label>
+            <span class="no-muted" style="margin-left:8px;" id="no_fotoCount_${m.uid_herramienta}"></span>
+          </div>
+        </div>`).join('');
+      no_maquinas.forEach(m => no_renderFotoPreviews(m.uid_herramienta));
+    }
+
+    window.no_agregarFotosPreview = (uid, files) => {
+      const m = no_maquinas.find(m => m.uid_herramienta === uid);
+      if (!m) return;
+      Array.from(files).forEach(f => { m.fotos.push({ file: f, url: URL.createObjectURL(f) }); });
+      no_renderFotoPreviews(uid);
+    };
+
+    window.no_quitarFotoPreview = (uid, idx) => {
+      const m = no_maquinas.find(m => m.uid_herramienta === uid);
+      if (!m) return;
+      URL.revokeObjectURL(m.fotos[idx].url);
+      m.fotos.splice(idx, 1);
+      no_renderFotoPreviews(uid);
+    };
+
+    function no_renderFotoPreviews(uid) {
+      const m         = no_maquinas.find(m => m.uid_herramienta === uid);
+      const previewEl = document.getElementById('no_fotoPreview_' + uid);
+      const countEl   = document.getElementById('no_fotoCount_'   + uid);
+      if (!m || !previewEl) return;
+      previewEl.innerHTML = m.fotos.map((f,i) => `
+        <div class="no-foto-thumb">
+          <img src="${f.url}" alt="foto">
+          <button class="no-del" onclick="no_quitarFotoPreview(${uid},${i})" title="Quitar">×</button>
+        </div>`).join('');
+      if (countEl) countEl.textContent = m.fotos.length ? m.fotos.length + ' foto(s)' : '';
+    }
+
+    function no_renderResumen() {
+      const c  = no_cliente;
+      const el = document.getElementById('no_resumenOrden');
+      if (!el) return;
+      el.innerHTML = `
+        <div class="no-cli-card" style="margin-bottom:16px;">
+          <div>
+            <div class="no-cli-name">${esc(c.cli_razon_social)}</div>
+            <div class="no-cli-sub">CC/NIT: ${esc(c.cli_identificacion)} | Tel: ${esc(c.cli_telefono||'-')}</div>
+          </div>
+        </div>
+        <h3 style="font-size:14px;color:#333;margin-bottom:10px;">Máquinas (${no_maquinas.length})</h3>
+        ${no_maquinas.map((m,i) => `
+          <div style="padding:8px 12px;border:1px solid #eee;border-radius:6px;margin-bottom:6px;">
+            <div style="font-weight:600;font-size:13px;">${i+1}. ${esc(m.her_nombre)} ${esc(m.her_marca||'')}${m.es_garantia ? ' <span style="font-size:11px;font-weight:700;background:#c0392b;color:#fff;padding:1px 6px;border-radius:4px;">GARANTÍA</span>' : ''}</div>
+            ${m.her_serial ? `<div class="no-muted">S/N: ${esc(m.her_serial)}</div>` : ''}
+            ${m.es_garantia && m.garantia_vence ? `<div class="no-muted">Garantía vence: ${esc(m.garantia_vence)}${m.factura ? ' | 📄 '+esc(m.factura.name) : ''}</div>` : ''}
+            ${m.observaciones ? `<div class="no-muted" style="margin-top:4px;">${esc(m.observaciones)}</div>` : ''}
+            ${m.fotos.length ? `<div class="no-muted" style="margin-top:2px;">📷 ${m.fotos.length} foto(s) adjunta(s)</div>` : ''}
+          </div>`).join('')}`;
+    }
+
+    window.no_crearOrden = async () => {
+      const btn   = document.getElementById('no_btnCrear');
+      const errEl = document.getElementById('no_step3Error');
+      if (errEl) errEl.style.display = 'none';
+      if (btn) { btn.disabled = true; btn.textContent = 'Creando...'; }
+
+      const res = await fetch(`${API}/crear-orden/orden`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          uid_cliente: no_cliente.uid_cliente,
+          maquinas: no_maquinas.map(m => ({
+            uid_herramienta: m.uid_herramienta,
+            observaciones:   m.observaciones,
+            es_garantia:     m.es_garantia || false,
+            garantia_vence:  m.garantia_vence || null,
+          })),
+        }),
+      }).then(r=>r.json()).catch(()=>({success:false,error:'Error de red'}));
+
+      if (!res.success) {
+        if (btn) { btn.disabled = false; btn.textContent = '✓ Crear Orden'; }
+        if (errEl) { errEl.textContent = res.error||'Error al crear la orden'; errEl.style.display = 'block'; }
+        return;
+      }
+      no_ordenCreada = res;
+
+      // Subir fotos de recepción
+      if (btn) btn.textContent = 'Subiendo fotos...';
+      for (let i = 0; i < res.herramientas.length; i++) {
+        const fotos = no_maquinas[i]?.fotos || [];
+        for (const f of fotos) {
+          const fd = new FormData();
+          fd.append('foto', f.file);
+          await fetch(`${API}/crear-orden/foto/${res.herramientas[i].uid_herramienta_orden}`, { method:'POST', body:fd });
+        }
+      }
+
+      // Subir factura PDF por máquina (si se adjuntó)
+      if (btn) btn.textContent = 'Subiendo facturas...';
+      for (let i = 0; i < res.herramientas.length; i++) {
+        const factura = no_maquinas[i]?.factura;
+        if (factura) {
+          const fd = new FormData();
+          fd.append('factura', factura);
+          await fetch(`${API}/crear-orden/factura-maquina/${res.herramientas[i].uid_herramienta_orden}`, { method:'POST', body:fd });
+        }
+      }
+
+      if (btn) { btn.disabled = false; btn.textContent = '✓ Crear Orden'; }
+      no_mostrarExito();
+    };
+
+    function no_mostrarExito() {
+      no_setStep(4);
+      const consEl    = document.getElementById('no_successConsecutivo');
+      const listEl    = document.getElementById('no_successMaqList');
+      const accionesEl= document.getElementById('no_ordenAcciones');
+      if (consEl) consEl.textContent = `Orden #${no_ordenCreada.ord_consecutivo}`;
+      if (listEl) listEl.innerHTML = no_maquinas.map((m,i) => `
+        <div style="padding:6px 0;border-bottom:1px solid #eee;font-size:13px;">
+          ${i+1}. ${esc(m.her_nombre)} ${esc(m.her_marca||'')}${m.her_serial ? ' / S/N: '+esc(m.her_serial) : ''}
+        </div>`).join('');
+      if (accionesEl) {
+        const uid_orden = no_ordenCreada.uid_orden;
+        accionesEl.innerHTML = `
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
+            <a href="${API}/orders/${uid_orden}/print/orden" target="_blank" class="btn btn-dark">
+              🖨️ Imprimir orden
+            </a>
+            <button onclick="no_enviarOrdenWA(${uid_orden}, this)" class="btn btn-green">
+              📱 Enviar por WhatsApp
+            </button>
+          </div>`;
+      }
+    }
+
+    window.no_enviarOrdenWA = async (uid_orden, btn) => {
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Enviando...';
+      try {
+        const res = await fetch(`${API}/orders/${uid_orden}/send-pdf/orden`, { method:'POST' }).then(r=>r.json());
+        if (res.success) {
+          btn.textContent = res.waWarning ? '⚠️ Sin WA' : '✓ Enviado';
+          if (res.waWarning) {
+            showToast('⚠️ ' + res.waWarning, 6000);
+            setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
+          }
+        } else {
+          btn.textContent = '✗ Error';
+          setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+        }
+      } catch {
+        btn.textContent = '✗ Error';
+        setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+      }
+    };
+
+    window.no_nuevaOrden = () => {
+      no_maquinas.forEach(m => m.fotos.forEach(f => URL.revokeObjectURL(f.url)));
+      no_cliente     = null;
+      no_maquinas    = [];
+      no_ordenCreada = null;
+      const searchEl = document.getElementById('no_clientSearch');
+      const resEl    = document.getElementById('no_clientResults');
+      const cardEl   = document.getElementById('no_selectedClientCard');
+      const btnEl    = document.getElementById('no_btnStep1Next');
+      if (searchEl) searchEl.value = '';
+      if (resEl)    resEl.innerHTML = '';
+      if (cardEl)   cardEl.style.display = 'none';
+      if (btnEl)    btnEl.disabled = true;
+      no_setStep(1);
+    };
+
+    no_setStep(1);
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// HELPER: Detalle de orden para técnico (compartido por misOrdenes y buscarOrden)
+// ════════════════════════════════════════════════════════════════════════════
+const TEC_ELBL = {
+  pendiente_revision:'Pendiente revisión', revisada:'Revisada', cotizada:'Cotizada',
+  autorizada:'Autorizada', no_autorizada:'No autorizada', reparada:'Reparada', entregada:'Entregada'
+};
+
+async function tec_verDetalle(uid, rightId, panelId) {
+  document.getElementById(panelId)?.classList.add('immersive');
+  const right = document.getElementById(rightId);
+  if (!right) return;
+  const backHtml = `<div class="mobile-back" onclick="document.getElementById('${panelId}')?.classList.remove('immersive')">← Volver</div>`;
+  right.innerHTML = backHtml + `<div style="padding:20px;color:#888;text-align:center;">Cargando...</div>`;
+
+  let det;
+  try {
+    const res = await fetch(`${API}/orders/${uid}/detalle`);
+    det = await res.json();
+  } catch(e) {
+    right.innerHTML = backHtml + `<div style="padding:20px;color:#e74c3c;">Error de red: ${esc(e.message)}</div>`;
+    return;
+  }
+
+  // Verificar error o respuesta inesperada del servidor
+  if (det.error || !det.orden) {
+    right.innerHTML = backHtml + `<div style="padding:20px;color:#e74c3c;">${esc(det.error || 'Error al cargar la orden')}</div>`;
+    return;
+  }
+
+  const { orden, maquinas } = det;
+
+  // Auto-asignar técnico en máquinas sin asignación (fire & forget)
+  for (const m of maquinas) {
+    fetch(`${API}/equipment-order/${m.uid_herramienta_orden}/assign-technician`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ technicianId: _currentUser.id })
+    }).catch(() => {});
+  }
+
+  const maqHtml = maquinas.map(m => {
+    const lbl = TEC_ELBL[m.her_estado] || m.her_estado || '-';
+    const bc  = 'badge b-' + (m.her_estado || 'pendiente_revision');
+    const sub = [m.her_marca, m.her_serial ? 'S/N: '+m.her_serial : null, m.her_referencia ? 'Ref: '+m.her_referencia : null].filter(Boolean).join(' | ');
+
+    const fotosRec = m.fotos?.length
+      ? `<div class="foto-row">${m.fotos.map(f => `
+          <div class="foto-thumb" onclick="window.open('/uploads/fotos-recepcion/${f.fho_archivo}','_blank')">
+            <img src="/uploads/fotos-recepcion/${f.fho_archivo}" alt="">
+          </div>`).join('')}</div>`
+      : `<div class="sin-fotos">Sin fotos de recepción</div>`;
+
+    const fotosTrab = (m.fotos_trabajo || []).map(f => `
+      <div class="foto-thumb" id="tft-${f.uid_foto_herramienta_orden}">
+        <img src="/uploads/fotos-recepcion/${f.fho_archivo}" onclick="window.open(this.src,'_blank')" alt="">
+        <button class="del-btn" onclick="tec_delFoto(${f.uid_foto_herramienta_orden},event)">✕</button>
+      </div>`).join('');
+
+    return `
+      <div class="maq-card">
+        <div class="maq-top">
+          <div>
+            <div class="maq-nombre">${esc(m.her_nombre||'-')}</div>
+            ${sub ? `<div class="maq-sub">${esc(sub)}</div>` : ''}
+          </div>
+          <span id="tec-badge-${m.uid_herramienta_orden}" class="${bc}">${lbl}</span>
+        </div>
+        <div class="maq-actions">
+          ${m.her_estado === 'revisada'
+            ? `<span class="badge b-revisada">✓ Revisada</span>`
+            : ''}
+          <button class="btn btn-sm btn-teal" onclick="ord_verInforme(${orden.uid_orden},${m.uid_herramienta_orden})">📋 Informe</button>
+        </div>
+        <div style="margin-top:8px;">
+          <div class="maq-obs-lbl">Descripción del trabajo</div>
+          <textarea id="tec-obs-${m.uid_herramienta_orden}" rows="3"
+            style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical;margin-top:4px;"
+            placeholder="Describe el trabajo realizado...">${esc(m.hor_observaciones||'')}</textarea>
+          ${m.her_estado !== 'revisada'
+            ? `<button class="btn btn-sm btn-mid" style="margin-top:4px;" id="tec-btn-${m.uid_herramienta_orden}"
+                onclick="tec_guardarYRevisar(${m.uid_herramienta_orden})">💾 Guardar y marcar revisada</button>`
+            : `<button class="btn btn-sm" style="margin-top:4px;background:#f0f4f8;color:#555;"
+                onclick="tec_guardarObs(${m.uid_herramienta_orden})">💾 Guardar observaciones</button>`}
+        </div>
+        <div class="fotos-seccion">
+          <div class="fotos-lbl">Recepción</div>${fotosRec}
+        </div>
+        <div class="fotos-seccion">
+          <div class="fotos-lbl fotos-trabajo-lbl">Del trabajo</div>
+          <div class="foto-row" id="tft-row-${m.uid_herramienta_orden}">${fotosTrab}</div>
+          <label class="upload-foto-btn">+ Agregar foto
+            <input type="file" accept="image/*" style="display:none"
+              onchange="tec_uploadFoto(${orden.uid_orden},${m.uid_herramienta_orden},this)">
+          </label>
+        </div>
+      </div>`;
+  }).join('');
+
+  right.innerHTML = backHtml + `
+    <div style="padding:22px;">
+      <div class="ord-detail-header">
+        <span class="ord-num">Orden #${orden.ord_consecutivo}</span>
+        <span class="ord-fecha">${fmtFecha(orden.ord_fecha)}</span>
+      </div>
+      <div class="card">
+        <div class="card-title">Cliente</div>
+        <div class="client-grid">
+          <div class="field"><span class="lbl">Nombre / Razón social</span><span class="val">${esc(orden.cli_razon_social||'-')}</span></div>
+          <div class="field"><span class="lbl">Teléfono</span><span class="val">${esc(orden.cli_telefono||'-')}</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Equipos (${maquinas.length})</div>
+        ${maqHtml}
+      </div>
+    </div>`;
+}
+
+window.tec_guardarYRevisar = async (uid) => {
+  const btn = document.getElementById(`tec-btn-${uid}`);
+  const obs = document.getElementById(`tec-obs-${uid}`)?.value || '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Guardando...'; }
+  try {
+    // 1. Guardar observaciones
+    const r1 = await fetch(`${API}/equipment-order/${uid}/observaciones`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({observaciones:obs})
+    }).then(r=>r.json());
+    if (!r1.success) throw new Error(r1.error||'Error guardando observaciones');
+    // 2. Cambiar estado a revisada
+    const r2 = await fetch(`${API}/equipment-order/${uid}/status`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status:'revisada'})
+    }).then(r=>r.json());
+    if (!r2.success) throw new Error(r2.error||'Error actualizando estado');
+    // Actualizar badge de estado
+    const badge = document.getElementById(`tec-badge-${uid}`);
+    if (badge) { badge.className = 'badge b-revisada'; badge.textContent = 'Revisada'; }
+    // Reemplazar botón
+    if (btn) btn.outerHTML = `<button class="btn btn-sm" style="margin-top:4px;background:#f0f4f8;color:#555;"
+      onclick="tec_guardarObs(${uid})">💾 Guardar observaciones</button>`;
+    showToast('✅ Guardado — máquina marcada como revisada');
+  } catch(e) {
+    alert('⚠️ ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar y marcar revisada'; }
+  }
+};
+
+window.tec_guardarObs = async (uid) => {
+  const obs = document.getElementById(`tec-obs-${uid}`)?.value || '';
+  const r = await fetch(`${API}/equipment-order/${uid}/observaciones`, {
+    method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({observaciones:obs})
+  }).then(r=>r.json()).catch(()=>({success:false}));
+  if (r.success) showToast('✅ Observaciones guardadas');
+  else alert('Error al guardar: ' + (r.error||''));
+};
+
+window.tec_uploadFoto = async (uidOrden, uidHo, input) => {
+  if (!input.files[0]) return;
+  const fd = new FormData(); fd.append('foto', input.files[0]);
+  input.value = '';
+  try {
+    const r = await fetch(`${API}/orders/${uidOrden}/fotos-trabajo/${uidHo}`, {method:'POST',body:fd});
+    const d = await r.json();
+    if (d.success) {
+      const row = document.getElementById(`tft-row-${uidHo}`);
+      const div = document.createElement('div');
+      div.className = 'foto-thumb'; div.id = `tft-${d.uid_foto}`;
+      div.innerHTML = `<img src="${d.url}" onclick="window.open(this.src,'_blank')" alt=""><button class="del-btn" onclick="tec_delFoto(${d.uid_foto},event)">✕</button>`;
+      row?.appendChild(div);
+    } else alert('Error al subir foto: '+(d.error||''));
+  } catch(e) { alert(e.message); }
+};
+
+window.tec_delFoto = async (uid, e) => {
+  e?.stopPropagation();
+  if (!confirm('¿Eliminar esta foto?')) return;
+  const r = await fetch(`${API}/orders/fotos-trabajo/${uid}`, {method:'DELETE'}).then(r=>r.json()).catch(()=>({success:false}));
+  if (r.success) document.getElementById(`tft-${uid}`)?.remove();
+  else alert('Error al eliminar foto');
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: MIS ÓRDENES (técnico)
+// ════════════════════════════════════════════════════════════════════════════
+Views.misOrdenes = {
+  render() {
+    return `
+      <div class="two-panel" id="misPanel">
+        <div class="pnl-left">
+          <div class="search-box">
+            <h2>Mis órdenes asignadas</h2>
+            <div style="margin-top:8px;">
+              <button class="btn btn-dark" style="width:100%;padding:8px;" onclick="mis_load()">🔄 Actualizar</button>
+            </div>
+          </div>
+          <div class="results-list" id="misResults">
+            <div class="results-empty">Cargando...</div>
+          </div>
+        </div>
+        <div class="pnl-right" id="misRight">
+          <div class="mobile-back" onclick="mis_back()">← Volver a mis órdenes</div>
+          <div class="empty-state">
+            <div class="es-icon">🔧</div>
+            <p>Selecciona una orden para ver el detalle</p>
+          </div>
+        </div>
+      </div>`;
+  },
+  async init() {
+    window.mis_back = () => { document.getElementById('misPanel')?.classList.remove('immersive'); };
+    window.mis_verDetalle = (uid) => tec_verDetalle(uid, 'misRight', 'misPanel');
+    window.mis_load = async () => {
+      const rl = document.getElementById('misResults');
+      if (!rl) return;
+      rl.innerHTML = '<div class="results-empty">Cargando...</div>';
+      const data = await fetch(`${API}/orders/mis-ordenes-tecnico`).then(r=>r.json()).catch(()=>[]);
+      if (!data.length) {
+        rl.innerHTML = '<div class="results-empty">No tienes órdenes asignadas</div>';
+        return;
+      }
+      rl.innerHTML = data.map(o => `
+        <div class="result-card" onclick="mis_verDetalle(${o.uid_orden})">
+          <div class="rc-top">
+            <span class="rc-num">Orden #${o.ord_consecutivo}</span>
+            <span class="rc-fecha">${fmtFecha(o.ord_fecha)}</span>
+          </div>
+          ${o.ord_tipo==='garantia' ? ord_garantiaBadges(o) : ''}
+          <div class="rc-cliente">${esc(o.cli_razon_social||'')}</div>
+          <div class="rc-maq">${esc(o.maquinas_resumen||'')}</div>
+        </div>`).join('');
+    };
+    await window.mis_load();
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: BUSCAR ORDEN (técnico)
+// ════════════════════════════════════════════════════════════════════════════
+Views.buscarOrden = {
+  _timer: null,
+  render() {
+    return `
+      <div class="two-panel" id="busPanel">
+        <div class="pnl-left">
+          <div class="search-box">
+            <h2>Buscar orden</h2>
+            <div class="input-row">
+              <input id="busSearch" type="text" placeholder="Número o nombre del cliente"
+                     oninput="bus_debounce()">
+              <button onclick="bus_buscar()">🔍</button>
+            </div>
+          </div>
+          <div class="results-list" id="busResults">
+            <div class="results-empty">Escribe para buscar</div>
+          </div>
+        </div>
+        <div class="pnl-right" id="busRight">
+          <div class="mobile-back" onclick="bus_back()">← Volver a resultados</div>
+          <div class="empty-state">
+            <div class="es-icon">🔍</div>
+            <p>Busca y selecciona una orden</p>
+          </div>
+        </div>
+      </div>`;
+  },
+  init() {
+    window.bus_back = () => { document.getElementById('busPanel')?.classList.remove('immersive'); };
+    window.bus_debounce = () => {
+      clearTimeout(Views.buscarOrden._timer);
+      Views.buscarOrden._timer = setTimeout(bus_buscar, 350);
+    };
+    window.bus_buscar = async () => {
+      const q = document.getElementById('busSearch')?.value.trim();
+      if (!q) return;
+      const rl = document.getElementById('busResults');
+      if (!rl) return;
+      rl.innerHTML = '<div class="results-empty">Buscando...</div>';
+      const data = await fetch(`${API}/orders/search?q=${encodeURIComponent(q)}`).then(r=>r.json()).catch(()=>[]);
+      if (!data.length) { rl.innerHTML='<div class="results-empty">Sin resultados</div>'; return; }
+      rl.innerHTML = data.map(o => `
+        <div class="result-card" onclick="bus_verDetalle(${o.uid_orden})">
+          <div class="rc-top">
+            <span class="rc-num">Orden #${o.ord_consecutivo}</span>
+            <span class="rc-fecha">${fmtFecha(o.ord_fecha)}</span>
+          </div>
+          ${o.ord_tipo==='garantia' ? ord_garantiaBadges(o) : ''}
+          <div class="rc-cliente">${esc(o.cli_razon_social||'')}</div>
+          <div class="rc-maq">${esc(o.maquinas_resumen||(o.maquinas?o.maquinas+' máquina(s)':''))}</div>
+        </div>`).join('');
+    };
+    window.bus_verDetalle = (uid) => tec_verDetalle(uid, 'busRight', 'busPanel');
+  }
+};
+
+// ── Session init ──────────────────────────────────────────────────────────────
+(async function() {
+  const me = await fetch('/me').then(r=>r.json()).catch(()=>({}));
+  if (!me.authenticated) { location.href='/login'; return; }
+  _currentUser = me.user;
+  document.getElementById('sidebarUser').textContent = me.user.nombre;
+  document.getElementById('topbarUser').textContent  = me.user.nombre;
+
+  // Adaptar sidebar según rol
+  if (isTecnico()) {
+    // Mostrar solo los nav-items del técnico
+    document.querySelectorAll('.nav-item').forEach(el => {
+      el.style.display = TEC_VIEWS.includes(el.dataset.view) ? '' : 'none';
+    });
+    // Ocultar botón y nav-item "Nueva Orden"
+    const btnNO = document.querySelector('.btn-nueva-orden');
+    if (btnNO) btnNO.style.display = 'none';
+    const navNO = document.querySelector('.nueva-orden-nav');
+    if (navNO) navNO.style.display = 'none';
+  } else {
+    // Para otros roles, ocultar los nav-items exclusivos del técnico
+    document.querySelectorAll('.nav-item').forEach(el => {
+      if (TEC_VIEWS.includes(el.dataset.view)) el.style.display = 'none';
+    });
+  }
+
+  // Hash-based routing
+  const hash = location.hash.slice(1);
+  const defaultView = isTecnico() ? 'misOrdenes' : 'inicio';
+  const allowedHash = isTecnico() ? (TEC_VIEWS.includes(hash) ? hash : null) : hash;
+  navigate(Views[allowedHash] ? allowedHash : defaultView);
+})();

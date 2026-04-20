@@ -8,6 +8,7 @@ const fs     = require('fs');
 const { resolveOrder } = require('../utils/schema');
 const { requireInterno } = require('../middleware/auth');
 const { UPLOADS_DIR, checkMagicBytes } = require('../utils/uploads');
+const log = require('../utils/logger');
 
 router.use(requireInterno);
 
@@ -72,7 +73,7 @@ router.post('/orders/:id/fotos-recepcion/:uid_herramienta_orden', uploadFoto.sin
       conn.release();
     }
   } catch (e) {
-    console.error('Error subiendo foto de recepción:', e);
+    log.error({ err: e }, 'Error subiendo foto de recepción:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -98,7 +99,7 @@ router.delete('/orders/fotos-recepcion/:uid_foto', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error eliminando foto de recepción:', e);
+    log.error({ err: e }, 'Error eliminando foto de recepción:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -126,7 +127,7 @@ router.post('/orders/:id/fotos-trabajo/:uid_herramienta_orden', uploadFoto.singl
       conn.release();
     }
   } catch (e) {
-    console.error('Error subiendo foto de trabajo:', e);
+    log.error({ err: e }, 'Error subiendo foto de trabajo:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -152,7 +153,7 @@ router.delete('/orders/fotos-trabajo/:uid_foto', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error eliminando foto de trabajo:', e);
+    log.error({ err: e }, 'Error eliminando foto de trabajo:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -233,7 +234,7 @@ router.post('/orders/:orderId/agregar-maquina', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error agregando máquina a orden:', e);
+    log.error({ err: e }, 'Error agregando máquina a orden:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

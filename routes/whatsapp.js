@@ -7,6 +7,7 @@ const { isReady, sendWAMessage, getLastQR } = require('../utils/whatsapp-client'
 const { parseColombianPhones } = require('../utils/phones');
 const QRCode = require('qrcode');
 const { requireInterno } = require('../middleware/auth');
+const log = require('../utils/logger');
 
 // Máximo 10 envíos WA por usuario cada 5 minutos — evita spam masivo a clientes
 const waLimiter = rateLimit({
@@ -92,7 +93,7 @@ router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, waLimiter, a
       conn.release();
     }
   } catch (e) {
-    console.error('Error enviando WhatsApp final:', e);
+    log.error({ err: e }, 'Error enviando WhatsApp final:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
@@ -124,7 +125,7 @@ router.post('/whatsapp/send', requireInterno, waLimiter, async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error enviando WhatsApp:', e);
+    log.error({ err: e }, 'Error enviando WhatsApp:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });

@@ -8,6 +8,7 @@
 
 const db = require('./db');
 const { registerMessageHandler, sendWAMessage } = require('./whatsapp-client');
+const log = require('./logger');
 
 function formatCOP(amount) {
   return `$${Number(amount || 0).toLocaleString('es-CO')}`;
@@ -42,7 +43,7 @@ registerMessageHandler(async (tenantId, msg) => {
         return;
       }
     } catch (e) {
-      console.warn('⚠️ wa-handler: error resolviendo LID:', e.message);
+      log.warn({ err: e.message }, '⚠️ wa-handler: error resolviendo LID:');
       return;
     }
   }
@@ -85,7 +86,7 @@ registerMessageHandler(async (tenantId, msg) => {
       await handleSeleccionMaquinas(conn, pendiente, text, senderPhone, tenantId);
     }
   } catch (e) {
-    console.error('❌ wa-handler error:', e.message, e.stack);
+    log.error({ err: e }, '❌ wa-handler error');
   } finally {
     if (conn) conn.release();
   }
@@ -260,7 +261,7 @@ async function handleSeleccionMaquinas(conn, pendiente, text, senderPhone, tenan
   try {
     await enviarListaRepuestos(conn, uid_orden, tenantId);
   } catch (e) {
-    console.error('⚠️ wa-handler: error enviando repuestos:', e.message);
+    log.error({ err: e.message }, '⚠️ wa-handler: error enviando repuestos:');
   }
 
   // Confirmación al cliente
@@ -286,7 +287,7 @@ async function handleSeleccionMaquinas(conn, pendiente, text, senderPhone, tenan
 async function enviarListaRepuestos(conn, uid_orden, tenantId = 1) {
   const partsNumber = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
   if (!partsNumber) {
-    console.warn('⚠️ wa-handler: PARTS_WHATSAPP_NUMBER no configurado, se omite envío al encargado');
+    log.warn('⚠️ wa-handler: PARTS_WHATSAPP_NUMBER no configurado, se omite envío al encargado');
     return;
   }
 
