@@ -33,10 +33,12 @@ const T2_PASS  = 'T2testPass';
 const T2_COLOR = '#2d6a4f';   // verde oscuro — distinguible de azul del tenant 1
 
 // IDs creados durante el setup (para cleanup)
-let t2TenantId  = null;
-let t2UserId    = null;
-let t2ClienteId = null;
-let t2OrdenId   = null;
+let t2TenantId        = null;
+let t2UserId          = null;
+let t2ClienteId       = null;
+let t2OrdenId         = null;
+let t2HerramientaId   = null;  // b2c_herramienta uid
+let t2HerOrdId        = null;  // b2c_herramienta_orden uid (para tests IDOR quote)
 
 // ── Helpers HTTP (http.request para poder setear Host header) ─────────────────
 const BASE_URL = new URL(CONFIG.url);
@@ -159,6 +161,26 @@ async function setup() {
     t2OrdenId = ord.insertId;
     console.log(`  📋 Orden T2 creada: uid=${t2OrdenId}`);
 
+    // 5. Herramienta en tenant 2
+    const [her] = await conn.execute(
+      `INSERT INTO b2c_herramienta
+         (uid_cliente, her_nombre, her_marca, her_serial, her_estado, tenant_id)
+       VALUES (?, 'Taladro Test', 'BoschTest', 'SN-TEST-99', 'A', ?)`,
+      [t2ClienteId, t2TenantId]
+    );
+    t2HerramientaId = her.insertId;
+    console.log(`  🔧 Herramienta T2 creada: uid=${t2HerramientaId}`);
+
+    // 6. Herramienta_orden en tenant 2
+    const [herOrd] = await conn.execute(
+      `INSERT INTO b2c_herramienta_orden
+         (uid_orden, uid_herramienta, her_estado, tenant_id)
+       VALUES (?, ?, 'revisada', ?)`,
+      [t2OrdenId, t2HerramientaId, t2TenantId]
+    );
+    t2HerOrdId = herOrd.insertId;
+    console.log(`  🔗 HerramientaOrden T2 creada: uid=${t2HerOrdId}`);
+
     console.log('  ✅  Setup completo');
   } finally {
     conn.release();
@@ -170,10 +192,12 @@ async function cleanup() {
   section('CLEANUP', 'Eliminar datos de prueba del tenant 2');
   const conn = await db.getConnection();
   try {
-    if (t2OrdenId)   await conn.execute(`DELETE FROM b2c_orden     WHERE uid_orden   = ?`, [t2OrdenId]);
-    if (t2ClienteId) await conn.execute(`DELETE FROM b2c_cliente   WHERE uid_cliente = ?`, [t2ClienteId]);
-    if (t2UserId)    await conn.execute(`DELETE FROM b2c_usuario   WHERE uid_usuario = ?`, [t2UserId]);
-    if (t2TenantId)  await conn.execute(`DELETE FROM b2c_tenant    WHERE uid_tenant  = ?`, [t2TenantId]);
+    if (t2HerOrdId)      await conn.execute(`DELETE FROM b2c_herramienta_orden WHERE uid_herramienta_orden = ?`, [t2HerOrdId]);
+    if (t2HerramientaId) await conn.execute(`DELETE FROM b2c_herramienta      WHERE uid_herramienta      = ?`, [t2HerramientaId]);
+    if (t2OrdenId)       await conn.execute(`DELETE FROM b2c_orden             WHERE uid_orden            = ?`, [t2OrdenId]);
+    if (t2ClienteId)     await conn.execute(`DELETE FROM b2c_cliente           WHERE uid_cliente          = ?`, [t2ClienteId]);
+    if (t2UserId)        await conn.execute(`DELETE FROM b2c_usuario           WHERE uid_usuario          = ?`, [t2UserId]);
+    if (t2TenantId)      await conn.execute(`DELETE FROM b2c_tenant            WHERE uid_tenant           = ?`, [t2TenantId]);
     console.log('  ✅  Datos de prueba eliminados');
   } catch (e) {
     console.warn('  ⚠️  Error en cleanup:', e.message);
@@ -485,6 +509,86 @@ async function testSuperadminSeesAll() {
   await httpReq('POST', '/superadmin/api/logout', null, saCookies, 'localhost');
 }
 
+// ── Sección 8: IDOR quote.js — GET y POST /quotes/machine ─────────────────────
+// Verifica que la corrección SEC-018 bloquea acceso cross-tenant y cross-order.
+async function testQuoteIsolation() {
+  section(8, 'IDOR quote.js — aislamiento GET y POST /quotes/machine');
+
+  if (!cookiesT1Admin || !cookiesT2Admin) {
+    console.log('  ⚠️  Sin sesión admin T1 o T2 — skipped');
+    return;
+  }
+  if (!t2OrdenId || !t2HerOrdId) {
+    console.log('  ⚠️  Sin datos T2 de herramienta_orden — skipped');
+    return;
+  }
+
+  // 1. T1 intenta GET cotización de una máquina de T2 usando orderId+machineId de T2
+  //    → el tenant_id de la sesión T1 no coincide con la herramienta_orden → 403
+  const getT1OnT2 = await httpReq(
+    'GET',
+    `/api/quotes/machine?orderId=${t2OrdenId}&equipmentOrderId=${t2HerOrdId}`,
+    null, cookiesT1Admin, 'localhost'
+  );
+  if (getT1OnT2.status === 403 || getT1OnT2.status === 404) {
+    ok('T1 no puede GET cotización de máquina T2 (cross-tenant)', `HTTP ${getT1OnT2.status} ✓`);
+  } else {
+    fail('T1 no puede GET cotización de máquina T2', `HTTP ${getT1OnT2.status} — IDOR ABIERTO`);
+  }
+
+  // 2. T1 intenta POST cotización sobre máquina de T2 → 403
+  const postT1OnT2 = await httpReq(
+    'POST',
+    `/api/quotes/machine?orderId=${t2OrdenId}&equipmentOrderId=${t2HerOrdId}`,
+    { manoObra: 50000, descripcionTrabajo: 'idor test', items: [] },
+    cookiesT1Admin, 'localhost'
+  );
+  if (postT1OnT2.status === 403 || postT1OnT2.status === 404) {
+    ok('T1 no puede POST cotización en máquina T2 (cross-tenant)', `HTTP ${postT1OnT2.status} ✓`);
+  } else {
+    fail('T1 no puede POST cotización en máquina T2', `HTTP ${postT1OnT2.status} — IDOR ABIERTO`);
+  }
+
+  // 3. T2 SÍ puede GET su propia máquina → 200 (cotización vacía es válido)
+  const getT2Own = await httpReq(
+    'GET',
+    `/api/quotes/machine?orderId=${t2OrdenId}&equipmentOrderId=${t2HerOrdId}`,
+    null, cookiesT2Admin, T2_SLUG
+  );
+  if (getT2Own.status === 200) {
+    ok('T2 puede GET su propia cotización', `HTTP 200 ✓`);
+  } else {
+    fail('T2 puede GET su propia cotización', `HTTP ${getT2Own.status}`);
+  }
+
+  // 4. T1 usa su propio orderId pero un machineId del T2 (cross-order IDOR)
+  //    → uid_herramienta_orden T2 no pertenece a ninguna orden de T1 → 403
+  const [t1Orders] = await (async () => {
+    const conn = await db.getConnection();
+    try {
+      return await conn.execute(
+        `SELECT uid_orden FROM b2c_orden WHERE tenant_id = 1 ORDER BY uid_orden ASC LIMIT 1`
+      );
+    } finally { conn.release(); }
+  })();
+
+  if (t1Orders.length) {
+    const t1OrderId = t1Orders[0].uid_orden;
+    const crossOrder = await httpReq(
+      'GET',
+      `/api/quotes/machine?orderId=${t1OrderId}&equipmentOrderId=${t2HerOrdId}`,
+      null, cookiesT1Admin, 'localhost'
+    );
+    if (crossOrder.status === 403 || crossOrder.status === 404) {
+      ok('Cross-order IDOR bloqueado (T1 orderId + T2 machineId)', `HTTP ${crossOrder.status} ✓`);
+    } else {
+      fail('Cross-order IDOR bloqueado', `HTTP ${crossOrder.status} — machineId T2 visible en orden T1`);
+    }
+  } else {
+    console.log('  ⚠️  Sin órdenes T1 para test cross-order — skipped');
+  }
+}
+
 // ── Resumen ────────────────────────────────────────────────────────────────────
 async function main() {
   console.log('\n╔══════════════════════════════════════════════════════════╗');
@@ -511,6 +615,7 @@ async function main() {
     await testT1CannotSeeT2Data();
     await testUnknownTenant();
     await testSuperadminSeesAll();
+    await testQuoteIsolation();
   } finally {
     if (setupOk) await cleanup();
   }
