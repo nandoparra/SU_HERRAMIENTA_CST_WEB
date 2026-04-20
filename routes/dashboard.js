@@ -3,6 +3,7 @@ const router  = express.Router();
 const db      = require('../utils/db');
 const bcrypt  = require('bcrypt');
 const { requireInterno } = require('../middleware/auth');
+const log = require('../utils/logger');
 
 router.use((req, res, next) => {
   if (req.path === '/cliente/mis-ordenes'
@@ -149,7 +150,7 @@ router.get('/dashboard', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error /api/dashboard:', e);
+    log.error({ err: e }, 'Error /api/dashboard:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

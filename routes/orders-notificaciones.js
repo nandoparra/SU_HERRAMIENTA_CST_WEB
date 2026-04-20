@@ -8,6 +8,7 @@ const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 const { requireInterno } = require('../middleware/auth');
 const { enviarListaRepuestos } = require('../utils/repuestos-notifier');
+const log = require('../utils/logger');
 
 router.use(requireInterno);
 
@@ -38,7 +39,7 @@ router.post('/orders/:orderId/notify-parts', notifyLimiter, async (req, res) => 
       conn.release();
     }
   } catch (e) {
-    console.error('Error enviando lista de repuestos:', e);
+    log.error({ err: e }, 'Error enviando lista de repuestos:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
@@ -83,7 +84,7 @@ router.post('/orders/:orderId/notify-ready', notifyLimiter, async (req, res) => 
       conn.release();
     }
   } catch (e) {
-    console.error('Error notificando reparadas:', e);
+    log.error({ err: e }, 'Error notificando reparadas:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
@@ -128,7 +129,7 @@ router.post('/orders/:orderId/notify-delivered', notifyLimiter, async (req, res)
       conn.release();
     }
   } catch (e) {
-    console.error('Error confirmando entregas:', e);
+    log.error({ err: e }, 'Error confirmando entregas:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });

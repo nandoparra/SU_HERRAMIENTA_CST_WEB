@@ -6,6 +6,7 @@ const path = require('path');
 const fs   = require('fs');
 const { UPLOADS_DIR } = require('../utils/uploads');
 const { enviarListaRepuestos } = require('../utils/repuestos-notifier');
+const log = require('../utils/logger');
 
 // Rutas de portal cliente — NO requieren requireInterno (tipo C).
 // Este router se monta ANTES de orders.js en server.js para que las rutas /cliente/*
@@ -115,7 +116,7 @@ router.get('/cliente/mis-ordenes', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error mis-ordenes:', e);
+    log.error({ err: e }, 'Error mis-ordenes:');
     res.status(500).json([]);
   }
 });
@@ -209,13 +210,13 @@ router.patch('/cliente/maquina/:uid_herramienta_orden/autorizar', async (req, re
         );
         await enviarListaRepuestos(conn, tenantId, maq.uid_orden, orderRow?.ord_consecutivo || maq.uid_orden);
       } catch (waErr) {
-        console.warn('⚠️ orders-cliente: error enviando lista de repuestos por WA (autorización guardada):', waErr.message);
+        log.warn({ err: waErr.message }, '⚠️ orders-cliente: error enviando lista de repuestos por WA (autorización guardada):');
       }
     }
 
     res.json({ success: true, her_estado: decision });
   } catch (e) {
-    console.error('Error en autorización cliente:', e);
+    log.error({ err: e }, 'Error en autorización cliente:');
     res.status(500).json({ error: 'Error interno del servidor' });
   } finally {
     if (conn) conn.release();

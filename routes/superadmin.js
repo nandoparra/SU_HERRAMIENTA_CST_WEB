@@ -10,6 +10,7 @@ const db         = require('../utils/db');
 const { requireSuperadmin } = require('../middleware/requireSuperadmin');
 const { invalidateTenantCache } = require('../middleware/tenant');
 const { initTenantClient }      = require('../utils/whatsapp-client');
+const log = require('../utils/logger');
 
 // Máx 5 intentos de login cada 15 minutos por IP
 const superadminLoginLimiter = rateLimit({

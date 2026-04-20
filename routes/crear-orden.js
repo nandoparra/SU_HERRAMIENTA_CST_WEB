@@ -9,6 +9,7 @@ const fs      = require('fs');
 const { requireInterno } = require('../middleware/auth');
 const { addDiasHabiles, toISODate } = require('../utils/dias-habiles');
 const { UPLOADS_DIR, checkMagicBytes } = require('../utils/uploads');
+const log = require('../utils/logger');
 
 // Todas las rutas de crear-orden requieren rol interno
 router.use(requireInterno);
@@ -152,7 +153,7 @@ router.post('/crear-orden/cliente', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error creando cliente:', e);
+    log.error({ err: e }, 'Error creando cliente:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
@@ -270,7 +271,7 @@ router.post('/crear-orden/orden', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error creando orden:', e);
+    log.error({ err: e }, 'Error creando orden:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });

@@ -4,6 +4,7 @@ const rateLimit = require('express-rate-limit');
 const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
 const { requireInterno } = require('../middleware/auth');
+const log = require('../utils/logger');
 
 // Todos los endpoints de cotización son exclusivamente internos (admin/F/T).
 // El portal cliente recibe datos de cotización a través de /api/cliente/mis-ordenes.
@@ -39,7 +40,7 @@ router.get('/quote/catalog', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error cargando catálogo:', e);
+    log.error({ err: e }, 'Error cargando catálogo:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -82,7 +83,7 @@ router.get('/quotes/machine', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error consultando cotización máquina:', e);
+    log.error({ err: e }, 'Error consultando cotización máquina:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -193,7 +194,7 @@ router.post('/quotes/machine', quoteSaveLimiter, async (req, res) => {
       throw e;
     }
   } catch (e) {
-    console.error('Error guardando cotización máquina:', e);
+    log.error({ err: e }, 'Error guardando cotización máquina:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
@@ -230,7 +231,7 @@ router.get('/quotes/order/:orderId', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error consultando cotización orden:', e);
+    log.error({ err: e }, 'Error consultando cotización orden:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
@@ -329,7 +330,7 @@ router.post('/quotes/order/:orderId/generate-message', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error generando mensaje final:', e);
+    log.error({ err: e }, 'Error generando mensaje final:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });

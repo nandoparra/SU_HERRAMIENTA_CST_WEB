@@ -13,13 +13,14 @@ require('./utils/wa-handler'); // Listener de mensajes entrantes (autorización 
 const apiKey  = require('./middleware/apiKey');
 const { requireLogin, requireInterno } = require('./middleware/auth');
 const { tenantMiddleware } = require('./middleware/tenant');
+const log = require('./utils/logger');
 
 // Validar SESSION_SECRET antes de arrancar
 if (!process.env.SESSION_SECRET) {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('SESSION_SECRET no configurado. Defina esta variable de entorno antes de iniciar en producción.');
   } else {
-    console.warn('\x1b[33m⚠️  SEGURIDAD: SESSION_SECRET no configurado — usando valor de desarrollo. NO usar en producción.\x1b[0m');
+    log.warn('\x1b[33m⚠️  SEGURIDAD: SESSION_SECRET no configurado — usando valor de desarrollo. NO usar en producción.\x1b[0m');
   }
 }
 
@@ -164,7 +165,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
+  log.error({ err }, 'Unhandled error');
   res.status(500).json({
     error: 'Error interno del servidor',
     message: process.env.NODE_ENV === 'development' ? err.message : undefined,
@@ -173,9 +174,7 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {
-  console.log(`✅ Servidor corriendo en http://localhost:${PORT}`);
-  console.log(`📄 Abrir: http://localhost:${PORT}/generador-cotizaciones.html`);
-  console.log('⏳ Esperando conexión de WhatsApp Web...');
+  log.info({ port: PORT }, '✅ Servidor corriendo');
   await runMigrations();
-  initTenantClient(1); // inicializa cliente WA del tenant por defecto
+  initTenantClient(1);
 });

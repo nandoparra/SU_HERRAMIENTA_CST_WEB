@@ -11,6 +11,7 @@ const {
 const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 const { requireInterno } = require('../middleware/auth');
+const log = require('../utils/logger');
 
 router.use(requireInterno);
 
@@ -47,7 +48,7 @@ router.get('/orders', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error cargando órdenes recientes:', e);
+    log.error({ err: e }, 'Error cargando órdenes recientes:');
     res.status(500).json({ error: 'Error cargando órdenes', details: undefined });
   }
 });
@@ -125,7 +126,7 @@ router.get('/orders/search', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error en búsqueda:', e);
+    log.error({ err: e }, 'Error en búsqueda:');
     res.status(500).json({ error: 'Error en búsqueda', details: undefined });
   }
 });
@@ -177,7 +178,7 @@ router.get('/orders/by-estado', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error en /orders/by-estado:', e);
+    log.error({ err: e }, 'Error en /orders/by-estado:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -236,7 +237,7 @@ router.get('/orders/mis-ordenes-tecnico', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error mis-ordenes-tecnico:', e);
+    log.error({ err: e }, 'Error mis-ordenes-tecnico:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -342,7 +343,7 @@ router.get('/orders/:orderId', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error obteniendo orden:', e);
+    log.error({ err: e }, 'Error obteniendo orden:');
     res.status(500).json({ error: 'Error obteniendo orden', details: undefined });
   }
 });
@@ -382,7 +383,7 @@ router.patch('/equipment-order/:equipmentOrderId/assign-technician', async (req,
       conn.release();
     }
   } catch (e) {
-    console.error('Error asignando técnico:', e);
+    log.error({ err: e }, 'Error asignando técnico:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
@@ -424,7 +425,7 @@ router.patch('/orders/:orderId/assign-technician', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error asignando técnico a la orden:', e);
+    log.error({ err: e }, 'Error asignando técnico a la orden:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
@@ -472,11 +473,11 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
             const maquina = [maqRow.her_nombre, maqRow.her_marca].filter(Boolean).join(' ');
             const msg = `Hola ${nombre}, le informamos que su *${maquina}* de la orden *#${maqRow.ord_consecutivo}* está *reparada y lista para recoger* 🔧\n\n📍 Calle 21 No 10 02, Pereira\n📞 3104650437\n— SU HERRAMIENTA CST`;
             for (const chatId of chatIds) {
-              sendWAMessage(tenantId, chatId, msg).catch(e => console.error('Error WA notif reparada:', e.message));
+              sendWAMessage(tenantId, chatId, msg).catch(e => log.error({ err: e.message }, 'Error WA notif reparada:'));
             }
           }
         } catch (e) {
-          console.error('Error enviando notificación reparada:', e.message);
+          log.error({ err: e.message }, 'Error enviando notificación reparada:');
         }
       }
 
@@ -485,7 +486,7 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error actualizando estado de máquina:', e);
+    log.error({ err: e }, 'Error actualizando estado de máquina:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
@@ -506,7 +507,7 @@ router.patch('/equipment-order/:equipmentOrderId/observaciones', async (req, res
       conn.release();
     }
   } catch (e) {
-    console.error('Error guardando observaciones:', e);
+    log.error({ err: e }, 'Error guardando observaciones:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
@@ -620,7 +621,7 @@ router.get('/orders/:orderId/detalle', async (req, res) => {
       conn.release();
     }
   } catch (e) {
-    console.error('Error obteniendo detalle de orden:', e);
+    log.error({ err: e }, 'Error obteniendo detalle de orden:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

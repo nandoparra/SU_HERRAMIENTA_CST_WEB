@@ -21,6 +21,7 @@ const ROLES = { A: 'admin', F: 'funcionario', T: 'tecnico', C: 'cliente' };
 router.get('/login', (req, res) => {
   if (req.session.user) return res.redirect('/');
   res.sendFile(require('path').join(__dirname, '..', 'public', 'login.html'));
+const log = require('../utils/logger');
 });
 
 // POST /login — protegido con rate limiting
@@ -92,7 +93,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     const redirect = tipo === 'C' ? '/seguimiento.html' : '/dashboard.html';
     res.json({ success: true, rol: req.session.user.rol, redirect });
   } catch (e) {
-    console.error('Error en login:', e);
+    log.error({ err: e }, 'Error en login:');
     res.status(500).json({ success: false, error: 'Error interno' });
   }
 });
