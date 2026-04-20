@@ -5,6 +5,7 @@ const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
 const { requireInterno } = require('../middleware/auth');
 const log = require('../utils/logger');
+const { saveMachineQuote } = require('../services/quote-machine');
 
 // Todos los endpoints de cotización son exclusivamente internos (admin/F/T).
 // El portal cliente recibe datos de cotización a través de /api/cliente/mis-ordenes.
@@ -90,112 +91,27 @@ router.get('/quotes/machine', async (req, res) => {
 
 // POST guardar cotización de una máquina
 router.post('/quotes/machine', quoteSaveLimiter, async (req, res) => {
+  const { orderId, equipmentOrderId, technicianId, laborCost, workDescription, items } = req.body;
+
+  if (!orderId || !equipmentOrderId)
+    return res.status(400).json({ success: false, error: 'orderId y equipmentOrderId son requeridos' });
+  if (!Array.isArray(items))
+    return res.status(400).json({ success: false, error: 'items debe ser un arreglo' });
+
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const conn = await db.getConnection();
   try {
-    const { orderId, equipmentOrderId, technicianId, laborCost, workDescription, items } = req.body;
-
-    if (!orderId || !equipmentOrderId)
-      return res.status(400).json({ success: false, error: 'orderId y equipmentOrderId son requeridos' });
-    if (!Array.isArray(items))
-      return res.status(400).json({ success: false, error: 'items debe ser un arreglo' });
-
-    const manoObra = Number(laborCost) || 0;
-    const itemsSubtotal = items.reduce((sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.price) || 0), 0);
-    const subtotal = manoObra + itemsSubtotal;
-
-    const tenantId = req.tenant?.uid_tenant ?? 1;
-    const conn = await db.getConnection();
-    try {
-      const [[machineInOrder]] = await conn.execute(
-        `SELECT uid_herramienta_orden FROM b2c_herramienta_orden
-         WHERE uid_herramienta_orden = ? AND uid_orden = ? AND tenant_id = ?`,
-        [String(equipmentOrderId), String(orderId), tenantId]
-      );
-      if (!machineInOrder) {
-        conn.release();
-        return res.status(403).json({ success: false, error: 'Máquina no pertenece a esta orden' });
-      }
-
-      await conn.beginTransaction();
-
-      await conn.execute(
-        `INSERT INTO b2c_cotizacion_maquina (uid_orden, uid_herramienta_orden, tecnico_id, mano_obra, descripcion_trabajo, subtotal, tenant_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           tecnico_id = VALUES(tecnico_id),
-           mano_obra = VALUES(mano_obra),
-           descripcion_trabajo = VALUES(descripcion_trabajo),
-           subtotal = VALUES(subtotal),
-           updated_at = CURRENT_TIMESTAMP`,
-        [String(orderId), String(equipmentOrderId), technicianId ? String(technicianId) : null, manoObra, workDescription || null, subtotal, tenantId]
-      );
-
-      await conn.execute(
-        `DELETE FROM b2c_cotizacion_item WHERE uid_orden = ? AND uid_herramienta_orden = ? AND tenant_id = ?`,
-        [String(orderId), String(equipmentOrderId), tenantId]
-      );
-
-      for (const it of items) {
-        const nombre = String(it.name || '').trim() || 'Item';
-        const cantidad = Math.max(1, parseInt(it.quantity || '1', 10));
-        const precio = Number(it.price) || 0;
-        const lineSubtotal = cantidad * precio;
-        await conn.execute(
-          `INSERT INTO b2c_cotizacion_item (uid_orden, uid_herramienta_orden, nombre, cantidad, precio, subtotal, tenant_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [String(orderId), String(equipmentOrderId), nombre, cantidad, precio, lineSubtotal, tenantId]
-        );
-      }
-
-      const [[sumRow]] = await conn.execute(
-        `SELECT COALESCE(SUM(subtotal),0) AS s FROM b2c_cotizacion_maquina WHERE uid_orden = ? AND tenant_id = ?`,
-        [String(orderId), tenantId]
-      );
-      const orderSubtotal = Number(sumRow?.s || 0);
-      const IVA_RATE = parseFloat(process.env.IVA_RATE || '0');
-      const iva = orderSubtotal * IVA_RATE;
-      const total = orderSubtotal + iva;
-
-      await conn.execute(
-        `INSERT INTO b2c_cotizacion_orden (uid_orden, subtotal, iva, total, tenant_id)
-         VALUES (?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           subtotal = VALUES(subtotal),
-           iva = VALUES(iva),
-           total = VALUES(total),
-           updated_at = CURRENT_TIMESTAMP`,
-        [String(orderId), orderSubtotal, iva, total, tenantId]
-      );
-
-      // Cambiar estado a 'cotizada' automáticamente si no está ya más avanzado
-      const ESTADOS_NO_RETROCEDER = ['autorizada', 'no_autorizada', 'reparada', 'entregada'];
-      const [[maqRow]] = await conn.execute(
-        `SELECT her_estado FROM b2c_herramienta_orden
-         WHERE uid_herramienta_orden = ? AND uid_orden = ? AND tenant_id = ?`,
-        [String(equipmentOrderId), String(orderId), tenantId]
-      );
-      if (maqRow && !ESTADOS_NO_RETROCEDER.includes(maqRow.her_estado)) {
-        await conn.execute(
-          `UPDATE b2c_herramienta_orden SET her_estado = 'cotizada'
-           WHERE uid_herramienta_orden = ? AND uid_orden = ? AND tenant_id = ?`,
-          [String(equipmentOrderId), String(orderId), tenantId]
-        );
-        await conn.execute(
-          `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado) VALUES (?, 'cotizada')`,
-          [String(equipmentOrderId)]
-        );
-      }
-
-      await conn.commit();
-      conn.release();
-      res.json({ success: true, subtotal, orderSubtotal, total });
-    } catch (e) {
-      await conn.rollback();
-      conn.release();
-      throw e;
-    }
+    const result = await saveMachineQuote(
+      { orderId, equipmentOrderId, technicianId, laborCost, workDescription, items },
+      { conn, tenantId }
+    );
+    res.json({ success: true, ...result });
   } catch (e) {
+    if (e.status === 403) return res.status(403).json({ success: false, error: e.message });
     log.error({ err: e }, 'Error guardando cotización máquina:');
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
   }
 });
 
