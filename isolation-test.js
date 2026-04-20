@@ -537,10 +537,11 @@ async function testQuoteIsolation() {
   }
 
   // 2. T1 intenta POST cotización sobre máquina de T2 → 403
+  // orderId y equipmentOrderId van en el body (el handler los lee de req.body)
   const postT1OnT2 = await httpReq(
     'POST',
-    `/api/quotes/machine?orderId=${t2OrdenId}&equipmentOrderId=${t2HerOrdId}`,
-    { manoObra: 50000, descripcionTrabajo: 'idor test', items: [] },
+    `/api/quotes/machine`,
+    { orderId: String(t2OrdenId), equipmentOrderId: String(t2HerOrdId), laborCost: 50000, workDescription: 'idor test', items: [] },
     cookiesT1Admin, 'localhost'
   );
   if (postT1OnT2.status === 403 || postT1OnT2.status === 404) {
