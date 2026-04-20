@@ -1,6 +1,6 @@
 # Auditoría de Seguridad — universal-cotizaciones SaaS Multi-Tenant
 
-**Fecha original:** 2026-03-21 — **Última actualización:** 2026-04-20
+**Fecha original:** 2026-03-21 — **Última actualización:** 2026-04-20 (security-hardening-v1 en curso)
 **Versión original:** commit `4bb1b88` — **Versión actual:** main (post Sprint 1–5)
 **Stack:** Node.js 20 / Express 4.18 / MySQL 8.0 (Railway) / express-session / whatsapp-web.js / Anthropic SDK
 **Auditor:** Claude Sonnet 4.6 — análisis ofensivo + defensivo
@@ -17,11 +17,11 @@
 | SEC-004 | 🟠 ALTA | `server.js:60-70` | Session store en MemoryStore — no persiste, memory leak | ✅ **RESUELTO** `feature/security-audit-fixes` — MySQLSessionStore |
 | SEC-005 | 🟠 ALTA | `routes/superadmin.js:32-43` | Login superadmin sin rate limiting — brute force ilimitado | ✅ **RESUELTO** `feature/security-audit-fixes` — 5 intentos/15 min |
 | SEC-006 | 🟠 ALTA | múltiples routes | `details: e.message` expuesto en errores 500 en producción | ✅ **RESUELTO** `feature/security-audit-fixes` |
-| SEC-007 | 🟡 MEDIA | `routes/crear-orden.js:30-33`, `routes/orders.js:40-43` | Upload: solo valida MIME (client-controlled), sin magic bytes | ✅ **RESUELTO** `Sprint 1` — `utils/uploads.js:checkMagicBytes` |
+| SEC-007 | 🟡 MEDIA | `routes/crear-orden.js:30-33`, `routes/orders.js:40-43` | Upload: solo valida MIME (client-controlled), sin magic bytes | ✅ **RESUELTO** `Sprint 1+6` — `utils/uploads.js:checkMagicBytes` (fix `fromFile` Sprint 6, 6/6 endpoints cubiertos) |
 | SEC-008 | 🟡 MEDIA | `server.js:47-48` | CSP `unsafe-inline` en scriptSrc — anula protección XSS | ⚠️ **PARCIAL** — `dashboard.html` JS/CSS extraídos (`Sprint 5`); otras páginas pendientes |
 | SEC-009 | 🟡 MEDIA | `routes/orders.js:~509` | Mensajes WA con dirección/teléfono de tenant 1 hardcoded | 🔴 **ABIERTO** — requiere `ten_direccion`/`ten_telefono` en `b2c_tenant` |
 | SEC-010 | 🟡 MEDIA | `routes/crear-orden.js:207` | Consecutivos de orden globales (todos los tenants) — info leakage | 🔴 **ABIERTO** |
-| SEC-011 | 🟡 MEDIA | múltiples routes | Sin rate limiting en búsqueda, uploads, endpoints sensibles | ⚠️ **PARCIAL** — WA y `/quotes/machine` cubiertos (`Sprint 3`); search/crear-orden pendientes |
+| SEC-011 | 🟡 MEDIA | múltiples routes | Sin rate limiting en búsqueda, uploads, endpoints sensibles | ✅ **RESUELTO** `security-hardening-v1` — todos los endpoints cubiertos (search 30/min, listados/detalle 60/min, WA 10/5min, quotes 60/min) |
 | SEC-012 | 🟢 BAJA | `middleware/tenant.js:72-75` | hostname en HTML de 404 sin escape — riesgo XSS reflected bajo | 🔴 **ABIERTO** |
 | SEC-013 | 🟢 BAJA | `package.json:12` | `@anthropic-ai/sdk@0.13.0` — versión muy antigua (actual: 0.51+) | 🔴 **ABIERTO** |
 | SEC-014 | 🟢 BAJA | `public/uploads/` | Sin política de retención — archivos acumulan indefinidamente | 🔴 **ABIERTO** |
