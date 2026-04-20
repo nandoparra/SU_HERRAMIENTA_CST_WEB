@@ -286,8 +286,8 @@ router.post('/clientes/:id/crear-acceso', async (req, res) => {
       if (c.uid_usuario) return res.status(400).json({ error: 'Este cliente ya tiene acceso creado' });
       const hash = await bcrypt.hash(String(clave), 10);
       const [uRes] = await conn.execute(
-        `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado, tenant_id)
-         VALUES (?, ?, ?, 'C', 'A', ?)`,
+        `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado, tenant_id, pwd_must_change)
+         VALUES (?, ?, ?, 'C', 'A', ?, 1)`,
         [c.cli_razon_social, login, hash, tenantId]
       );
       await conn.execute(
@@ -339,8 +339,8 @@ router.post('/funcionarios', async (req, res) => {
     const conn = await db.getConnection();
     try {
       const [r] = await conn.execute(
-        `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado, tenant_id)
-         VALUES (?, ?, ?, ?, 'A', ?)`,
+        `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado, tenant_id, pwd_must_change)
+         VALUES (?, ?, ?, ?, 'A', ?, 1)`,
         [nombre, login, hash, tipo, tenantId]
       );
       await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'funcionario_creado', entidad: 'usuario', uidEntidad: r.insertId, datosDespues: { usu_login: login, usu_tipo: tipo }, ip: req.ip });

@@ -44,6 +44,12 @@ function requireInterno(req, res, next) {
     }
     return res.redirect('/seguimiento.html');
   }
+  // Forzar cambio de contraseña si está marcado — solo para API calls, no HTML estáticos
+  if (req.session.user.pwd_must_change && !req.originalUrl.includes('/auth/change-password')) {
+    if (isApi || req.xhr || req.headers['content-type'] === 'application/json') {
+      return res.status(403).json({ error: 'Debe cambiar su contraseña', redirect: '/change-password.html' });
+    }
+  }
   next();
 }
 
