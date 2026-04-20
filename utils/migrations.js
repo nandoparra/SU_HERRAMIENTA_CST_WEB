@@ -284,6 +284,41 @@ async function ensureGarantiaColumns() {
 }
 
 
+async function ensureAuditLog() {
+  const conn = await db.getConnection();
+  try {
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_audit_log (
+        uid_log       BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        tenant_id     INT          NULL,
+        uid_usuario   INT          NULL,
+        accion        VARCHAR(64)  NOT NULL,
+        entidad       VARCHAR(32)  NOT NULL,
+        uid_entidad   VARCHAR(64)  NULL,
+        datos_antes   JSON         NULL,
+        datos_despues JSON         NULL,
+        ip_origen     VARCHAR(45)  NOT NULL DEFAULT '',
+        created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_audit_tenant  (tenant_id),
+        INDEX idx_audit_usuario (uid_usuario),
+        INDEX idx_audit_ts      (created_at)
+      )
+    `);
+    // Agregar columnas pwd a b2c_usuario (para T4 — política de contraseñas)
+    try {
+      await conn.execute(`ALTER TABLE b2c_usuario ADD COLUMN pwd_changed_at DATETIME NULL`);
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    try {
+      await conn.execute(`ALTER TABLE b2c_usuario ADD COLUMN pwd_must_change TINYINT(1) NOT NULL DEFAULT 0`);
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    console.log('✅ Tabla b2c_audit_log y columnas pwd verificadas/creadas');
+  } catch (e) {
+    console.warn('⚠️ No pude crear b2c_audit_log:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -292,6 +327,7 @@ async function runMigrations() {
   await ensureStatusTables();
   await ensureTenantColumns();
   await ensureGarantiaColumns();
+  await ensureAuditLog();
   console.log('Migraciones completadas');
 }
 
