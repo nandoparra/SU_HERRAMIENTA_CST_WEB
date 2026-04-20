@@ -8,7 +8,10 @@
 
 const { Store } = require('express-session');
 
-const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 horas — igual que cookie.maxAge
+// SESSION_TTL_HOURS env controla la duración. Default: 8h para admin/F, 24h para técnicos.
+// El store usa el TTL base; el TTL por rol se aplica dinámicamente en routes/auth.js al login.
+const SESSION_TTL_HOURS = Math.max(1, parseInt(process.env.SESSION_TTL_HOURS || '8', 10));
+const SESSION_TTL_MS = SESSION_TTL_HOURS * 60 * 60 * 1000;
 
 class MySQLSessionStore extends Store {
   constructor(db) {

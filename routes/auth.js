@@ -5,6 +5,8 @@ const bcrypt     = require('bcrypt');
 const rateLimit  = require('express-rate-limit');
 const db         = require('../utils/db');
 const { invalidateTenantCache } = require('../middleware/tenant');
+const { logAudit } = require('../utils/audit');
+const log = require('../utils/logger');
 
 // Máximo 10 intentos de login por IP en 15 minutos
 const loginLimiter = rateLimit({
@@ -21,7 +23,6 @@ const ROLES = { A: 'admin', F: 'funcionario', T: 'tecnico', C: 'cliente' };
 router.get('/login', (req, res) => {
   if (req.session.user) return res.redirect('/');
   res.sendFile(require('path').join(__dirname, '..', 'public', 'login.html'));
-const log = require('../utils/logger');
 });
 
 // POST /login — protegido con rate limiting
@@ -37,7 +38,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     let userResult;
     try {
       const [[user]] = await conn.execute(
-        `SELECT uid_usuario, usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado
+        `SELECT uid_usuario, usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado, pwd_must_change
          FROM b2c_usuario
          WHERE usu_login = ? AND tenant_id = ? LIMIT 1`,
         [username.trim(), tenantId]
@@ -63,7 +64,10 @@ router.post('/login', loginLimiter, async (req, res) => {
         }
       }
 
-      if (!passwordOk) return res.status(401).json({ success: false, error: 'Usuario o contraseña incorrectos' });
+      if (!passwordOk) {
+        await logAudit(db, { tenantId, userId: user.uid_usuario, accion: 'login_fallido', entidad: 'usuario', uidEntidad: user.uid_usuario, ip: req.ip });
+        return res.status(401).json({ success: false, error: 'Usuario o contraseña incorrectos' });
+      }
 
       // Lock del slug tras el primer login exitoso del tenant
       if (req.tenant && !req.tenant.ten_slug_locked) {
@@ -81,19 +85,73 @@ router.post('/login', loginLimiter, async (req, res) => {
 
     const user = userResult;
     const tipo = String(user.usu_tipo || '').toUpperCase();
+
+    // TTL diferenciado: técnicos y clientes obtienen 24h; admin/F usan SESSION_TTL_HOURS (default 8h)
+    const baseTTL = Math.max(1, parseInt(process.env.SESSION_TTL_HOURS || '8', 10));
+    const rolTTL  = (tipo === 'T' || tipo === 'C') ? Math.max(baseTTL, 24) : baseTTL;
+    req.session.cookie.maxAge = rolTTL * 60 * 60 * 1000;
+
     req.session.user = {
-      id:        user.uid_usuario,
-      nombre:    user.usu_nombre,
-      login:     user.usu_login,
+      id:             user.uid_usuario,
+      nombre:         user.usu_nombre,
+      login:          user.usu_login,
       tipo,
-      rol:       ROLES[tipo] || 'funcionario',
-      tenant_id: tenantId,
+      rol:            ROLES[tipo] || 'funcionario',
+      tenant_id:      tenantId,
+      pwd_must_change: user.pwd_must_change === 1,
     };
 
+    await logAudit(db, { tenantId, userId: user.uid_usuario, accion: 'login_ok', entidad: 'usuario', uidEntidad: user.uid_usuario, ip: req.ip });
     const redirect = tipo === 'C' ? '/seguimiento.html' : '/dashboard.html';
     res.json({ success: true, rol: req.session.user.rol, redirect });
   } catch (e) {
     log.error({ err: e }, 'Error en login:');
+    res.status(500).json({ success: false, error: 'Error interno' });
+  }
+});
+
+// POST /change-password — cambia contraseña del usuario logueado
+router.post('/change-password', async (req, res) => {
+  if (!req.session.user) return res.status(401).json({ success: false, error: 'No autenticado' });
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword)
+      return res.status(400).json({ success: false, error: 'currentPassword y newPassword son requeridos' });
+    if (String(newPassword).length < 8)
+      return res.status(400).json({ success: false, error: 'La nueva contraseña debe tener al menos 8 caracteres' });
+
+    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const conn = await db.getConnection();
+    try {
+      const [[user]] = await conn.execute(
+        `SELECT uid_usuario, usu_clave FROM b2c_usuario WHERE uid_usuario = ? AND tenant_id = ? LIMIT 1`,
+        [req.session.user.id, tenantId]
+      );
+      if (!user) return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
+
+      const storedClave = String(user.usu_clave || '');
+      let currentOk = false;
+      if (storedClave.startsWith('$2b$') || storedClave.startsWith('$2a$')) {
+        currentOk = await bcrypt.compare(currentPassword, storedClave);
+      } else {
+        currentOk = storedClave === currentPassword;
+      }
+      if (!currentOk)
+        return res.status(401).json({ success: false, error: 'Contraseña actual incorrecta' });
+
+      const newHash = await bcrypt.hash(String(newPassword), 10);
+      await conn.execute(
+        `UPDATE b2c_usuario SET usu_clave = ?, pwd_must_change = 0, pwd_changed_at = NOW() WHERE uid_usuario = ?`,
+        [newHash, user.uid_usuario]
+      );
+      req.session.user.pwd_must_change = false;
+      await logAudit(db, { tenantId, userId: user.uid_usuario, accion: 'password_cambiado', entidad: 'usuario', uidEntidad: user.uid_usuario, ip: req.ip });
+      res.json({ success: true });
+    } finally {
+      conn.release();
+    }
+  } catch (e) {
+    log.error({ err: e }, 'Error en cambio de contraseña:');
     res.status(500).json({ success: false, error: 'Error interno' });
   }
 });

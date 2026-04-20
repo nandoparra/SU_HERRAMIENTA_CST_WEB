@@ -66,7 +66,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    maxAge:   8 * 60 * 60 * 1000, // 8 horas
+    maxAge:   (Math.max(1, parseInt(process.env.SESSION_TTL_HOURS || '8', 10))) * 60 * 60 * 1000,
     httpOnly: true,                // JS del frontend no puede leer la cookie
     sameSite: 'lax',               // protección CSRF básica
     secure:   process.env.NODE_ENV === 'production', // solo HTTPS en prod

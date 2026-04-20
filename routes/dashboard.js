@@ -1,9 +1,31 @@
-const express = require('express');
-const router  = express.Router();
-const db      = require('../utils/db');
-const bcrypt  = require('bcrypt');
+const express   = require('express');
+const router    = express.Router();
+const rateLimit = require('express-rate-limit');
+const db        = require('../utils/db');
+const bcrypt    = require('bcrypt');
 const { requireInterno } = require('../middleware/auth');
+const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
+
+const keyByUser = (req) => String(req.session?.user?.uid_usuario || req.ip);
+
+// 60 req/min — dashboard KPIs y listados de clientes/funcionarios/inventario
+const dashLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 60,
+  keyGenerator: keyByUser,
+  message: { error: 'Demasiadas solicitudes. Espere un momento.' },
+  standardHeaders: true, legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
+});
+
+// 30 req/min — búsquedas (más restrictivo por costo de query)
+const searchLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 30,
+  keyGenerator: keyByUser,
+  message: { error: 'Demasiadas búsquedas. Espere un momento.' },
+  standardHeaders: true, legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
+});
 
 router.use((req, res, next) => {
   if (req.path === '/cliente/mis-ordenes'
@@ -30,7 +52,7 @@ router.get('/config/estados', (req, res) => {
 });
 
 // ── Dashboard KPIs ─────────────────────────────────────────────────────────────
-router.get('/dashboard', async (req, res) => {
+router.get('/dashboard', dashLimiter, async (req, res) => {
   try {
     const raw = String(req.query.mes || '');
     const now  = new Date();
@@ -156,7 +178,7 @@ router.get('/dashboard', async (req, res) => {
 });
 
 // ── Clientes ───────────────────────────────────────────────────────────────────
-router.get('/clientes/search', async (req, res) => {
+router.get('/clientes/search', searchLimiter, async (req, res) => {
   try {
     const q = String(req.query.q || '').trim();
     if (!q) return res.json([]);
@@ -264,8 +286,8 @@ router.post('/clientes/:id/crear-acceso', async (req, res) => {
       if (c.uid_usuario) return res.status(400).json({ error: 'Este cliente ya tiene acceso creado' });
       const hash = await bcrypt.hash(String(clave), 10);
       const [uRes] = await conn.execute(
-        `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado, tenant_id)
-         VALUES (?, ?, ?, 'C', 'A', ?)`,
+        `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado, tenant_id, pwd_must_change)
+         VALUES (?, ?, ?, 'C', 'A', ?, 1)`,
         [c.cli_razon_social, login, hash, tenantId]
       );
       await conn.execute(
@@ -317,10 +339,11 @@ router.post('/funcionarios', async (req, res) => {
     const conn = await db.getConnection();
     try {
       const [r] = await conn.execute(
-        `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado, tenant_id)
-         VALUES (?, ?, ?, ?, 'A', ?)`,
+        `INSERT INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado, tenant_id, pwd_must_change)
+         VALUES (?, ?, ?, ?, 'A', ?, 1)`,
         [nombre, login, hash, tipo, tenantId]
       );
+      await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'funcionario_creado', entidad: 'usuario', uidEntidad: r.insertId, datosDespues: { usu_login: login, usu_tipo: tipo }, ip: req.ip });
       res.json({ success: true, uid_usuario: r.insertId });
     } finally {
       conn.release();
