@@ -15,7 +15,7 @@ const { requireInterno } = require('../middleware/auth');
 const log = require('../utils/logger');
 const { logAudit } = require('../utils/audit');
 
-const keyByUser = (req) => String(req.session?.user?.uid_usuario || req.ip);
+const keyByUser = (req) => String(req.session?.user?.id || req.ip);
 
 // 60 req/min — listados y detalle
 const ordersLimiter = rateLimit({
