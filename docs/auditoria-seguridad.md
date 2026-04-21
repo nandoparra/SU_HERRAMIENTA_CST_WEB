@@ -25,7 +25,7 @@
 | SEC-012 | 🟢 BAJA | `middleware/tenant.js:72-75` | hostname en HTML de 404 sin escape — riesgo XSS reflected bajo | 🔴 **ABIERTO** |
 | SEC-013 | 🟢 BAJA | `package.json:12` | `@anthropic-ai/sdk@0.13.0` — versión muy antigua (actual: 0.51+) | 🔴 **ABIERTO** |
 | SEC-014 | 🟢 BAJA | `public/uploads/` | Sin política de retención — archivos acumulan indefinidamente | 🔴 **ABIERTO** |
-| SEC-015 | 🟢 BAJA | toda la app | Sin audit log de operaciones críticas (cambios de estado, login) | ⚠️ **PARCIAL** — `pino` instalado (`Sprint 5`); falta audit log en BD |
+| SEC-015 | 🟢 BAJA | toda la app | Sin audit log de operaciones críticas (cambios de estado, login) | ✅ **RESUELTO** `security-hardening-v1` — tabla `b2c_audit_log` + `utils/audit.js` + 13 acciones instrumentadas en 7 archivos |
 | SEC-016 | ℹ️ INFO | `routes/superadmin.js` | Sin 2FA para cuenta superadmin | 🔴 **ABIERTO** |
 | SEC-017 | ℹ️ INFO | `routes/crear-orden.js:207` | Race condition en consecutivo de orden bajo carga | 🔴 **ABIERTO** |
 
@@ -46,6 +46,7 @@
 | `feature/code-quality-sprint3` | SEC-011 parcial: rate limiting WA (10/5min) + /quotes/machine (60/min) | 2026-04-20 |
 | `feature/code-quality-sprint4` | Dedup `enviarListaRepuestos`; `connectTimeout` + `charset utf8mb4` en pool | 2026-04-20 |
 | `feature/code-quality-sprint5` | SEC-008 parcial: `dashboard.html` JS/CSS extraídos; SEC-015 parcial: pino logger | 2026-04-20 |
+| `feature/security-hardening-v1` | SEC-015 resuelto: tabla `b2c_audit_log` + `utils/audit.js` + 13 acciones instrumentadas | 2026-04-20 |
 
 ### Nuevo hallazgo (post-auditoría)
 
@@ -527,14 +528,12 @@ Los archivos subidos (fotos, PDFs, facturas) se acumulan indefinidamente en el R
 
 **Severidad:** 🟢 BAJA
 **Ubicación:** toda la aplicación
+**Estado:** ✅ RESUELTO en `feature/security-hardening-v1` (2026-04-20)
 
-No existe registro de:
-- Qué usuario cambió el estado de una máquina a qué valor y cuándo
-- Quién creó/modificó/eliminó un tenant en el superadmin
-- Intentos fallidos de login (solo se rate-limita, no se registra)
-- Quién generó o envió qué PDF
-
-La tabla `b2c_herramienta_status_log` registra cambios de estado de máquinas, pero no el `uid_usuario` que los realizó.
+**Solución implementada:**
+- Tabla `b2c_audit_log` (tenant_id, uid_usuario, accion, entidad, uid_entidad, datos_antes, datos_despues, ip_origen, created_at)
+- `utils/audit.js` — `logAudit()` fire-and-forget con try/catch propio (nunca bloquea la operación principal)
+- 13 acciones instrumentadas en 7 archivos: `login_ok`, `login_fallido`, `password_cambiado`, `cliente_creado`, `orden_creada`, `estado_cambiado`, `cotizacion_autorizada`, `cotizacion_rechazada`, `informe_generado`, `funcionario_creado`, `tenant_creado`, `tenant_editado`, `usuario_creado_superadmin`
 
 ---
 
