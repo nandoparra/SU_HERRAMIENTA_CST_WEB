@@ -124,7 +124,7 @@ UPLOADS_PATH          (ruta base de uploads — en Railway: /data/uploads apunta
 ## Git — ramas
 
 ```
-main                           Estado estable — incluye code-quality-sprint2 (2026-04-19)
+main                           Estado estable — incluye hotfix/pre-onboarding (2026-04-20)
 feature/login                  Login completo — pendiente merge a main
 feature/crear-orden            Módulo crear orden — pendiente merge a main
 feature/security-fixes         Correcciones de seguridad — MERGEADO a main 2026-03-11
@@ -140,6 +140,14 @@ feature/security-audit-fixes   Auditoría SEC-001 a SEC-006 — MERGEADO a main 
 feature/mejoras-ordenes        Garantía por máquina + modal agregar máquina + editar cliente — MERGEADO a main 2026-04-17
 feature/code-quality-sprint1   try/finally, .env.example, checkMagicBytes, migrations — MERGEADO a main 2026-04-19
 feature/code-quality-sprint2   Split routes/orders.js en 4 archivos — MERGEADO a main 2026-04-19
+feature/code-quality-sprint3   Rate limiting WA + quotes por usuario — MERGEADO a main 2026-04-20
+feature/code-quality-sprint4   repuestos-notifier + db resilience — MERGEADO a main 2026-04-20
+feature/code-quality-sprint5   pino logger + auditoria actualizada + dashboard modularizado — MERGEADO a main 2026-04-20
+feature/code-quality-sprint6   unit tests (node:test) + isolation IDOR + services layer — MERGEADO a main 2026-04-20
+feature/hotfix-post-auditoria  IDOR quote.js + JSON body limit + smoke S14-S17 — MERGEADO a main 2026-04-20
+feature/security-hardening-v1  b2c_audit_log + utils/audit.js + 13 acciones auditadas — MERGEADO a main 2026-04-20
+hotfix/bugs-produccion         PDF TypeError fix + requireLogin isApi + mount order fix — MERGEADO a main 2026-04-20
+hotfix/pre-onboarding          keyByUser fix + LOGS_PATH docs + SEC-015 resuelto — MERGEADO a main 2026-04-20
 ```
 
 Mergear en orden: login → crear-orden → wa-autorizacion → ui-fixes → dashboard → responsive → helmet-https.
@@ -220,11 +228,46 @@ Split de `routes/orders.js` (1254 líneas, 22 endpoints) en 4 archivos:
 
 **Orden de montaje en server.js** (importa para el fix):
 ```js
+app.use('/api', require('./routes/dashboard'));
+app.use('/api', require('./routes/orders-cliente')); // ANTES de notificaciones/fotos — crítico
 app.use('/api', require('./routes/orders-notificaciones'));
 app.use('/api', require('./routes/orders-fotos'));
-app.use('/api', require('./routes/orders-cliente')); // antes de orders.js — crítico
 app.use('/api', require('./routes/orders'));
 ```
+
+**IMPORTANTE**: `orders-cliente` debe montarse ANTES de `orders-notificaciones` y `orders-fotos`.
+Ambas tienen `router.use(requireInterno)` sin bypass — si `orders-cliente` queda después, los clientes
+reciben 403 antes de llegar a su router. Bug de producción descubierto y corregido 2026-04-20.
+
+### Sprint 3 — feature/code-quality-sprint3 (mergeado a main 2026-04-20)
+
+Rate limiting por usuario (session uid) con fallback IP:
+
+- `waLimiter` — 10 req/5min en `routes/whatsapp.js` (POST send-whatsapp, POST whatsapp/send)
+- `notifyLimiter` — 20 req/min en `routes/orders-notificaciones.js` (notify-parts, notify-ready, notify-delivered)
+- `quoteSaveLimiter` — 60 req/min en `routes/quote.js` (GET+POST /quotes/machine)
+- Todos usan `validate: { keyGeneratorIpFallback: false }` (fix ValidationError express-rate-limit v8.2.1)
+
+### Sprint 4 — feature/code-quality-sprint4 (mergeado a main 2026-04-20)
+
+1. **utils/repuestos-notifier.js** (nuevo) — extrae lógica duplicada de envío de lista de repuestos al encargado. Exporta `enviarListaRepuestos(conn, tenantId, uidOrden, consecutivo)` → `{ sent, maquinas, reason }`. Usado en `orders-notificaciones.js` y `orders-cliente.js`.
+2. **utils/db.js** — agrega `charset: 'utf8mb4'` y `connectTimeout: 10000` al pool MySQL.
+
+### Sprint 5 — feature/code-quality-sprint5 (mergeado a main 2026-04-20)
+
+1. **utils/logger.js** (nuevo) — logger estructurado con pino@10.3.1. Nivel configurable via `LOG_LEVEL` env. JSON en producción, legible en dev. Todos los `console.error/warn` reemplazados en 13 archivos.
+2. **docs/auditoria-seguridad.md** — actualizado: score riesgo 62→28/100; SEC-001 a SEC-007 + SEC-018/019 RESUELTO; SEC-008/011/015 PARCIAL; resto ABIERTO (no bloqueantes). Nuevos hallazgos: SEC-018 (IDOR quote.js) y SEC-019 (JSON body limit).
+3. **public/dashboard.html** — reducido de 3256 → 151 líneas. CSS extraído a `public/assets/dashboard.css` (394 líneas). JS extraído a `public/assets/dashboard.js` (2711 líneas). Servidos vía `express.static('/assets')` existente.
+
+### Sprint 6 — feature/code-quality-sprint6 (mergeado a main 2026-04-20)
+
+1. **tests/** (nuevo directorio) — runner `node:test` nativo (sin dependencias). Script `npm test` → `node --test tests/*.test.js`.
+   - `tests/dias-habiles.test.js` — 13 casos: `toISODate`, festivos fijos/Emiliani/Semana Santa, `addDiasHabiles` invariante
+   - `tests/phones.test.js` — 13 casos: null/vacío, móvil válido, prefijo 57, fijos descartados, separadores, deduplicación
+   - `tests/uploads.test.js` — 5 casos: env override, magic bytes PNG/PDF aceptados, archivo inválido rechazado y borrado
+   - **Bug encontrado**: `utils/uploads.js` usaba `fileTypeFromFile` (nombre de `file-type@17+`) en vez de `fromFile` (`file-type@16`). `checkMagicBytes` lanzaba TypeError silenciosamente desde siempre. Corregido.
+2. **isolation-test.js Sección 8** — 4 casos IDOR SEC-018: T1 no puede GET/POST cotización de máquina T2 (cross-tenant), T2 sí puede (happy path), T1 orderId+T2 machineId cross-order bloqueado.
+3. **services/quote-machine.js** (nuevo) — extrae lógica del `POST /quotes/machine` (~80 líneas, 6 queries, 1 transacción). Firma: `saveMachineQuote(params, { conn, tenantId }) → { subtotal, orderSubtotal, total }`. Lanza `Error` con `.status=403` si la máquina no pertenece a la orden. Handler en `routes/quote.js` queda en ~20 líneas.
 
 ---
 
@@ -887,6 +930,69 @@ const UPLOADS_DIR = process.env.UPLOADS_PATH || path.join(__dirname, '..', 'publ
 Además de cotizaciones, ahora también se preservan:
 - `b2c_tenant` — evita perder configuración de dominio custom tras sync
 - `app_sessions` — evita cerrar sesiones activas al sincronizar
+
+---
+
+## Seguridad — Security Hardening v1 (feature/security-hardening-v1, mergeado a main 2026-04-20)
+
+Score de riesgo tras este sprint: **17/100** (era 28 antes, 62 al inicio).
+
+### Tabla b2c_audit_log
+Auto-migrada al arrancar. Columnas: `uid_log` AI PK, `tenant_id`, `uid_usuario`, `accion` VARCHAR(64),
+`entidad` VARCHAR(64), `entidad_id` VARCHAR(64), `detalle` JSON, `ip` VARCHAR(45), `created_at`.
+
+### utils/audit.js
+```js
+logAudit(req, accion, entidad, entidadId, detalle = {})
+```
+- Fire-and-forget: tiene su propio `try/catch`, **nunca propaga el error** a la operación principal
+- `req.tenant?.uid_tenant ?? 1`, `req.session?.user?.id`
+- Usado en 7 archivos, 13 acciones instrumentadas:
+
+| Archivo | Acciones auditadas |
+|---------|-------------------|
+| `routes/auth.js` | login_ok, login_fail, logout |
+| `routes/orders.js` | estado_cambiado, tecnico_asignado |
+| `routes/orders-cliente.js` | maquina_autorizada, maquina_rechazada |
+| `routes/orders-fotos.js` | foto_subida, foto_eliminada |
+| `routes/crear-orden.js` | orden_creada |
+| `routes/quote.js` | cotizacion_guardada |
+| `routes/superadmin.js` | superadmin_login_ok, superadmin_login_fail |
+
+### Otras correcciones del sprint
+- `utils/pdf-generator.js` línea 5: `const { UPLOADS_DIR } = require('./uploads')` (era `require('./uploads')` sin desestructurar — TypeError en producción al generar informes)
+- `middleware/auth.js`: `isApi` usa `req.originalUrl.startsWith('/api/')` (no `req.path` — el path pierde el prefijo `/api` cuando se monta bajo ese namespace)
+- `b2c_usuario.pwd_must_change TINYINT(1) DEFAULT 0` — migración auto; usuarios existentes quedan con `false`
+
+---
+
+## Bugs de producción corregidos (hotfix/bugs-produccion, mergeado a main 2026-04-20)
+
+### Bug 1 — Portal cliente mostraba 403 (sin órdenes)
+**Causa**: `orders-cliente.js` estaba montado DESPUÉS de `orders-notificaciones.js` y `orders-fotos.js`
+en `server.js`. Ambas tienen `router.use(requireInterno)` — los clientes recibían 403 antes de
+llegar a su router.
+**Fix**: reordenar mounts en `server.js` — `orders-cliente` primero (ver sección Sprint 2).
+
+### Bug 2 — TypeError al generar informes de mantenimiento PDF
+**Causa**: `utils/pdf-generator.js` importaba `require('./uploads')` sin desestructurar.
+`UPLOADS_DIR` era el módulo objeto completo, no el string de la ruta.
+**Fix**: `const { UPLOADS_DIR } = require('./uploads')`.
+
+---
+
+## Fixes pre-onboarding (hotfix/pre-onboarding, mergeado a main 2026-04-20)
+
+1. **keyByUser** (`routes/dashboard.js` y `routes/orders.js`):
+   ```js
+   const keyByUser = (req) => String(req.session?.user?.id || req.ip);
+   // era: req.session?.user?.uid_usuario — siempre undefined, todos los limiters usaban IP
+   ```
+   `req.session.user` almacena `id` (no `uid_usuario`). Afectaba `dashboardLimiter` y `ordersLimiter`.
+
+2. **LOGS_PATH en .env.example** — agrega instrucciones paso a paso para activar logs rotativos en Railway Volume.
+
+3. **SEC-015 resuelto** — `docs/auditoria-seguridad.md` actualizado: audit log documentado, score final 17/100.
 
 ---
 
