@@ -123,37 +123,44 @@ UPLOADS_PATH          (ruta base de uploads — en Railway: /data/uploads apunta
 
 ## Git — ramas
 
+Todo el código de funcionalidades está en `main`. Las ramas de feature fueron incorporadas
+durante los sprints de calidad (mar–abr 2026) y eliminadas en limpieza 2026-04-26.
+
+**Backup/rollback**: tag `v2026-04-26-pre-cleanup` apunta al estado completo antes de la limpieza.
+Para rollback: `git checkout v2026-04-26-pre-cleanup`.
+
 ```
-main                           Estado estable — incluye hotfix/pdf-cotizacion (2026-04-26)
-feature/login                  Login completo — pendiente merge a main
-feature/crear-orden            Módulo crear orden — pendiente merge a main
-feature/security-fixes         Correcciones de seguridad — MERGEADO a main 2026-03-11
-feature/wa-autorizacion        Flujo autorización cotizaciones por WhatsApp — pendiente merge
-feature/ui-fixes               Quitar lista máquinas panel izq. cotizaciones — pendiente merge
-feature/dashboard              Dashboard SPA + vista técnico + nueva orden SPA + seguimiento mejorado — pendiente merge
-feature/responsive             Responsive + autorización portal cliente desde seguimiento.html — pendiente merge
-feature/helmet-https           Helmet CSP + redirect HTTPS vía BEHIND_PROXY — pendiente merge (base: feature/responsive)
-feature/wa-plantillas          WA plantillas fijas — MERGEADO a main
-feature/cotizaciones-cola      Cotizaciones tab rediseñada como cola de pendientes — pendiente prueba/merge
-feature/multitenant            Arquitectura multi-tenant completa — MERGEADO a main 2026-03-21
-feature/security-audit-fixes   Auditoría SEC-001 a SEC-006 — MERGEADO a main 2026-03-21
-feature/mejoras-ordenes        Garantía por máquina + modal agregar máquina + editar cliente — MERGEADO a main 2026-04-17
-feature/code-quality-sprint1   try/finally, .env.example, checkMagicBytes, migrations — MERGEADO a main 2026-04-19
-feature/code-quality-sprint2   Split routes/orders.js en 4 archivos — MERGEADO a main 2026-04-19
-feature/code-quality-sprint3   Rate limiting WA + quotes por usuario — MERGEADO a main 2026-04-20
-feature/code-quality-sprint4   repuestos-notifier + db resilience — MERGEADO a main 2026-04-20
-feature/code-quality-sprint5   pino logger + auditoria actualizada + dashboard modularizado — MERGEADO a main 2026-04-20
-feature/code-quality-sprint6   unit tests (node:test) + isolation IDOR + services layer — MERGEADO a main 2026-04-20
-feature/hotfix-post-auditoria  IDOR quote.js + JSON body limit + smoke S14-S17 — MERGEADO a main 2026-04-20
-feature/security-hardening-v1  b2c_audit_log + utils/audit.js + 13 acciones auditadas — MERGEADO a main 2026-04-20
-hotfix/bugs-produccion         PDF TypeError fix + requireLogin isApi + mount order fix — MERGEADO a main 2026-04-20
-hotfix/pre-onboarding          keyByUser fix + LOGS_PATH docs + SEC-015 resuelto — MERGEADO a main 2026-04-20
-hotfix/logs-pii                PII fix wa-handler.js (Ley 1581) — MERGEADO a main 2026-04-26
-hotfix/pdf-cotizacion          PDF cotización fixes + IVA por tenant — MERGEADO a main 2026-04-26
+main                           Estado estable (HEAD)
+feature/modulo-recibos         Módulo A — Recibos de caja (en desarrollo)
 ```
 
-Mergear en orden: login → crear-orden → wa-autorizacion → ui-fixes → dashboard → responsive → helmet-https.
-`feature/cotizaciones-cola` pendiente de validación en Railway antes de merge.
+### Historial de ramas mergeadas (referencia)
+```
+feature/login                  Login + sesiones + roles — MERGEADO
+feature/crear-orden            Módulo crear orden + fotos — MERGEADO
+feature/wa-autorizacion        Flujo autorización WA (1/2/3/4) — MERGEADO
+feature/ui-fixes               Quitar lista panel izq. cotizaciones — MERGEADO
+feature/dashboard              SPA principal + vista técnico + nueva orden — MERGEADO
+feature/responsive             Responsive + autorización portal cliente — MERGEADO
+feature/helmet-https           Helmet CSP + redirect HTTPS — MERGEADO
+feature/wa-plantillas          WA plantillas fijas — MERGEADO
+feature/cotizaciones-cola      Tab Cotizaciones → cola de pendientes — MERGEADO
+feature/multitenant            Arquitectura multi-tenant completa — MERGEADO 2026-03-21
+feature/security-audit-fixes   SEC-001 a SEC-006 — MERGEADO 2026-03-21
+feature/mejoras-ordenes        Garantía por máquina + modal agregar + editar cliente — MERGEADO 2026-04-17
+feature/code-quality-sprint1   try/finally, .env.example, checkMagicBytes, migrations — MERGEADO 2026-04-19
+feature/code-quality-sprint2   Split routes/orders.js en 4 archivos — MERGEADO 2026-04-19
+feature/code-quality-sprint3   Rate limiting WA + quotes por usuario — MERGEADO 2026-04-20
+feature/code-quality-sprint4   repuestos-notifier + db resilience — MERGEADO 2026-04-20
+feature/code-quality-sprint5   pino logger + auditoria + dashboard modularizado — MERGEADO 2026-04-20
+feature/code-quality-sprint6   unit tests + isolation IDOR + services layer — MERGEADO 2026-04-20
+feature/hotfix-post-auditoria  IDOR quote.js + JSON body limit — MERGEADO 2026-04-20
+feature/security-hardening-v1  b2c_audit_log + 13 acciones auditadas — MERGEADO 2026-04-20
+hotfix/bugs-produccion         PDF TypeError + requireLogin isApi + mount order — MERGEADO 2026-04-20
+hotfix/pre-onboarding          keyByUser fix + LOGS_PATH + SEC-015 — MERGEADO 2026-04-20
+hotfix/logs-pii                PII fix wa-handler.js (Ley 1581) — MERGEADO 2026-04-26
+hotfix/pdf-cotizacion          PDF cotización fixes + IVA por tenant — MERGEADO 2026-04-26
+```
 
 ---
 
