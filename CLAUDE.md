@@ -124,7 +124,7 @@ UPLOADS_PATH          (ruta base de uploads — en Railway: /data/uploads apunta
 ## Git — ramas
 
 ```
-main                           Estado estable — incluye hotfix/pre-onboarding (2026-04-20)
+main                           Estado estable — incluye hotfix/pdf-cotizacion (2026-04-26)
 feature/login                  Login completo — pendiente merge a main
 feature/crear-orden            Módulo crear orden — pendiente merge a main
 feature/security-fixes         Correcciones de seguridad — MERGEADO a main 2026-03-11
@@ -148,6 +148,8 @@ feature/hotfix-post-auditoria  IDOR quote.js + JSON body limit + smoke S14-S17 �
 feature/security-hardening-v1  b2c_audit_log + utils/audit.js + 13 acciones auditadas — MERGEADO a main 2026-04-20
 hotfix/bugs-produccion         PDF TypeError fix + requireLogin isApi + mount order fix — MERGEADO a main 2026-04-20
 hotfix/pre-onboarding          keyByUser fix + LOGS_PATH docs + SEC-015 resuelto — MERGEADO a main 2026-04-20
+hotfix/logs-pii                PII fix wa-handler.js (Ley 1581) — MERGEADO a main 2026-04-26
+hotfix/pdf-cotizacion          PDF cotización fixes + IVA por tenant — MERGEADO a main 2026-04-26
 ```
 
 Mergear en orden: login → crear-orden → wa-autorizacion → ui-fixes → dashboard → responsive → helmet-https.
@@ -993,6 +995,48 @@ llegar a su router.
 2. **LOGS_PATH en .env.example** — agrega instrucciones paso a paso para activar logs rotativos en Railway Volume.
 
 3. **SEC-015 resuelto** — `docs/auditoria-seguridad.md` actualizado: audit log documentado, score final 17/100.
+
+---
+
+## PII fix wa-handler.js (hotfix/logs-pii, mergeado a main 2026-04-26)
+
+Cumplimiento Ley 1581 Colombia — datos personales no deben persistirse en logs.
+
+Cambios en `utils/wa-handler.js`:
+- Teléfonos siempre enmascarados: `****${senderPhone.slice(-4)}` — nunca el número completo
+- Contenido del mensaje omitido: `[contenido omitido]` en lugar del texto real
+- Todos los `console.log` reemplazados por `log.debug()` (pino)
+
+---
+
+## PDF cotización fixes + IVA por tenant (hotfix/pdf-cotizacion, mergeado a main 2026-04-26)
+
+4 bugs corregidos en `generateQuotePDF` (`utils/pdf-generator.js`) + IVA configurable:
+
+1. **Salto de página** — `checkPageBreak(neededH)`: si `y + neededH > SAFE_Y (A4H-90)` → `doc.addPage()` + redibuja header de tabla. Evita que el contenido se desborde en PDFs con muchas máquinas.
+2. **Descripción completa** — `descripcion_trabajo` se renderiza multi-línea con `doc.heightOfString()` para calcular la altura dinámica exacta. Ya no se trunca.
+3. **Subtotal por máquina** — fila verde (`#e8efe8`) al final de cada bloque: `Subtotal — [nombre máquina] ... $valor`.
+4. **Resumen final** — bloque `RESUMEN DE COTIZACIÓN` alineado a la derecha: fila por máquina + subtotal general + IVA (si aplica) + TOTAL (fondo oscuro, 11pt bold).
+
+**IVA configurable por tenant** — migración en `utils/migrations.js` agrega a `b2c_tenant`:
+- `ten_iva_responsable TINYINT(1) DEFAULT 0` — si 0: no se muestra línea IVA, total = subtotal
+- `ten_iva_porcentaje DECIMAL(5,2) DEFAULT 19.00` — porcentaje IVA cuando aplica
+
+`generateQuotePDF` recibe `tenant` (pasado desde `routes/pdf.js` como `req.tenant`). Fallback a `process.env.IVA_RATE` para compatibilidad con llamadas antiguas sin tenant.
+
+---
+
+## Plan facturación — Tarea 3 (pendiente de implementación)
+
+Tres módulos planificados, sin implementar aún. Prerequisito principal: mergear ramas pendientes (especialmente `feature/dashboard`) antes de iniciar.
+
+| Módulo | Descripción | Esfuerzo | Prerequisito DIAN |
+|--------|-------------|----------|-------------------|
+| A — Recibo de caja | Registra cobros por orden, tabla `b2c_recibo_caja`, 5 endpoints + PDF | 1 día | No |
+| B — POS básico | Venta directa con ítems, tablas `b2c_venta` + `b2c_venta_item`, 7 endpoints + PDF | 2 días | No |
+| C — Factura electrónica | Integración Factus API → DIAN, tabla `b2c_factura_electronica`, config por tenant | 3-4 días | Sí (NIT habilitado + resolución DIAN + cuenta Factus) |
+
+Orden de ejecución: A → B → C. Los módulos A y B son independientes de DIAN.
 
 ---
 
