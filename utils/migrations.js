@@ -319,6 +319,23 @@ async function ensureAuditLog() {
   }
 }
 
+async function ensureIvaColumns() {
+  const conn = await db.getConnection();
+  try {
+    try {
+      await conn.execute(`ALTER TABLE b2c_tenant ADD COLUMN ten_iva_responsable TINYINT(1) NOT NULL DEFAULT 0`);
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    try {
+      await conn.execute(`ALTER TABLE b2c_tenant ADD COLUMN ten_iva_porcentaje DECIMAL(5,2) NOT NULL DEFAULT 19.00`);
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    console.log('✅ Columnas IVA en b2c_tenant verificadas');
+  } catch (e) {
+    console.warn('⚠️ No pude agregar columnas IVA a b2c_tenant:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -328,6 +345,7 @@ async function runMigrations() {
   await ensureTenantColumns();
   await ensureGarantiaColumns();
   await ensureAuditLog();
+  await ensureIvaColumns();
   console.log('Migraciones completadas');
 }
 
