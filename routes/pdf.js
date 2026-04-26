@@ -150,7 +150,7 @@ router.get('/orders/:orderId/pdf/quote', requireInterno, async (req, res) => {
       const { machines, items } = await getAllMachinesWithItems(conn, order.uid_orden);
       if (!machines.length) return res.status(400).json({ error: 'No hay cotizaciones guardadas para esta orden.' });
 
-      const pdf = await generateQuotePDF({ order, machines, items, quoteNumber: order.ord_consecutivo });
+      const pdf = await generateQuotePDF({ order, machines, items, quoteNumber: order.ord_consecutivo, tenant: req.tenant });
       res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="cotizacion-' + order.ord_consecutivo + '.pdf"' });
       res.send(pdf);
     } finally {
@@ -213,7 +213,7 @@ router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) 
       const { machines, items } = await getAllMachinesWithItems(conn, order.uid_orden);
       if (!machines.length) return res.status(400).json({ error: 'No hay cotizaciones guardadas.' });
 
-      const pdf    = await generateQuotePDF({ order, machines, items, quoteNumber: order.ord_consecutivo });
+      const pdf    = await generateQuotePDF({ order, machines, items, quoteNumber: order.ord_consecutivo, tenant: req.tenant });
       const fname  = 'cotizacion-' + order.ord_consecutivo + '.pdf';
       const media  = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
       await sendWAMessage(tenantId, getPhone(order), media);

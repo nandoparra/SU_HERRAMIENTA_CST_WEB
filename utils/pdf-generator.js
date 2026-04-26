@@ -82,7 +82,7 @@ function truncate(str, max) {
 }
 
 // ─── COTIZACIÓN PDF ───────────────────────────────────────────────────────────
-function generateQuotePDF({ order, machines, items, quoteNumber }) {
+function generateQuotePDF({ order, machines, items, quoteNumber, tenant }) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     const doc = new PDFDocument({ size: 'A4', margin: 0, compress: true });
@@ -90,25 +90,52 @@ function generateQuotePDF({ order, machines, items, quoteNumber }) {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
+    // IVA: por tenant si est\u00e1 disponible, fallback a env var (compat)
+    const ivaResponsable = !!(tenant?.ten_iva_responsable);
+    const ivaPct = ivaResponsable
+      ? Number(tenant?.ten_iva_porcentaje ?? 19) / 100
+      : parseFloat(process.env.IVA_RATE || '0');
+
+    const SAFE_Y  = A4H - 90;  // l\u00edmite inferior antes de salto de p\u00e1gina
+    const COLS = [
+      { key: 'nombre',    header: '\u00cdtem',     width: 265, align: 'left'   },
+      { key: 'precio',    header: 'Precio',        width: 65,  align: 'right'  },
+      { key: 'cantidad',  header: 'Cantidad',      width: 50,  align: 'center' },
+      { key: 'descuento', header: 'Descuento',     width: 65,  align: 'center' },
+      { key: 'total',     header: 'Total',         width: 70,  align: 'right'  },
+    ];
+    const ROW_H  = 19;
+    const TBL_H  = 20; // altura header de tabla
+
+    // Pre-calcular alturas de filas de descripci\u00f3n (necesita font activo)
+    doc.font('Helvetica').fontSize(7.5);
+    const descHeights = new Map();
+    for (const m of machines) {
+      if (m.descripcion_trabajo) {
+        const dh = Math.max(
+          doc.heightOfString('   \u21b3 ' + m.descripcion_trabajo,
+            { width: COLS[0].width - 10 }) + 8,
+          14
+        );
+        descHeights.set(String(m.uid_herramienta_orden), dh);
+      }
+    }
+
     let y = MG;
 
-    // ── Header ────────────────────────────────────────────────────────────────
-    // Logo rotado: imagen portrait 1396×2696 → rotar -90° para quedar horizontal
-    const LOGO_FW = 110;                                   // ancho final en página
-    const LOGO_FH = Math.round(LOGO_FW * 1396 / 2696);    // alto final ≈ 57 px
-    const HDR_H   = Math.max(LOGO_FH, 65);                 // altura mínima del header
+    // \u2500\u2500 Header \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    const LOGO_FW = 110;
+    const LOGO_FH = Math.round(LOGO_FW * 1396 / 2696);
+    const HDR_H   = Math.max(LOGO_FH, 65);
 
     if (fs.existsSync(LOGO)) {
       const cx = MG + LOGO_FW / 2;
       const cy = y + HDR_H / 2;
-      doc.save()
-        .translate(cx, cy)
-        .rotate(-90)
+      doc.save().translate(cx, cy).rotate(-90)
         .image(LOGO, -LOGO_FH / 2, -LOGO_FW / 2, { width: LOGO_FH, height: LOGO_FW })
         .restore();
     }
 
-    // Company info - centro
     const infoX = MG + LOGO_FW + 5;
     const infoW = CW - LOGO_FW - 80;
     doc.save().font('Helvetica-Bold').fontSize(12).fillColor(C.dark)
@@ -118,7 +145,6 @@ function generateQuotePDF({ order, machines, items, quoteNumber }) {
         .text(line, infoX, y + 19 + i * 9.5, { width: infoW, align: 'center' }).restore();
     });
 
-    // Número de cotización - derecha
     const QX = MG + CW - 75;
     fillRect(doc, QX, y, 75, HDR_H, C.lightBg);
     strokeRect(doc, QX, y, 75, HDR_H, C.bdr);
@@ -131,55 +157,56 @@ function generateQuotePDF({ order, machines, items, quoteNumber }) {
     hLine(doc, MG, y, MG + CW, C.dark, 1.5);
     y += 10;
 
-    // ── Datos del cliente ─────────────────────────────────────────────────────
-    const LW = 355;
-    const RW = CW - LW;
-    const RH = 20;
+    // \u2500\u2500 Datos del cliente \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    const LW    = 355;
+    const RW    = CW - LW;
+    const RH    = 20;
     const LBL_W = 82;
 
     const clientRows = [
-      { lbl: 'SE\u00d1OR(ES)', val: order.cli_razon_social,  rLbl: 'FECHA DE EXPEDICI\u00d3N',  rVal: fmtDate() },
-      { lbl: 'DIRECCI\u00d3N', val: order.cli_direccion,    rLbl: '',                            rVal: '' },
-      { lbl: 'CIUDAD',           val: '',                     rLbl: 'FECHA DE VENCIMIENTO',        rVal: fmtDate(new Date(Date.now() + 30 * 864e5)) },
-      { lbl: 'TEL\u00c9FONO',  val: order.cli_telefono,     rLbl: 'NIT',                         rVal: order.cli_identificacion },
+      { lbl: 'SE\u00d1OR(ES)', val: order.cli_razon_social, rLbl: 'FECHA DE EXPEDICI\u00d3N', rVal: fmtDate() },
+      { lbl: 'DIRECCI\u00d3N', val: order.cli_direccion,   rLbl: '',                          rVal: '' },
+      { lbl: 'CIUDAD',          val: '',                    rLbl: 'FECHA DE VENCIMIENTO',      rVal: fmtDate(new Date(Date.now() + 30 * 864e5)) },
+      { lbl: 'TEL\u00c9FONO', val: order.cli_telefono,    rLbl: 'NIT',                        rVal: order.cli_identificacion },
     ];
 
     for (const row of clientRows) {
-      cell(doc, row.lbl, MG,          y, LBL_W,      RH, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
-      cell(doc, row.val, MG + LBL_W,  y, LW - LBL_W, RH, { size: 8.5 });
+      cell(doc, row.lbl, MG,         y, LBL_W,      RH, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+      cell(doc, row.val, MG + LBL_W, y, LW - LBL_W, RH, { size: 8.5 });
       if (row.rLbl) {
-        cell(doc, row.rLbl, MG + LW,            y, RW / 2, RH, { fill: C.lbl, font: 'Helvetica-Bold', size: 7, color: C.wht, align: 'center', padY: 6 });
-        cell(doc, row.rVal, MG + LW + RW / 2,   y, RW / 2, RH, { size: 8.5, align: 'center' });
+        cell(doc, row.rLbl, MG + LW,          y, RW / 2, RH, { fill: C.lbl, font: 'Helvetica-Bold', size: 7, color: C.wht, align: 'center', padY: 6 });
+        cell(doc, row.rVal, MG + LW + RW / 2, y, RW / 2, RH, { size: 8.5, align: 'center' });
       } else {
         strokeRect(doc, MG + LW, y, RW, RH);
       }
       y += RH;
     }
-
     y += 14;
 
-    // ── Tabla de ítems ────────────────────────────────────────────────────────
-    const COLS = [
-      { key: 'nombre',    header: '\u00cdtem',      width: 265, align: 'left' },
-      { key: 'precio',    header: 'Precio',      width: 65,  align: 'right' },
-      { key: 'cantidad',  header: 'Cantidad',    width: 50,  align: 'center' },
-      { key: 'descuento', header: 'Descuento',   width: 65,  align: 'center' },
-      { key: 'total',     header: 'Total',       width: 70,  align: 'right' },
-    ];
-    const ROW_H = 19;
-
-    // Header
-    fillRect(doc, MG, y, CW, 20, C.dark);
-    let cx = MG;
-    for (const col of COLS) {
-      doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.wht)
-        .text(col.header, cx + 5, y + 6, { width: col.width - 10, align: col.align }).restore();
-      cx += col.width;
+    // \u2500\u2500 Header de tabla (se redibuja en cada p\u00e1gina nueva) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    function drawTableHeader() {
+      fillRect(doc, MG, y, CW, TBL_H, C.dark);
+      let cx = MG;
+      for (const col of COLS) {
+        doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.wht)
+          .text(col.header, cx + 5, y + 6, { width: col.width - 10, align: col.align }).restore();
+        cx += col.width;
+      }
+      strokeRect(doc, MG, y, CW, TBL_H, C.dark);
+      y += TBL_H;
     }
-    strokeRect(doc, MG, y, CW, 20, C.dark);
-    y += 20;
+    drawTableHeader();
 
-    // Filas
+    // \u2500\u2500 Salto de p\u00e1gina \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    function checkPageBreak(neededH) {
+      if (y + neededH > SAFE_Y) {
+        doc.addPage();
+        y = MG;
+        drawTableHeader();
+      }
+    }
+
+    // \u2500\u2500 \u00cdtems por m\u00e1quina \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     const itemsByMachine = new Map();
     for (const it of items) {
       const k = String(it.uid_herramienta_orden);
@@ -187,67 +214,34 @@ function generateQuotePDF({ order, machines, items, quoteNumber }) {
       itemsByMachine.get(k).push(it);
     }
 
-    const rows = [];
-    for (const m of machines) {
-      const k = String(m.uid_herramienta_orden);
-      const mItems = itemsByMachine.get(k) || [];
-      const mName = [m.her_nombre, m.her_marca ? '(' + m.her_marca + ')' : '', m.her_serial ? 'S/N:' + m.her_serial : ''].filter(Boolean).join(' ');
-      // Fila principal: "Reparación [máquina]"
-      rows.push({
-        nombre:    'Reparaci\u00f3n ' + truncate(mName, 52),
-        precio:    money(m.mano_obra),
-        cantidad:  '1',
-        descuento: '0.00%',
-        total:     money(m.mano_obra),
-        isMachine: true,
-      });
-      // Fila de descripción del trabajo (si existe)
-      if (m.descripcion_trabajo) {
-        rows.push({
-          nombre:    '   \u21b3 ' + truncate(m.descripcion_trabajo, 72),
-          precio: '', cantidad: '', descuento: '', total: '',
-          isDesc: true,
-        });
-      }
-      for (const it of mItems) {
-        const lineTotal = Number(it.cantidad || 1) * Number(it.precio || 0);
-        rows.push({
-          nombre:    truncate(it.nombre, 75),
-          precio:    money(it.precio),
-          cantidad:  String(it.cantidad || 1),
-          descuento: '0.00%',
-          total:     money(lineTotal),
-        });
-      }
-    }
+    let dataRowIdx = 0;
 
-    const MIN_ROWS = 10;
-    let dataRowIdx = 0; // índice solo de filas con datos (para color alterno)
-    for (let i = 0; i < Math.max(rows.length, MIN_ROWS); i++) {
-      const row = rows[i] || {};
-      const rh  = row.isDesc ? 14 : ROW_H;
-
-      if (row.isMachine) {
+    function drawRow(rowData, rh, opts = {}) {
+      const { isMachine, isDesc, isSubtotal } = opts;
+      if (isMachine) {
         fillRect(doc, MG, y, CW, rh, C.lightBg);
-      } else if (!row.isDesc && dataRowIdx % 2 === 1) {
+      } else if (isSubtotal) {
+        fillRect(doc, MG, y, CW, rh, '#e8efe8');
+      } else if (!isDesc && dataRowIdx % 2 === 1) {
         fillRect(doc, MG, y, CW, rh, C.alt);
       }
-      if (!row.isMachine) dataRowIdx++;
+      if (!isMachine && !isDesc && !isSubtotal) dataRowIdx++;
 
       strokeRect(doc, MG, y, CW, rh);
-      cx = MG;
+      let cx = MG;
       for (const col of COLS) {
         strokeRect(doc, cx, y, col.width, rh);
-        const val = row[col.key];
+        const val = rowData[col.key];
         if (val) {
-          const bold  = row.isMachine && col.key === 'nombre';
-          const sz    = row.isDesc ? 7.5 : 8.5;
-          const clr   = row.isDesc ? C.gry : C.blk;
-          const padY  = (rh - sz) / 2;
+          const bold = (isMachine && col.key === 'nombre') || (isSubtotal && col.key === 'total');
+          const sz   = isDesc ? 7.5 : 8.5;
+          const clr  = isDesc ? C.gry : isSubtotal ? '#2d6a2d' : C.blk;
+          const padY = isDesc ? 4 : Math.max((rh - sz) / 2, 2);
+          const wrap = isDesc && col.key === 'nombre';
           doc.save()
             .font(bold ? 'Helvetica-Bold' : 'Helvetica')
             .fontSize(sz).fillColor(clr)
-            .text(val, cx + 5, y + padY, { width: col.width - 10, align: col.align, lineBreak: false })
+            .text(val, cx + 5, y + padY, { width: col.width - 10, align: wrap ? 'left' : col.align, lineBreak: wrap })
             .restore();
         }
         cx += col.width;
@@ -255,37 +249,113 @@ function generateQuotePDF({ order, machines, items, quoteNumber }) {
       y += rh;
     }
 
+    // \u2500\u2500 Bloques por m\u00e1quina \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    const machineSummary = [];
+
+    for (const m of machines) {
+      const k      = String(m.uid_herramienta_orden);
+      const mItems = itemsByMachine.get(k) || [];
+      const mName  = [m.her_nombre, m.her_marca ? '(' + m.her_marca + ')' : '', m.her_serial ? 'S/N:' + m.her_serial : ''].filter(Boolean).join(' ');
+
+      // Fila encabezado de m\u00e1quina
+      checkPageBreak(ROW_H);
+      drawRow({ nombre: 'Reparaci\u00f3n ' + mName, precio: money(m.mano_obra), cantidad: '1', descuento: '0.00%', total: money(m.mano_obra) },
+        ROW_H, { isMachine: true });
+
+      // Descripci\u00f3n completa (multi-l\u00ednea)
+      if (m.descripcion_trabajo) {
+        const dh = descHeights.get(k) || 14;
+        checkPageBreak(dh);
+        drawRow({ nombre: '   \u21b3 ' + m.descripcion_trabajo, precio: '', cantidad: '', descuento: '', total: '' },
+          dh, { isDesc: true });
+      }
+
+      // Repuestos / \u00edtems
+      let itemsTotal = 0;
+      for (const it of mItems) {
+        const lineTotal = Number(it.cantidad || 1) * Number(it.precio || 0);
+        itemsTotal += lineTotal;
+        checkPageBreak(ROW_H);
+        drawRow({ nombre: it.nombre, precio: money(it.precio), cantidad: String(it.cantidad || 1), descuento: '0.00%', total: money(lineTotal) },
+          ROW_H);
+      }
+
+      // Subtotal por m\u00e1quina
+      const machineTotal = Number(m.mano_obra || 0) + itemsTotal;
+      checkPageBreak(ROW_H);
+      drawRow({ nombre: 'Subtotal \u2014 ' + truncate(mName, 38), precio: '', cantidad: '', descuento: '', total: money(machineTotal) },
+        ROW_H, { isSubtotal: true });
+
+      machineSummary.push({ name: mName, total: machineTotal });
+    }
+
+    // \u2500\u2500 Resumen final \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    const grandSubtotal = machineSummary.reduce((s, m) => s + m.total, 0);
+    const iva           = grandSubtotal * ivaPct;
+    const grandTotal    = grandSubtotal + iva;
+
+    const TX = MG + CW - 240;
+    const summaryH = 20 + machineSummary.length * 17 + 4 + 19 + (ivaPct > 0 ? 19 : 0) + 24 + 40;
+    checkPageBreak(summaryH);
+
     y += 8;
     hLine(doc, MG, y, MG + CW, C.bdr);
-    y += 6;
+    y += 10;
 
-    // ── Totales ───────────────────────────────────────────────────────────────
-    const subtotal  = machines.reduce((s, m) => s + Number(m.subtotal || 0), 0);
-    const IVA_RATE  = parseFloat(process.env.IVA_RATE || '0');
-    const iva       = subtotal * IVA_RATE;
-    const total     = subtotal + iva;
-    const TX        = MG + CW - 200;
+    // Barra t\u00edtulo resumen
+    fillRect(doc, TX, y, 240, 18, C.dark);
+    doc.save().font('Helvetica-Bold').fontSize(8.5).fillColor(C.wht)
+      .text('RESUMEN DE COTIZACI\u00d3N', TX, y + 5, { width: 240, align: 'center' }).restore();
+    y += 18;
 
-    const totalRows = [{ bold: false, label: 'Subtotal', val: money(subtotal) }];
-    if (IVA_RATE > 0) totalRows.push({ bold: false, label: 'IVA ' + (IVA_RATE * 100).toFixed(0) + '%', val: money(iva) });
-    totalRows.push({ bold: true, label: 'Total', val: money(total) });
+    // Fila por m\u00e1quina
+    for (const ms of machineSummary) {
+      fillRect(doc, TX, y, 240, 17, C.alt);
+      strokeRect(doc, TX, y, 240, 17);
+      doc.save().font('Helvetica').fontSize(8).fillColor(C.blk)
+        .text(truncate(ms.name, 36), TX + 6,   y + 5, { width: 160, lineBreak: false })
+        .text(money(ms.total),       TX + 170,  y + 5, { width: 64, align: 'right', lineBreak: false })
+        .restore();
+      y += 17;
+    }
 
-    for (const tr of totalRows) {
-      fillRect(doc, TX, y, 200, 19, tr.bold ? C.dark : C.alt);
-      strokeRect(doc, TX, y, 200, 19);
-      doc.save().font(tr.bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9)
-        .fillColor(tr.bold ? C.wht : C.blk)
-        .text(tr.label, TX + 6,   y + 5, { width: 110, lineBreak: false })
-        .text(tr.val,   TX + 115, y + 5, { width: 79, align: 'right', lineBreak: false })
+    hLine(doc, TX, y, TX + 240, C.bdr, 0.5);
+    y += 4;
+
+    // Subtotal general
+    fillRect(doc, TX, y, 240, 19, C.alt);
+    strokeRect(doc, TX, y, 240, 19);
+    doc.save().font('Helvetica').fontSize(9).fillColor(C.blk)
+      .text('Subtotal', TX + 6,  y + 5, { width: 160, lineBreak: false })
+      .text(money(grandSubtotal), TX + 170, y + 5, { width: 64, align: 'right', lineBreak: false })
+      .restore();
+    y += 19;
+
+    // IVA (solo si aplica)
+    if (ivaPct > 0) {
+      fillRect(doc, TX, y, 240, 19, C.alt);
+      strokeRect(doc, TX, y, 240, 19);
+      doc.save().font('Helvetica').fontSize(9).fillColor(C.blk)
+        .text('IVA ' + (ivaPct * 100).toFixed(0) + '%', TX + 6, y + 5, { width: 160, lineBreak: false })
+        .text(money(iva), TX + 170, y + 5, { width: 64, align: 'right', lineBreak: false })
         .restore();
       y += 19;
     }
 
-    // ── Firma ─────────────────────────────────────────────────────────────────
-    const FY = A4H - 75;
-    hLine(doc, MG, FY, MG + 150, C.blk, 0.7);
+    // TOTAL
+    fillRect(doc, TX, y, 240, 24, C.dark);
+    strokeRect(doc, TX, y, 240, 24, C.dark);
+    doc.save().font('Helvetica-Bold').fontSize(11).fillColor(C.wht)
+      .text('TOTAL', TX + 6,   y + 7, { width: 160, lineBreak: false })
+      .text(money(grandTotal), TX + 170, y + 7, { width: 64, align: 'right', lineBreak: false })
+      .restore();
+    y += 24;
+
+    // \u2500\u2500 Firma \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    y += 24;
+    hLine(doc, MG, y, MG + 150, C.blk, 0.7);
     doc.save().font('Helvetica').fontSize(8).fillColor(C.gry)
-      .text('ELABORADO POR', MG, FY + 5).restore();
+      .text('ELABORADO POR', MG, y + 5).restore();
 
     doc.end();
   });
