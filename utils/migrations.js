@@ -336,6 +336,39 @@ async function ensureIvaColumns() {
   }
 }
 
+async function ensureReciboCajaTable() {
+  const conn = await db.getConnection();
+  try {
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_recibo_caja (
+        uid_recibo      INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        tenant_id       INT          NOT NULL DEFAULT 1,
+        uid_orden       INT          NULL,
+        uid_cliente     INT          NULL,
+        rc_nombre_paga  VARCHAR(100) NULL,
+        rc_consecutivo  INT          NOT NULL DEFAULT 0,
+        rc_fecha        DATE         NOT NULL,
+        rc_concepto     VARCHAR(255) NOT NULL,
+        rc_valor        DECIMAL(14,2) NOT NULL DEFAULT 0,
+        rc_metodo_pago  ENUM('efectivo','transferencia','tarjeta','nequi','daviplata')
+                        NOT NULL DEFAULT 'efectivo',
+        rc_referencia   VARCHAR(100) NULL,
+        rc_estado       ENUM('activo','anulado') NOT NULL DEFAULT 'activo',
+        rc_creado_por   INT          NULL,
+        created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_rc_tenant  (tenant_id),
+        INDEX idx_rc_orden   (uid_orden),
+        INDEX idx_rc_cliente (uid_cliente)
+      )
+    `);
+    console.log('✅ Tabla b2c_recibo_caja verificada/creada');
+  } catch (e) {
+    console.warn('⚠️ No pude crear b2c_recibo_caja:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -346,6 +379,7 @@ async function runMigrations() {
   await ensureGarantiaColumns();
   await ensureAuditLog();
   await ensureIvaColumns();
+  await ensureReciboCajaTable();
   console.log('Migraciones completadas');
 }
 
