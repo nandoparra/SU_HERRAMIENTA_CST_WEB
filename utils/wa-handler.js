@@ -36,10 +36,10 @@ registerMessageHandler(async (tenantId, msg) => {
       let resolved = String(contact.number || '').replace(/[^0-9]/g, '');
       if (resolved.length === 10 && resolved.startsWith('3')) resolved = '57' + resolved;
       if (/^57\d{10}$/.test(resolved)) {
-        console.log(`📨 wa-handler: LID ${senderPhone} → resuelto a ${resolved}`);
+        log.debug(`📨 wa-handler: LID ****${senderPhone.slice(-4)} → resuelto`);
         senderPhone = resolved;
       } else {
-        console.log(`📨 wa-handler: no se pudo resolver LID ${senderPhone} a número colombiano`);
+        log.debug(`📨 wa-handler: no se pudo resolver LID ****${senderPhone.slice(-4)} a número colombiano`);
         return;
       }
     } catch (e) {
@@ -48,7 +48,7 @@ registerMessageHandler(async (tenantId, msg) => {
     }
   }
 
-  console.log(`📨 wa-handler: mensaje de ${senderPhone} → "${text || '(sin texto / audio/media)'}"`);
+  log.debug(`📨 wa-handler: mensaje de ****${senderPhone.slice(-4)} — [contenido omitido]`);
 
   let conn;
   try {
@@ -64,11 +64,11 @@ registerMessageHandler(async (tenantId, msg) => {
     );
 
     if (!pendiente) {
-      console.log(`📨 wa-handler: ${senderPhone} no tiene conversación activa — ignorando`);
+      log.debug(`📨 wa-handler: ****${senderPhone.slice(-4)} no tiene conversación activa — ignorando`);
       return;
     }
 
-    console.log(`📨 wa-handler: pendiente encontrado uid_orden=${pendiente.uid_orden} estado=${pendiente.estado}`);
+    log.debug(`📨 wa-handler: pendiente encontrado uid_orden=${pendiente.uid_orden} estado=${pendiente.estado}`);
 
     // Audio, imagen u otro mensaje sin texto — responder con aviso
     if (!text) {
