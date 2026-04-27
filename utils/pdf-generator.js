@@ -703,7 +703,9 @@ function generateOrdenServicioPDF({ orden, cliente, maquinas }) {
 }
 
 // ─── RECIBO DE CAJA PDF ───────────────────────────────────────────────────────
-function generateReciboPDF({ recibo, tenant }) {
+// cotizacion: { machines, items } cuando hay orden con cotización vinculada
+// recibo.rc_items: JSON string con ítems manuales (mostrador sin orden)
+function generateReciboPDF({ recibo, tenant, cotizacion }) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     const doc = new PDFDocument({ size: 'A4', margin: 0, compress: true });
@@ -718,6 +720,23 @@ function generateReciboPDF({ recibo, tenant }) {
       nequi:         'Nequi',
       daviplata:     'Daviplata',
     };
+
+    const ivaResponsable = !!(tenant?.ten_iva_responsable);
+    const ivaPct = ivaResponsable
+      ? Number(tenant?.ten_iva_porcentaje ?? 19) / 100
+      : parseFloat(process.env.IVA_RATE || '0');
+
+    const SAFE_Y = A4H - 90;
+
+    // Parse manual items stored as JSON string in DB
+    let manualItems = null;
+    if (!cotizacion) {
+      const raw = recibo.rc_items;
+      if (raw) {
+        try { manualItems = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch {}
+        if (!Array.isArray(manualItems) || !manualItems.length) manualItems = null;
+      }
+    }
 
     let y = MG;
 
@@ -764,8 +783,8 @@ function generateReciboPDF({ recibo, tenant }) {
 
     const nombre = recibo.cli_razon_social || recibo.cli_contacto || recibo.rc_nombre_paga || 'Mostrador';
     const clientRows = [
-      { lbl: 'SEÑOR(ES)', val: nombre,                 rLbl: 'FECHA',       rVal: fmtDate(recibo.rc_fecha) },
-      { lbl: 'DIRECCIÓN', val: recibo.cli_direccion || '', rLbl: '',          rVal: '' },
+      { lbl: 'SEÑOR(ES)', val: nombre,                    rLbl: 'FECHA',      rVal: fmtDate(recibo.rc_fecha) },
+      { lbl: 'DIRECCIÓN', val: recibo.cli_direccion || '', rLbl: '',           rVal: '' },
       { lbl: 'TELÉFONO',  val: recibo.cli_telefono  || '', rLbl: 'ORDEN No.', rVal: recibo.ord_consecutivo ? String(recibo.ord_consecutivo) : '' },
     ];
 
@@ -780,33 +799,244 @@ function generateReciboPDF({ recibo, tenant }) {
       }
       y += RH;
     }
-    y += 14;
+    y += 10;
 
-    // ── Tabla concepto + valor ───────────────────────────────────────────────
-    const COL_DESC  = CW - 100;
-    const COL_VALOR = 100;
+    // ── Detalle (3 modos según disponibilidad de datos) ─────────────────────
 
-    fillRect(doc, MG, y, CW, 20, C.dark);
-    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.wht)
-      .text('CONCEPTO', MG + 5, y + 6, { width: COL_DESC - 10 }).restore();
-    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.wht)
-      .text('VALOR', MG + COL_DESC + 5, y + 6, { width: COL_VALOR - 10, align: 'right' }).restore();
-    strokeRect(doc, MG, y, CW, 20, C.dark);
-    y += 20;
+    if (cotizacion) {
+      // ── MODO 1: desglose por máquina (orden con cotización) ─────────────
+      // Concepto como referencia encima de la tabla
+      fillRect(doc, MG, y, CW, 17, C.secHdr);
+      hLine(doc, MG, y,      MG + CW, '#94a3b8', 0.5);
+      hLine(doc, MG, y + 17, MG + CW, '#94a3b8', 0.5);
+      doc.save().font('Helvetica-Bold').fontSize(8).fillColor(C.secTxt)
+        .text('CONCEPTO: ' + recibo.rc_concepto, MG + 8, y + 5, { width: CW - 16, lineBreak: false }).restore();
+      y += 21;
 
-    const ROW_H  = 28;
-    const descH  = Math.max(doc.font('Helvetica').fontSize(8.5)
-      .heightOfString(recibo.rc_concepto, { width: COL_DESC - 12 }) + 8, ROW_H);
+      const COLS = [
+        { key: 'nombre',    header: 'Ítem',    width: 265, align: 'left'   },
+        { key: 'precio',    header: 'Precio',       width: 65,  align: 'right'  },
+        { key: 'cantidad',  header: 'Cant.',        width: 50,  align: 'center' },
+        { key: 'descuento', header: 'Dcto.',        width: 65,  align: 'center' },
+        { key: 'total',     header: 'Total',        width: 70,  align: 'right'  },
+      ];
+      const ROW_H = 19;
+      const TBL_H = 20;
 
-    fillRect(doc, MG, y, CW, descH, C.alt);
-    strokeRect(doc, MG, y, CW, descH);
-    strokeRect(doc, MG, y, COL_DESC, descH);
-    strokeRect(doc, MG + COL_DESC, y, COL_VALOR, descH);
-    doc.save().font('Helvetica').fontSize(8.5).fillColor(C.blk)
-      .text(recibo.rc_concepto, MG + 6, y + 6, { width: COL_DESC - 12, lineBreak: true }).restore();
-    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.blk)
-      .text(money(recibo.rc_valor), MG + COL_DESC + 5, y + (descH - 9) / 2, { width: COL_VALOR - 10, align: 'right', lineBreak: false }).restore();
-    y += descH + 4;
+      doc.font('Helvetica').fontSize(7.5);
+      const descHeights = new Map();
+      for (const m of cotizacion.machines) {
+        if (m.descripcion_trabajo) {
+          const dh = Math.max(
+            doc.heightOfString('   ↳ ' + m.descripcion_trabajo, { width: COLS[0].width - 10 }) + 8,
+            14
+          );
+          descHeights.set(String(m.uid_herramienta_orden), dh);
+        }
+      }
+
+      function drawTblHeader() {
+        fillRect(doc, MG, y, CW, TBL_H, C.dark);
+        let cx = MG;
+        for (const col of COLS) {
+          doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.wht)
+            .text(col.header, cx + 5, y + 6, { width: col.width - 10, align: col.align }).restore();
+          cx += col.width;
+        }
+        strokeRect(doc, MG, y, CW, TBL_H, C.dark);
+        y += TBL_H;
+      }
+
+      function checkPB(neededH) {
+        if (y + neededH > SAFE_Y) { doc.addPage(); y = MG; drawTblHeader(); }
+      }
+
+      drawTblHeader();
+
+      const itemsByMachine = new Map();
+      for (const it of cotizacion.items) {
+        const k = String(it.uid_herramienta_orden);
+        if (!itemsByMachine.has(k)) itemsByMachine.set(k, []);
+        itemsByMachine.get(k).push(it);
+      }
+
+      let dataRowIdx = 0;
+      function drawRow(rowData, rh, opts = {}) {
+        const { isMachine, isDesc, isSubtotal } = opts;
+        if (isMachine)         fillRect(doc, MG, y, CW, rh, C.lightBg);
+        else if (isSubtotal)   fillRect(doc, MG, y, CW, rh, '#e8efe8');
+        else if (!isDesc && dataRowIdx % 2 === 1) fillRect(doc, MG, y, CW, rh, C.alt);
+        if (!isMachine && !isDesc && !isSubtotal) dataRowIdx++;
+        strokeRect(doc, MG, y, CW, rh);
+        let cx = MG;
+        for (const col of COLS) {
+          strokeRect(doc, cx, y, col.width, rh);
+          const val = rowData[col.key];
+          if (val) {
+            const bold = (isMachine && col.key === 'nombre') || (isSubtotal && col.key === 'total');
+            const sz   = isDesc ? 7.5 : 8.5;
+            const clr  = isDesc ? C.gry : isSubtotal ? '#2d6a2d' : C.blk;
+            const padY = isDesc ? 4 : Math.max((rh - sz) / 2, 2);
+            const wrap = isDesc && col.key === 'nombre';
+            doc.save().font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(sz).fillColor(clr)
+              .text(val, cx + 5, y + padY, { width: col.width - 10, align: wrap ? 'left' : col.align, lineBreak: wrap })
+              .restore();
+          }
+          cx += col.width;
+        }
+        y += rh;
+      }
+
+      const machineSummary = [];
+      for (const m of cotizacion.machines) {
+        const k      = String(m.uid_herramienta_orden);
+        const mItems = itemsByMachine.get(k) || [];
+        const mName  = [m.her_nombre, m.her_marca ? '(' + m.her_marca + ')' : '', m.her_serial ? 'S/N:' + m.her_serial : ''].filter(Boolean).join(' ');
+
+        checkPB(ROW_H);
+        drawRow({ nombre: 'Reparación ' + mName, precio: money(m.mano_obra), cantidad: '1', descuento: '0.00%', total: money(m.mano_obra) },
+          ROW_H, { isMachine: true });
+
+        if (m.descripcion_trabajo) {
+          const dh = descHeights.get(k) || 14;
+          checkPB(dh);
+          drawRow({ nombre: '   ↳ ' + m.descripcion_trabajo }, dh, { isDesc: true });
+        }
+
+        let itemsTotal = 0;
+        for (const it of mItems) {
+          const lineTotal = Number(it.cantidad || 1) * Number(it.precio || 0);
+          itemsTotal += lineTotal;
+          checkPB(ROW_H);
+          drawRow({ nombre: it.nombre, precio: money(it.precio), cantidad: String(it.cantidad || 1), descuento: '0.00%', total: money(lineTotal) }, ROW_H);
+        }
+
+        const machineTotal = Number(m.mano_obra || 0) + itemsTotal;
+        checkPB(ROW_H);
+        drawRow({ nombre: 'Subtotal — ' + truncate(mName, 38), total: money(machineTotal) }, ROW_H, { isSubtotal: true });
+        machineSummary.push({ name: mName, total: machineTotal });
+      }
+
+      // Resumen (igual que cotización)
+      const grandSubtotal = machineSummary.reduce((s, m) => s + m.total, 0);
+      const iva = grandSubtotal * ivaPct;
+      const SX  = MG + CW - 240;
+      const summaryH = 18 + machineSummary.length * 17 + 4 + 19 + (ivaPct > 0 ? 19 : 0) + 10;
+      checkPB(summaryH + 60);
+
+      y += 8;
+      hLine(doc, MG, y, MG + CW, C.bdr);
+      y += 10;
+
+      fillRect(doc, SX, y, 240, 18, C.dark);
+      doc.save().font('Helvetica-Bold').fontSize(8.5).fillColor(C.wht)
+        .text('RESUMEN', SX, y + 5, { width: 240, align: 'center' }).restore();
+      y += 18;
+
+      for (const ms of machineSummary) {
+        fillRect(doc, SX, y, 240, 17, C.alt);
+        strokeRect(doc, SX, y, 240, 17);
+        doc.save().font('Helvetica').fontSize(8).fillColor(C.blk)
+          .text(truncate(ms.name, 36), SX + 6,   y + 5, { width: 160, lineBreak: false })
+          .text(money(ms.total),       SX + 170,  y + 5, { width: 64, align: 'right', lineBreak: false })
+          .restore();
+        y += 17;
+      }
+      hLine(doc, SX, y, SX + 240, C.bdr, 0.5);
+      y += 4;
+
+      fillRect(doc, SX, y, 240, 19, C.alt);
+      strokeRect(doc, SX, y, 240, 19);
+      doc.save().font('Helvetica').fontSize(9).fillColor(C.blk)
+        .text('Subtotal', SX + 6,       y + 5, { width: 160, lineBreak: false })
+        .text(money(grandSubtotal), SX + 170, y + 5, { width: 64, align: 'right', lineBreak: false })
+        .restore();
+      y += 19;
+
+      if (ivaPct > 0) {
+        fillRect(doc, SX, y, 240, 19, C.alt);
+        strokeRect(doc, SX, y, 240, 19);
+        doc.save().font('Helvetica').fontSize(9).fillColor(C.blk)
+          .text('IVA ' + (ivaPct * 100).toFixed(0) + '%', SX + 6, y + 5, { width: 160, lineBreak: false })
+          .text(money(iva), SX + 170, y + 5, { width: 64, align: 'right', lineBreak: false })
+          .restore();
+        y += 19;
+      }
+      y += 12;
+
+    } else if (manualItems) {
+      // ── MODO 2: ítems manuales de mostrador ─────────────────────────────
+      fillRect(doc, MG, y, CW, 17, C.secHdr);
+      hLine(doc, MG, y,      MG + CW, '#94a3b8', 0.5);
+      hLine(doc, MG, y + 17, MG + CW, '#94a3b8', 0.5);
+      doc.save().font('Helvetica-Bold').fontSize(8).fillColor(C.secTxt)
+        .text('CONCEPTO: ' + recibo.rc_concepto, MG + 8, y + 5, { width: CW - 16, lineBreak: false }).restore();
+      y += 21;
+
+      // 4 columnas: descripción, cant, precio, subtotal
+      const IC = [
+        { header: 'Descripción', w: 265, align: 'left'   },
+        { header: 'Cant.',           w: 50,  align: 'center' },
+        { header: 'Precio unit.',    w: 100, align: 'right'  },
+        { header: 'Subtotal',        w: 100, align: 'right'  },
+      ];
+      const IR = 19;
+      fillRect(doc, MG, y, CW, IR, C.dark);
+      let hx = MG;
+      for (const col of IC) {
+        doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.wht)
+          .text(col.header, hx + 5, y + 5, { width: col.w - 10, align: col.align }).restore();
+        hx += col.w;
+      }
+      strokeRect(doc, MG, y, CW, IR, C.dark);
+      y += IR;
+
+      manualItems.forEach((it, i) => {
+        const sub = Number(it.cantidad || 1) * Number(it.precio || 0);
+        if (y + IR > SAFE_Y) { doc.addPage(); y = MG; }
+        if (i % 2 === 1) fillRect(doc, MG, y, CW, IR, C.alt);
+        strokeRect(doc, MG, y, CW, IR);
+        let cx = MG;
+        [
+          { val: it.nombre || '', align: 'left'   },
+          { val: String(it.cantidad || 1), align: 'center' },
+          { val: money(it.precio),         align: 'right'  },
+          { val: money(sub),               align: 'right'  },
+        ].forEach((cd, ci) => {
+          strokeRect(doc, cx, y, IC[ci].w, IR);
+          doc.save().font('Helvetica').fontSize(8.5).fillColor(C.blk)
+            .text(cd.val, cx + 5, y + 5, { width: IC[ci].w - 10, align: cd.align, lineBreak: false }).restore();
+          cx += IC[ci].w;
+        });
+        y += IR;
+      });
+      y += 10;
+
+    } else {
+      // ── MODO 3: concepto simple (sin ítems ni cotización) ───────────────
+      const COL_DESC  = CW - 100;
+      const COL_VALOR = 100;
+      const descH  = Math.max(doc.font('Helvetica').fontSize(8.5)
+        .heightOfString(recibo.rc_concepto, { width: COL_DESC - 12 }) + 8, 28);
+
+      fillRect(doc, MG, y, CW, 20, C.dark);
+      doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.wht)
+        .text('CONCEPTO', MG + 5, y + 6, { width: COL_DESC - 10 }).restore();
+      doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.wht)
+        .text('VALOR', MG + COL_DESC + 5, y + 6, { width: COL_VALOR - 10, align: 'right' }).restore();
+      strokeRect(doc, MG, y, CW, 20, C.dark);
+      y += 20;
+
+      fillRect(doc, MG, y, CW, descH, C.alt);
+      strokeRect(doc, MG, y, CW, descH);
+      strokeRect(doc, MG, y, COL_DESC, descH);
+      strokeRect(doc, MG + COL_DESC, y, COL_VALOR, descH);
+      doc.save().font('Helvetica').fontSize(8.5).fillColor(C.blk)
+        .text(recibo.rc_concepto, MG + 6, y + 6, { width: COL_DESC - 12, lineBreak: true }).restore();
+      doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.blk)
+        .text(money(recibo.rc_valor), MG + COL_DESC + 5, y + (descH - 9) / 2, { width: COL_VALOR - 10, align: 'right', lineBreak: false }).restore();
+      y += descH + 4;
+    }
 
     // ── Método de pago + referencia ─────────────────────────────────────────
     const metodoLabel = LABEL_METODO[recibo.rc_metodo_pago] || recibo.rc_metodo_pago;
@@ -817,14 +1047,14 @@ function generateReciboPDF({ recibo, tenant }) {
       .text('Forma de pago: ' + metodoTxt, MG, y + 4).restore();
     y += 20;
 
-    // ── Total ────────────────────────────────────────────────────────────────
-    const TX = MG + CW - 200;
-    fillRect(doc, TX, y, 200, 28, C.dark);
-    strokeRect(doc, TX, y, 200, 28, C.dark);
+    // ── Total recibido ────────────────────────────────────────────────────────
+    const TOTX = MG + CW - 200;
+    fillRect(doc, TOTX, y, 200, 28, C.dark);
+    strokeRect(doc, TOTX, y, 200, 28, C.dark);
     doc.save().font('Helvetica-Bold').fontSize(11).fillColor(C.wht)
-      .text('TOTAL', TX + 8, y + 9, { width: 90, lineBreak: false }).restore();
+      .text('TOTAL RECIBIDO', TOTX + 8, y + 9, { width: 92, lineBreak: false }).restore();
     doc.save().font('Helvetica-Bold').fontSize(11).fillColor(C.wht)
-      .text(money(recibo.rc_valor), TX + 100, y + 9, { width: 92, align: 'right', lineBreak: false }).restore();
+      .text(money(recibo.rc_valor), TOTX + 100, y + 9, { width: 92, align: 'right', lineBreak: false }).restore();
 
     if (recibo.rc_estado === 'anulado') {
       doc.save().font('Helvetica-Bold').fontSize(36).fillColor('#cc0000').opacity(0.25)
