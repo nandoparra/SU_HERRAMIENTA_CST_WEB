@@ -185,8 +185,9 @@ router.get('/clientes/search', searchLimiter, async (req, res) => {
     const like   = `%${q}%`;
     const digits = q.replace(/\D/g, '');
     const tenantId = req.tenant?.uid_tenant ?? 1;
+    // digits: busca también contra identificacion normalizada (sin puntos/guiones/espacios)
     const params = digits
-      ? [tenantId, like, like, like, `%${digits}%`]
+      ? [tenantId, like, like, `%${digits}%`, like, `%${digits}%`]
       : [tenantId, like, like, like];
     const conn = await db.getConnection();
     try {
@@ -199,6 +200,7 @@ router.get('/clientes/search', searchLimiter, async (req, res) => {
          WHERE c.tenant_id = ?
            AND (c.cli_razon_social  LIKE ?
             OR c.cli_identificacion LIKE ?
+            ${digits ? "OR REPLACE(REPLACE(REPLACE(c.cli_identificacion,'.',''),'-',''),' ','') LIKE ?" : ''}
             OR c.cli_contacto       LIKE ?
             ${digits ? 'OR c.cli_telefono LIKE ?' : ''})
          GROUP BY c.uid_cliente
