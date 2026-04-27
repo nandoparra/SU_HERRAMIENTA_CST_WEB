@@ -702,4 +702,152 @@ function generateOrdenServicioPDF({ orden, cliente, maquinas }) {
   });
 }
 
-module.exports = { generateQuotePDF, generateMaintenancePDF, generateOrdenServicioPDF };
+// ─── RECIBO DE CAJA PDF ───────────────────────────────────────────────────────
+function generateReciboPDF({ recibo, tenant }) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    const doc = new PDFDocument({ size: 'A4', margin: 0, compress: true });
+    doc.on('data', d => chunks.push(d));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const LABEL_METODO = {
+      efectivo:      'Efectivo',
+      transferencia: 'Transferencia bancaria',
+      tarjeta:       'Tarjeta',
+      nequi:         'Nequi',
+      daviplata:     'Daviplata',
+    };
+
+    let y = MG;
+
+    // ── Header ──────────────────────────────────────────────────────────────
+    const LOGO_FW = 110;
+    const LOGO_FH = Math.round(LOGO_FW * 1396 / 2696);
+    const HDR_H   = Math.max(LOGO_FH, 65);
+
+    if (fs.existsSync(LOGO)) {
+      const cx = MG + LOGO_FW / 2;
+      const cy = y + HDR_H / 2;
+      doc.save().translate(cx, cy).rotate(-90)
+        .image(LOGO, -LOGO_FH / 2, -LOGO_FW / 2, { width: LOGO_FH, height: LOGO_FW })
+        .restore();
+    }
+
+    const infoX = MG + LOGO_FW + 5;
+    const infoW = CW - LOGO_FW - 80;
+    doc.save().font('Helvetica-Bold').fontSize(12).fillColor(C.dark)
+      .text(COMPANY.name, infoX, y + 4, { width: infoW, align: 'center' }).restore();
+    [COMPANY.nit, COMPANY.address, COMPANY.phone, COMPANY.website, COMPANY.email]
+      .forEach((line, i) => {
+        doc.save().font('Helvetica').fontSize(8).fillColor(C.blk)
+          .text(line, infoX, y + 19 + i * 9.5, { width: infoW, align: 'center' }).restore();
+      });
+
+    const QX = MG + CW - 75;
+    fillRect(doc, QX, y, 75, HDR_H, C.lightBg);
+    strokeRect(doc, QX, y, 75, HDR_H, C.bdr);
+    doc.save().font('Helvetica').fontSize(8.5).fillColor(C.gry)
+      .text('Recibo de Caja', QX, y + 10, { width: 75, align: 'center' }).restore();
+    doc.save().font('Helvetica-Bold').fontSize(15).fillColor(C.dark)
+      .text('No. ' + recibo.rc_consecutivo, QX, y + 26, { width: 75, align: 'center' }).restore();
+
+    y += HDR_H + 6;
+    hLine(doc, MG, y, MG + CW, C.dark, 1.5);
+    y += 10;
+
+    // ── Datos del cliente / receptor ────────────────────────────────────────
+    const LW    = 355;
+    const RW    = CW - LW;
+    const RH    = 20;
+    const LBL_W = 82;
+
+    const nombre = recibo.cli_razon_social || recibo.cli_contacto || recibo.rc_nombre_paga || 'Mostrador';
+    const clientRows = [
+      { lbl: 'SEÑOR(ES)', val: nombre,                 rLbl: 'FECHA',       rVal: fmtDate(recibo.rc_fecha) },
+      { lbl: 'DIRECCIÓN', val: recibo.cli_direccion || '', rLbl: '',          rVal: '' },
+      { lbl: 'TELÉFONO',  val: recibo.cli_telefono  || '', rLbl: 'ORDEN No.', rVal: recibo.ord_consecutivo ? String(recibo.ord_consecutivo) : '' },
+    ];
+
+    for (const row of clientRows) {
+      cell(doc, row.lbl, MG,         y, LBL_W,      RH, { fill: C.lbl, font: 'Helvetica-Bold', size: 7.5, color: C.wht });
+      cell(doc, row.val, MG + LBL_W, y, LW - LBL_W, RH, { size: 8.5 });
+      if (row.rLbl) {
+        cell(doc, row.rLbl, MG + LW,          y, RW / 2, RH, { fill: C.lbl, font: 'Helvetica-Bold', size: 7, color: C.wht, align: 'center', padY: 6 });
+        cell(doc, row.rVal, MG + LW + RW / 2, y, RW / 2, RH, { size: 8.5, align: 'center' });
+      } else {
+        strokeRect(doc, MG + LW, y, RW, RH);
+      }
+      y += RH;
+    }
+    y += 14;
+
+    // ── Tabla concepto + valor ───────────────────────────────────────────────
+    const COL_DESC  = CW - 100;
+    const COL_VALOR = 100;
+
+    fillRect(doc, MG, y, CW, 20, C.dark);
+    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.wht)
+      .text('CONCEPTO', MG + 5, y + 6, { width: COL_DESC - 10 }).restore();
+    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.wht)
+      .text('VALOR', MG + COL_DESC + 5, y + 6, { width: COL_VALOR - 10, align: 'right' }).restore();
+    strokeRect(doc, MG, y, CW, 20, C.dark);
+    y += 20;
+
+    const ROW_H  = 28;
+    const descH  = Math.max(doc.font('Helvetica').fontSize(8.5)
+      .heightOfString(recibo.rc_concepto, { width: COL_DESC - 12 }) + 8, ROW_H);
+
+    fillRect(doc, MG, y, CW, descH, C.alt);
+    strokeRect(doc, MG, y, CW, descH);
+    strokeRect(doc, MG, y, COL_DESC, descH);
+    strokeRect(doc, MG + COL_DESC, y, COL_VALOR, descH);
+    doc.save().font('Helvetica').fontSize(8.5).fillColor(C.blk)
+      .text(recibo.rc_concepto, MG + 6, y + 6, { width: COL_DESC - 12, lineBreak: true }).restore();
+    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.blk)
+      .text(money(recibo.rc_valor), MG + COL_DESC + 5, y + (descH - 9) / 2, { width: COL_VALOR - 10, align: 'right', lineBreak: false }).restore();
+    y += descH + 4;
+
+    // ── Método de pago + referencia ─────────────────────────────────────────
+    const metodoLabel = LABEL_METODO[recibo.rc_metodo_pago] || recibo.rc_metodo_pago;
+    const metodoTxt   = recibo.rc_referencia
+      ? `${metodoLabel} — Ref: ${recibo.rc_referencia}`
+      : metodoLabel;
+    doc.save().font('Helvetica').fontSize(8).fillColor(C.gry)
+      .text('Forma de pago: ' + metodoTxt, MG, y + 4).restore();
+    y += 20;
+
+    // ── Total ────────────────────────────────────────────────────────────────
+    const TX = MG + CW - 200;
+    fillRect(doc, TX, y, 200, 28, C.dark);
+    strokeRect(doc, TX, y, 200, 28, C.dark);
+    doc.save().font('Helvetica-Bold').fontSize(11).fillColor(C.wht)
+      .text('TOTAL', TX + 8, y + 9, { width: 90, lineBreak: false }).restore();
+    doc.save().font('Helvetica-Bold').fontSize(11).fillColor(C.wht)
+      .text(money(recibo.rc_valor), TX + 100, y + 9, { width: 92, align: 'right', lineBreak: false }).restore();
+
+    if (recibo.rc_estado === 'anulado') {
+      doc.save().font('Helvetica-Bold').fontSize(36).fillColor('#cc0000').opacity(0.25)
+        .text('ANULADO', MG, A4H / 2 - 30, { width: CW, align: 'center', rotate: -30 }).restore();
+    }
+
+    y += 28 + 40;
+
+    // ── Firma ────────────────────────────────────────────────────────────────
+    hLine(doc, MG, y, MG + 150, C.blk, 0.7);
+    doc.save().font('Helvetica').fontSize(8).fillColor(C.gry)
+      .text('ELABORADO POR', MG, y + 5).restore();
+
+    // ── Footer ───────────────────────────────────────────────────────────────
+    const footY = A4H - 35;
+    hLine(doc, MG, footY, MG + CW, C.dark, 1);
+    doc.save().font('Helvetica-Bold').fontSize(8).fillColor(C.dark)
+      .text('¡GRACIAS POR SU PAGO!', MG, footY + 6, { width: CW, align: 'center' }).restore();
+    doc.save().font('Helvetica').fontSize(7.5).fillColor(C.gry)
+      .text(COMPANY.email + ' • ' + COMPANY.website, MG, footY + 18, { width: CW, align: 'center' }).restore();
+
+    doc.end();
+  });
+}
+
+module.exports = { generateQuotePDF, generateMaintenancePDF, generateOrdenServicioPDF, generateReciboPDF };
