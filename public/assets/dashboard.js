@@ -1848,14 +1848,13 @@ Views.recibos = {
         </div>
 
         <div style="margin:10px 0 4px;border-top:1px solid #f0f0f0;padding-top:10px;">
-          <label>Cliente <span style="font-size:11px;color:#888;">— o escribe nombre libre para mostrador</span></label>
-          <input type="text" id="rcNCliente" placeholder="Nombre, NIT o cédula del cliente" style="width:100%;" oninput="rc_buscarCliente(this.value);rc_toggleCedula()">
+          <label>Cédula / NIT <span style="font-size:11px;color:#888;">— busca cliente registrado o déjalo para mostrador</span></label>
+          <input type="text" id="rcNCedula" placeholder="Ej: 9862087" style="width:100%;margin-top:3px;" oninput="rc_buscarPorCedula(this.value)">
+          <div id="rcCedulaSugg" style="${SUGG_STYLE}"></div>
+          <label style="margin-top:8px;">Nombre / Razón social <span style="font-size:11px;color:#888;">— o escribe libre para mostrador</span></label>
+          <input type="text" id="rcNCliente" placeholder="Nombre o razón social" style="width:100%;" oninput="rc_buscarCliente(this.value);rc_toggleCedula()">
           <div id="rcClienteSugg" style="${SUGG_STYLE}"></div>
           <input type="hidden" id="rcNClienteId">
-          <div id="rcCedulaRow" style="margin-top:6px;">
-            <label style="font-size:13px;">Cédula / NIT <span style="font-size:11px;color:#888;">— para clientes sin cuenta, aparece en el PDF</span></label>
-            <input type="text" id="rcNCedula" placeholder="Ej: 1234567890" style="width:100%;margin-top:3px;">
-          </div>
         </div>
 
         <label style="margin-top:10px;">Fecha <span style="color:#e53e3e">*</span></label>
@@ -1957,6 +1956,30 @@ Views.recibos = {
     };
 
     // Buscar cliente por nombre / NIT (sin orden)
+    // Buscar por cédula/NIT — auto-rellena el campo Nombre si hay match
+    window.rc_buscarPorCedula = async function(q) {
+      const sugg = document.getElementById('rcCedulaSugg'); if (!sugg) return;
+      document.getElementById('rcNClienteId').value = '';
+      document.getElementById('rcNCliente').value   = '';
+      if (!q || q.length < 2) { sugg.style.display='none'; return; }
+      const data = await fetch(`${API}/clientes/search?q=${encodeURIComponent(q)}&limit=6`).then(r=>r.json()).catch(()=>[]);
+      if (!data.length) { sugg.style.display='none'; return; }
+      sugg.style.display = 'block';
+      sugg.innerHTML = data.map(c => {
+        const nombre = esc(c.cli_razon_social || c.cli_contacto || c.cli_identificacion);
+        const nit    = esc(c.cli_identificacion || '');
+        return `<div style="${SUGG_ROW}" onmousedown="rc_selClienteCedula(${c.uid_cliente},'${nombre}','${nit}')">${nombre} <span style="color:#888;font-size:11px;">${nit}</span></div>`;
+      }).join('');
+    };
+
+    window.rc_selClienteCedula = function(id, nombre, nit) {
+      document.getElementById('rcNClienteId').value = id;
+      document.getElementById('rcNCliente').value   = nombre;
+      document.getElementById('rcNCedula').value    = nit;
+      document.getElementById('rcCedulaSugg').style.display = 'none';
+    };
+
+    // Buscar cliente por nombre (campo secundario)
     window.rc_buscarCliente = async function(q) {
       const sugg = document.getElementById('rcClienteSugg'); if (!sugg) return;
       document.getElementById('rcNClienteId').value = '';
@@ -1974,15 +1997,10 @@ Views.recibos = {
       document.getElementById('rcNClienteId').value = id;
       document.getElementById('rcNCliente').value   = nombre;
       document.getElementById('rcClienteSugg').style.display = 'none';
-      rc_toggleCedula();
     };
 
-    // Mostrar cédula solo cuando no hay cliente registrado vinculado
-    window.rc_toggleCedula = function() {
-      const hasId = !!document.getElementById('rcNClienteId')?.value;
-      const row   = document.getElementById('rcCedulaRow');
-      if (row) row.style.display = hasId ? 'none' : 'block';
-    };
+    // No-op mantenido por compatibilidad con oninput en rcNCliente
+    window.rc_toggleCedula = function() {};
 
     window.rc_guardar = async function() {
       const errEl      = document.getElementById('rcNError');
@@ -2010,11 +2028,11 @@ Views.recibos = {
         rc_fecha: fecha, rc_concepto: concepto,
         rc_valor: Number(valor), rc_metodo_pago: metodo,
         rc_referencia: ref || null,
-        uid_cliente:        clienteId  ? Number(clienteId) : null,
-        uid_orden:          uidOrden   ? Number(uidOrden)  : null,
-        rc_nombre_paga:     (!clienteId && clienteTxt) ? clienteTxt : null,
-        rc_cliente_cedula:  (!clienteId && cedula)     ? cedula     : null,
-        rc_items:           items.length ? items : undefined,
+        uid_cliente:       clienteId ? Number(clienteId) : null,
+        uid_orden:         uidOrden  ? Number(uidOrden)  : null,
+        rc_nombre_paga:    (!clienteId && clienteTxt) ? clienteTxt : null,
+        rc_cliente_cedula: (!clienteId && cedula)      ? cedula     : null,
+        rc_items:          items.length ? items : undefined,
       };
 
       const r = await fetch(`${API}/recibos`, {
