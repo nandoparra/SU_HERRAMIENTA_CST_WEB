@@ -1777,24 +1777,37 @@ Views.recibos = {
       else alert('Error: ' + (r.error || 'No se pudo anular'));
     };
 
+    const SUGG_STYLE = 'background:#fff;border:1px solid #ddd;border-radius:6px;display:none;max-height:150px;overflow-y:auto;margin-top:2px;position:relative;z-index:10;';
+    const SUGG_ROW   = 'padding:9px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f5f5f5;';
+
     window.rc_openCreate = function() {
       document.getElementById('rcModal')?.remove();
       const today = new Date().toISOString().slice(0,10);
       const bg = document.createElement('div'); bg.className='modal-bg'; bg.id='rcModal';
-      bg.innerHTML = `<div class="modal" style="max-width:480px;width:94%;">
+      bg.innerHTML = `<div class="modal" style="max-width:490px;width:94%;">
         <h3>Nuevo Recibo de Caja</h3>
-        <label>Fecha <span style="color:#e53e3e">*</span></label>
+
+        <label style="margin-top:6px;">Buscar orden <span style="font-size:11px;color:#888;">— opcional, rellena cliente y concepto</span></label>
+        <input type="text" id="rcNOrdenQ" placeholder="# consecutivo, nombre o NIT del cliente" style="width:100%;" oninput="rc_buscarOrden(this.value)">
+        <div id="rcOrdenSugg" style="${SUGG_STYLE}"></div>
+        <input type="hidden" id="rcNOrdenId">
+
+        <div style="margin:10px 0 4px;border-top:1px solid #f0f0f0;padding-top:10px;">
+          <label>Cliente <span style="font-size:11px;color:#888;">— o escribe nombre libre para mostrador</span></label>
+          <input type="text" id="rcNCliente" placeholder="Nombre o razón social" style="width:100%;" oninput="rc_buscarCliente(this.value)">
+          <div id="rcClienteSugg" style="${SUGG_STYLE}"></div>
+          <input type="hidden" id="rcNClienteId">
+        </div>
+
+        <label style="margin-top:10px;">Fecha <span style="color:#e53e3e">*</span></label>
         <input type="date" id="rcNFecha" value="${today}" style="width:100%;">
-        <label style="margin-top:10px;">Cliente (opcional)</label>
-        <input type="text" id="rcNCliente" placeholder="Nombre o razón social del cliente" style="width:100%;" oninput="rc_buscarCliente(this.value)">
-        <div id="rcClienteSugg" style="background:#fff;border:1px solid #ddd;border-radius:6px;display:none;max-height:140px;overflow-y:auto;margin-top:2px;"></div>
-        <input type="hidden" id="rcNClienteId">
-        <label style="margin-top:10px;">Orden (opcional)</label>
-        <input type="number" id="rcNOrden" placeholder="Consecutivo de orden" style="width:100%;">
+
         <label style="margin-top:10px;">Concepto <span style="color:#e53e3e">*</span></label>
         <textarea id="rcNConcepto" rows="3" placeholder="Descripción del pago recibido..." style="width:100%;resize:vertical;"></textarea>
+
         <label style="margin-top:10px;">Valor <span style="color:#e53e3e">*</span></label>
         <input type="number" id="rcNValor" min="1" placeholder="0" style="width:100%;">
+
         <label style="margin-top:10px;">Método de pago</label>
         <select id="rcNMetodo" style="width:100%;">
           <option value="efectivo">Efectivo</option>
@@ -1803,8 +1816,10 @@ Views.recibos = {
           <option value="nequi">Nequi</option>
           <option value="daviplata">Daviplata</option>
         </select>
-        <label style="margin-top:10px;">Referencia (opcional)</label>
-        <input type="text" id="rcNRef" placeholder="No. transferencia, voucher..." style="width:100%;">
+
+        <label style="margin-top:10px;">Referencia <span style="font-size:11px;color:#888;">— No. transferencia, voucher...</span></label>
+        <input type="text" id="rcNRef" placeholder="Opcional" style="width:100%;">
+
         <div id="rcNError" style="color:#c53030;font-size:13px;margin-top:8px;display:none;"></div>
         <div class="modal-actions">
           <button class="btn btn-grey" onclick="document.getElementById('rcModal').remove()">Cancelar</button>
@@ -1814,6 +1829,45 @@ Views.recibos = {
       document.body.appendChild(bg);
     };
 
+    // Buscar orden por consecutivo / nombre / NIT
+    let _rcOrdenTimer;
+    window.rc_buscarOrden = function(q) {
+      const sugg = document.getElementById('rcOrdenSugg'); if (!sugg) return;
+      document.getElementById('rcNOrdenId').value = '';
+      clearTimeout(_rcOrdenTimer);
+      if (!q || q.length < 1) { sugg.style.display='none'; return; }
+      _rcOrdenTimer = setTimeout(async () => {
+        const data = await fetch(`${API}/orders/search?q=${encodeURIComponent(q)}&limit=6`).then(r=>r.json()).catch(()=>[]);
+        if (!data.length) { sugg.style.display='none'; return; }
+        sugg.style.display = 'block';
+        sugg.innerHTML = data.map(o => {
+          const nombre = esc(o.cli_razon_social || o.cli_contacto || '');
+          const maq    = o.maquinas_resumen ? ` — ${esc(o.maquinas_resumen)}` : '';
+          return `<div style="${SUGG_ROW}" onmousedown="rc_selOrden(${o.uid_orden},${o.ord_consecutivo},'${nombre}',${o.uid_cliente||'null'},'${esc(o.cli_direccion||'')}','${esc(o.cli_telefono||'')}','${maq.replace(/'/g,"\\'")}')">
+            <span style="font-weight:600">Orden #${o.ord_consecutivo}</span> · ${nombre}${maq}
+          </div>`;
+        }).join('');
+      }, 280);
+    };
+
+    // Al seleccionar una orden: rellena uid_orden, cliente y concepto
+    window.rc_selOrden = function(uid, consec, nombre, clienteId, dir, tel, maqSuffix) {
+      document.getElementById('rcNOrdenId').value  = uid;
+      document.getElementById('rcNOrdenQ').value   = `#${consec} — ${nombre}`;
+      document.getElementById('rcOrdenSugg').style.display = 'none';
+      // Rellenar cliente
+      if (clienteId) {
+        document.getElementById('rcNClienteId').value = clienteId;
+        document.getElementById('rcNCliente').value   = nombre;
+      }
+      // Pre-llenar concepto si está vacío
+      const concEl = document.getElementById('rcNConcepto');
+      if (concEl && !concEl.value.trim()) {
+        concEl.value = `Pago orden de servicio #${consec}${maqSuffix}`;
+      }
+    };
+
+    // Buscar cliente por nombre / NIT (sin orden)
     window.rc_buscarCliente = async function(q) {
       const sugg = document.getElementById('rcClienteSugg'); if (!sugg) return;
       document.getElementById('rcNClienteId').value = '';
@@ -1823,7 +1877,7 @@ Views.recibos = {
       sugg.style.display = 'block';
       sugg.innerHTML = data.map(c => {
         const nombre = esc(c.cli_razon_social || c.cli_contacto || c.cli_identificacion);
-        return `<div style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0;" onmousedown="rc_selCliente(${c.uid_cliente},'${nombre}')">${nombre}</div>`;
+        return `<div style="${SUGG_ROW}" onmousedown="rc_selCliente(${c.uid_cliente},'${nombre}')">${nombre}</div>`;
       }).join('');
     };
 
@@ -1834,18 +1888,18 @@ Views.recibos = {
     };
 
     window.rc_guardar = async function() {
-      const errEl   = document.getElementById('rcNError');
-      const fecha   = document.getElementById('rcNFecha')?.value;
-      const concepto = document.getElementById('rcNConcepto')?.value.trim();
-      const valor   = document.getElementById('rcNValor')?.value;
-      const metodo  = document.getElementById('rcNMetodo')?.value;
-      const ref     = document.getElementById('rcNRef')?.value.trim();
-      const clienteId = document.getElementById('rcNClienteId')?.value || null;
+      const errEl      = document.getElementById('rcNError');
+      const fecha      = document.getElementById('rcNFecha')?.value;
+      const concepto   = document.getElementById('rcNConcepto')?.value.trim();
+      const valor      = document.getElementById('rcNValor')?.value;
+      const metodo     = document.getElementById('rcNMetodo')?.value;
+      const ref        = document.getElementById('rcNRef')?.value.trim();
+      const clienteId  = document.getElementById('rcNClienteId')?.value || null;
       const clienteTxt = document.getElementById('rcNCliente')?.value.trim();
-      const ordenRaw  = document.getElementById('rcNOrden')?.value.trim();
+      const uidOrden   = document.getElementById('rcNOrdenId')?.value || null;
 
-      if (!fecha)    { errEl.textContent='La fecha es obligatoria.';   errEl.style.display='block'; return; }
-      if (!concepto) { errEl.textContent='El concepto es obligatorio.'; errEl.style.display='block'; return; }
+      if (!fecha)    { errEl.textContent='La fecha es obligatoria.';    errEl.style.display='block'; return; }
+      if (!concepto) { errEl.textContent='El concepto es obligatorio.';  errEl.style.display='block'; return; }
       if (!valor || Number(valor) <= 0) { errEl.textContent='El valor debe ser mayor a cero.'; errEl.style.display='block'; return; }
       errEl.style.display = 'none';
 
@@ -1853,9 +1907,9 @@ Views.recibos = {
         rc_fecha: fecha, rc_concepto: concepto,
         rc_valor: Number(valor), rc_metodo_pago: metodo,
         rc_referencia: ref || null,
-        uid_cliente: clienteId ? Number(clienteId) : null,
+        uid_cliente:   clienteId  ? Number(clienteId)  : null,
+        uid_orden:     uidOrden   ? Number(uidOrden)    : null,
         rc_nombre_paga: (!clienteId && clienteTxt) ? clienteTxt : null,
-        uid_orden: ordenRaw ? Number(ordenRaw) : null,
       };
 
       const r = await fetch(`${API}/recibos`, {
