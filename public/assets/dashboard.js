@@ -1849,12 +1849,12 @@ Views.recibos = {
 
         <div style="margin:10px 0 4px;border-top:1px solid #f0f0f0;padding-top:10px;">
           <label>Cliente <span style="font-size:11px;color:#888;">— o escribe nombre libre para mostrador</span></label>
-          <input type="text" id="rcNCliente" placeholder="Nombre o razón social" style="width:100%;" oninput="rc_buscarCliente(this.value);rc_toggleCedula()">
+          <input type="text" id="rcNCliente" placeholder="Nombre, NIT o cédula del cliente" style="width:100%;" oninput="rc_buscarCliente(this.value);rc_toggleCedula()">
           <div id="rcClienteSugg" style="${SUGG_STYLE}"></div>
           <input type="hidden" id="rcNClienteId">
-          <div id="rcCedulaRow" style="margin-top:6px;display:flex;gap:8px;align-items:center;">
-            <label style="margin:0;white-space:nowrap;font-size:13px;">Cédula / NIT</label>
-            <input type="text" id="rcNCedula" placeholder="Opcional — aparece en el PDF" style="flex:1;">
+          <div id="rcCedulaRow" style="margin-top:6px;">
+            <label style="font-size:13px;">Cédula / NIT <span style="font-size:11px;color:#888;">— para clientes sin cuenta, aparece en el PDF</span></label>
+            <input type="text" id="rcNCedula" placeholder="Ej: 1234567890" style="width:100%;margin-top:3px;">
           </div>
         </div>
 
@@ -1981,7 +1981,7 @@ Views.recibos = {
     window.rc_toggleCedula = function() {
       const hasId = !!document.getElementById('rcNClienteId')?.value;
       const row   = document.getElementById('rcCedulaRow');
-      if (row) row.style.display = hasId ? 'none' : 'flex';
+      if (row) row.style.display = hasId ? 'none' : 'block';
     };
 
     window.rc_guardar = async function() {
