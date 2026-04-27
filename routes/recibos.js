@@ -8,6 +8,40 @@ const log = require('../utils/logger');
 
 router.use(requireInterno);
 
+// ─── GET /api/recibos/cotizacion-orden/:uidOrden — datos de cotización para modal ──
+// Debe ir ANTES de /recibos/:id para que Express no confunda la ruta
+router.get('/recibos/cotizacion-orden/:uidOrden', async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const conn = await db.getConnection();
+  try {
+    const [machines] = await conn.execute(
+      `SELECT cm.uid_herramienta_orden, cm.mano_obra, cm.subtotal,
+              cm.descripcion_trabajo,
+              h.her_nombre, h.her_marca, h.her_serial
+       FROM b2c_cotizacion_maquina cm
+       LEFT JOIN b2c_herramienta_orden ho
+             ON CAST(ho.uid_herramienta_orden AS CHAR) = CAST(cm.uid_herramienta_orden AS CHAR)
+       LEFT JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+       WHERE cm.uid_orden = ? AND cm.tenant_id = ?
+       ORDER BY cm.uid_herramienta_orden`,
+      [req.params.uidOrden, tenantId]
+    );
+    const [items] = await conn.execute(
+      `SELECT uid_herramienta_orden, nombre, cantidad, precio, subtotal
+       FROM b2c_cotizacion_item
+       WHERE uid_orden = ?
+       ORDER BY uid_herramienta_orden, id`,
+      [req.params.uidOrden]
+    );
+    res.json({ machines, items, hasCotizacion: machines.length > 0 });
+  } catch (e) {
+    log.error({ err: e }, 'Error obteniendo cotización de orden');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
 // ─── GET /api/recibos — lista con filtros opcionales ─────────────────────────
 router.get('/recibos', async (req, res) => {
   const tenantId = req.tenant?.uid_tenant ?? 1;
@@ -55,6 +89,7 @@ router.post('/recibos', async (req, res) => {
     uid_orden, uid_cliente, rc_nombre_paga,
     rc_fecha, rc_concepto, rc_valor,
     rc_metodo_pago = 'efectivo', rc_referencia,
+    rc_items,
   } = req.body;
 
   if (!rc_fecha)    return res.status(400).json({ error: 'rc_fecha es requerido' });
@@ -73,14 +108,18 @@ router.post('/recibos', async (req, res) => {
       [tenantId]
     );
 
+    const itemsJson = (Array.isArray(rc_items) && rc_items.length)
+      ? JSON.stringify(rc_items) : null;
+
     const [result] = await conn.execute(
       `INSERT INTO b2c_recibo_caja
          (tenant_id, uid_orden, uid_cliente, rc_nombre_paga, rc_consecutivo,
-          rc_fecha, rc_concepto, rc_valor, rc_metodo_pago, rc_referencia, rc_creado_por)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          rc_fecha, rc_concepto, rc_valor, rc_metodo_pago, rc_referencia, rc_creado_por,
+          rc_items)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [tenantId, uid_orden || null, uid_cliente || null, rc_nombre_paga || null,
        next_consec, rc_fecha, rc_concepto, Number(rc_valor),
-       rc_metodo_pago, rc_referencia || null, userId]
+       rc_metodo_pago, rc_referencia || null, userId, itemsJson]
     );
 
     await conn.commit();
@@ -163,7 +202,31 @@ router.get('/recibos/:id/pdf', async (req, res) => {
     );
     if (!recibo) return res.status(404).json({ error: 'Recibo no encontrado' });
 
-    const pdf = await generateReciboPDF({ recibo, tenant: req.tenant });
+    // Si hay orden vinculada, intentar traer la cotización para el PDF
+    let cotizacion = null;
+    if (recibo.uid_orden) {
+      const [machines] = await conn.execute(
+        `SELECT cm.uid_herramienta_orden, cm.mano_obra, cm.subtotal,
+                cm.descripcion_trabajo,
+                h.her_nombre, h.her_marca, h.her_serial
+         FROM b2c_cotizacion_maquina cm
+         LEFT JOIN b2c_herramienta_orden ho
+               ON CAST(ho.uid_herramienta_orden AS CHAR) = CAST(cm.uid_herramienta_orden AS CHAR)
+         LEFT JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+         WHERE cm.uid_orden = ?
+         ORDER BY cm.uid_herramienta_orden`,
+        [recibo.uid_orden]
+      );
+      const [items] = await conn.execute(
+        `SELECT uid_herramienta_orden, nombre, cantidad, precio, subtotal
+         FROM b2c_cotizacion_item WHERE uid_orden = ?
+         ORDER BY uid_herramienta_orden, id`,
+        [recibo.uid_orden]
+      );
+      if (machines.length) cotizacion = { machines, items };
+    }
+
+    const pdf = await generateReciboPDF({ recibo, tenant: req.tenant, cotizacion });
     const fname = `recibo-${recibo.rc_consecutivo}.pdf`;
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${fname}"` });
     res.send(pdf);
