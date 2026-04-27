@@ -1780,17 +1780,72 @@ Views.recibos = {
     const SUGG_STYLE = 'background:#fff;border:1px solid #ddd;border-radius:6px;display:none;max-height:150px;overflow-y:auto;margin-top:2px;position:relative;z-index:10;';
     const SUGG_ROW   = 'padding:9px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f5f5f5;';
 
+    const fmtCOP = n => '$' + Number(n||0).toLocaleString('es-CO');
+
+    // ── Items manuales (mostrador / orden sin cotización) ──────────────────
+    let _rcItems = [];
+    let _rcHasCotiz = false;
+
+    function rc_renderItems() {
+      const tbl = document.getElementById('rcItemsTable'); if (!tbl) return;
+      if (!_rcItems.length) {
+        tbl.innerHTML = '<div style="color:#bbb;font-size:12px;padding:4px 0;">Sin ítems — el PDF mostrará solo el concepto.</div>';
+        document.getElementById('rcValorHint') && (document.getElementById('rcValorHint').textContent = '');
+        return;
+      }
+      tbl.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="background:#f0f4f8;">
+          <th style="padding:4px 5px;text-align:left;">Descripción</th>
+          <th style="padding:4px 4px;width:48px;text-align:center;">Cant.</th>
+          <th style="padding:4px 5px;width:88px;text-align:right;">Precio</th>
+          <th style="padding:4px 5px;width:78px;text-align:right;">Subtotal</th>
+          <th style="width:22px;"></th>
+        </tr></thead>
+        <tbody>${_rcItems.map((it, i) => {
+          const sub = (Number(it.cantidad)||1) * (Number(it.precio)||0);
+          return `<tr style="border-top:1px solid #f0f0f0;">
+            <td><input style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px 5px;font-size:12px;" value="${esc(it.nombre||'')}" oninput="rc_onItemChange(${i},'nombre',this.value)"></td>
+            <td><input type="number" min="1" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px 3px;font-size:12px;text-align:center;" value="${it.cantidad||1}" oninput="rc_onItemChange(${i},'cantidad',this.value)"></td>
+            <td><input type="number" min="0" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px 3px;font-size:12px;text-align:right;" value="${it.precio||0}" oninput="rc_onItemChange(${i},'precio',this.value)"></td>
+            <td style="text-align:right;padding-right:4px;">${fmtCOP(sub)}</td>
+            <td><button type="button" onclick="rc_removeItem(${i})" style="background:none;border:none;cursor:pointer;color:#e53e3e;font-size:14px;padding:0 2px;">✕</button></td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+      const total = _rcItems.reduce((s, it) => s + (Number(it.cantidad)||1)*(Number(it.precio)||0), 0);
+      const valEl = document.getElementById('rcNValor');
+      const hint  = document.getElementById('rcValorHint');
+      if (valEl && total > 0) valEl.value = total;
+      if (hint) hint.textContent = total > 0 ? `Total calculado desde ítems: ${fmtCOP(total)}` : '';
+    }
+
+    window.rc_addItem    = function() { _rcItems.push({ nombre:'', cantidad:1, precio:0 }); rc_renderItems(); };
+    window.rc_removeItem = function(i) { _rcItems.splice(i, 1); rc_renderItems(); };
+    window.rc_onItemChange = function(i, field, val) {
+      if (!_rcItems[i]) return;
+      _rcItems[i][field] = field === 'nombre' ? val : (Number(val)||0);
+      rc_renderItems();
+    };
+    window.rc_onValorChange = function() {
+      const hint = document.getElementById('rcValorHint'); if (hint) hint.textContent = '';
+    };
+
     window.rc_openCreate = function() {
       document.getElementById('rcModal')?.remove();
+      _rcItems = []; _rcHasCotiz = false;
       const today = new Date().toISOString().slice(0,10);
       const bg = document.createElement('div'); bg.className='modal-bg'; bg.id='rcModal';
-      bg.innerHTML = `<div class="modal" style="max-width:490px;width:94%;">
+      bg.innerHTML = `<div class="modal" style="max-width:540px;width:94%;max-height:90vh;overflow-y:auto;">
         <h3>Nuevo Recibo de Caja</h3>
 
         <label style="margin-top:6px;">Buscar orden <span style="font-size:11px;color:#888;">— opcional, rellena cliente y concepto</span></label>
         <input type="text" id="rcNOrdenQ" placeholder="# consecutivo, nombre o NIT del cliente" style="width:100%;" oninput="rc_buscarOrden(this.value)">
         <div id="rcOrdenSugg" style="${SUGG_STYLE}"></div>
         <input type="hidden" id="rcNOrdenId">
+
+        <div id="rcCotizInfo" style="display:none;margin-top:6px;padding:7px 10px;background:#ebf8f0;border:1px solid #68d391;border-radius:6px;font-size:12px;color:#276749;">
+          ✅ <strong>Cotización disponible</strong> — el PDF incluirá el desglose completo de la orden.
+        </div>
 
         <div style="margin:10px 0 4px;border-top:1px solid #f0f0f0;padding-top:10px;">
           <label>Cliente <span style="font-size:11px;color:#888;">— o escribe nombre libre para mostrador</span></label>
@@ -1803,10 +1858,19 @@ Views.recibos = {
         <input type="date" id="rcNFecha" value="${today}" style="width:100%;">
 
         <label style="margin-top:10px;">Concepto <span style="color:#e53e3e">*</span></label>
-        <textarea id="rcNConcepto" rows="3" placeholder="Descripción del pago recibido..." style="width:100%;resize:vertical;"></textarea>
+        <textarea id="rcNConcepto" rows="2" placeholder="Descripción del pago recibido..." style="width:100%;resize:vertical;"></textarea>
 
-        <label style="margin-top:10px;">Valor <span style="color:#e53e3e">*</span></label>
-        <input type="number" id="rcNValor" min="1" placeholder="0" style="width:100%;">
+        <div id="rcItemsSection" style="margin-top:12px;padding-top:10px;border-top:1px solid #f0f0f0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <label style="margin:0;font-size:13px;">Ítems del servicio <span style="font-size:11px;color:#888;font-weight:400;">— opcional</span></label>
+            <button type="button" class="btn btn-grey" style="padding:2px 10px;font-size:12px;" onclick="rc_addItem()">+ Agregar ítem</button>
+          </div>
+          <div id="rcItemsTable"></div>
+        </div>
+
+        <label style="margin-top:12px;">Valor total <span style="color:#e53e3e">*</span></label>
+        <input type="number" id="rcNValor" min="1" placeholder="0" style="width:100%;" oninput="rc_onValorChange()">
+        <div id="rcValorHint" style="font-size:11px;color:#888;margin-top:2px;"></div>
 
         <label style="margin-top:10px;">Método de pago</label>
         <select id="rcNMetodo" style="width:100%;">
@@ -1827,6 +1891,7 @@ Views.recibos = {
         </div>
       </div>`;
       document.body.appendChild(bg);
+      rc_renderItems();
     };
 
     // Buscar orden por consecutivo / nombre / NIT
@@ -1850,21 +1915,41 @@ Views.recibos = {
       }, 280);
     };
 
-    // Al seleccionar una orden: rellena uid_orden, cliente y concepto
-    window.rc_selOrden = function(uid, consec, nombre, clienteId, dir, tel, maqSuffix) {
+    // Al seleccionar una orden: rellena uid_orden, cliente, concepto y verifica cotización
+    window.rc_selOrden = async function(uid, consec, nombre, clienteId, dir, tel, maqSuffix) {
       document.getElementById('rcNOrdenId').value  = uid;
       document.getElementById('rcNOrdenQ').value   = `#${consec} — ${nombre}`;
       document.getElementById('rcOrdenSugg').style.display = 'none';
-      // Rellenar cliente
       if (clienteId) {
         document.getElementById('rcNClienteId').value = clienteId;
         document.getElementById('rcNCliente').value   = nombre;
       }
-      // Pre-llenar concepto si está vacío
       const concEl = document.getElementById('rcNConcepto');
-      if (concEl && !concEl.value.trim()) {
-        concEl.value = `Pago orden de servicio #${consec}${maqSuffix}`;
-      }
+      if (concEl && !concEl.value.trim()) concEl.value = `Pago orden de servicio #${consec}${maqSuffix}`;
+
+      const cotizInfo   = document.getElementById('rcCotizInfo');
+      const itemsSection = document.getElementById('rcItemsSection');
+      try {
+        const data = await fetch(`${API}/recibos/cotizacion-orden/${uid}`).then(r=>r.json());
+        _rcHasCotiz = data.hasCotizacion;
+        if (data.hasCotizacion) {
+          if (cotizInfo)    cotizInfo.style.display    = 'block';
+          if (itemsSection) itemsSection.style.display = 'none';
+          // Pre-fill valor con total de la cotización
+          const total = (data.machines||[]).reduce((s, m) => {
+            const mis = (data.items||[]).filter(it => String(it.uid_herramienta_orden) === String(m.uid_herramienta_orden));
+            return s + Number(m.mano_obra||0) + mis.reduce((si, it) => si + (Number(it.cantidad)||1)*Number(it.precio||0), 0);
+          }, 0);
+          if (total > 0) {
+            document.getElementById('rcNValor').value = total;
+            const hint = document.getElementById('rcValorHint');
+            if (hint) hint.textContent = `Total de la cotización: ${fmtCOP(total)}`;
+          }
+        } else {
+          if (cotizInfo)    cotizInfo.style.display    = 'none';
+          if (itemsSection) itemsSection.style.display = 'block';
+        }
+      } catch {}
     };
 
     // Buscar cliente por nombre / NIT (sin orden)
@@ -1898,18 +1983,24 @@ Views.recibos = {
       const clienteTxt = document.getElementById('rcNCliente')?.value.trim();
       const uidOrden   = document.getElementById('rcNOrdenId')?.value || null;
 
-      if (!fecha)    { errEl.textContent='La fecha es obligatoria.';    errEl.style.display='block'; return; }
-      if (!concepto) { errEl.textContent='El concepto es obligatorio.';  errEl.style.display='block'; return; }
+      if (!fecha)    { errEl.textContent='La fecha es obligatoria.';   errEl.style.display='block'; return; }
+      if (!concepto) { errEl.textContent='El concepto es obligatorio.'; errEl.style.display='block'; return; }
       if (!valor || Number(valor) <= 0) { errEl.textContent='El valor debe ser mayor a cero.'; errEl.style.display='block'; return; }
       errEl.style.display = 'none';
+
+      // Incluir ítems solo si hay tabla manual visible (no cuando hay cotización)
+      const items = (!_rcHasCotiz && _rcItems.length)
+        ? _rcItems.filter(it => it.nombre || Number(it.precio) > 0)
+        : [];
 
       const body = {
         rc_fecha: fecha, rc_concepto: concepto,
         rc_valor: Number(valor), rc_metodo_pago: metodo,
         rc_referencia: ref || null,
-        uid_cliente:   clienteId  ? Number(clienteId)  : null,
-        uid_orden:     uidOrden   ? Number(uidOrden)    : null,
+        uid_cliente:    clienteId  ? Number(clienteId)  : null,
+        uid_orden:      uidOrden   ? Number(uidOrden)    : null,
         rc_nombre_paga: (!clienteId && clienteTxt) ? clienteTxt : null,
+        rc_items:       items.length ? items : undefined,
       };
 
       const r = await fetch(`${API}/recibos`, {
