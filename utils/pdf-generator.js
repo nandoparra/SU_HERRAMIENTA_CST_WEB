@@ -781,10 +781,11 @@ function generateReciboPDF({ recibo, tenant, cotizacion }) {
     const RH    = 20;
     const LBL_W = 82;
 
-    const nombre = recibo.cli_razon_social || recibo.cli_contacto || recibo.rc_nombre_paga || 'Mostrador';
+    const nombre  = recibo.cli_razon_social || recibo.cli_contacto || recibo.rc_nombre_paga || 'Mostrador';
+    const cedula  = recibo.cli_identificacion || recibo.rc_cliente_cedula || '';
     const clientRows = [
       { lbl: 'SEÑOR(ES)', val: nombre,                    rLbl: 'FECHA',      rVal: fmtDate(recibo.rc_fecha) },
-      { lbl: 'DIRECCIÓN', val: recibo.cli_direccion || '', rLbl: '',           rVal: '' },
+      { lbl: 'DIRECCIÓN', val: recibo.cli_direccion || '', rLbl: cedula ? 'CC / NIT' : '', rVal: cedula },
       { lbl: 'TELÉFONO',  val: recibo.cli_telefono  || '', rLbl: 'ORDEN No.', rVal: recibo.ord_consecutivo ? String(recibo.ord_consecutivo) : '' },
     ];
 
@@ -805,13 +806,15 @@ function generateReciboPDF({ recibo, tenant, cotizacion }) {
 
     if (cotizacion) {
       // ── MODO 1: desglose por máquina (orden con cotización) ─────────────
-      // Concepto como referencia encima de la tabla
-      fillRect(doc, MG, y, CW, 17, C.secHdr);
-      hLine(doc, MG, y,      MG + CW, '#94a3b8', 0.5);
-      hLine(doc, MG, y + 17, MG + CW, '#94a3b8', 0.5);
+      // Barra concepto con altura dinámica para textos largos
+      doc.font('Helvetica-Bold').fontSize(8);
+      const concH1 = Math.max(doc.heightOfString('CONCEPTO: ' + recibo.rc_concepto, { width: CW - 16 }) + 8, 17);
+      fillRect(doc, MG, y, CW, concH1, C.secHdr);
+      hLine(doc, MG, y,         MG + CW, '#94a3b8', 0.5);
+      hLine(doc, MG, y + concH1, MG + CW, '#94a3b8', 0.5);
       doc.save().font('Helvetica-Bold').fontSize(8).fillColor(C.secTxt)
-        .text('CONCEPTO: ' + recibo.rc_concepto, MG + 8, y + 5, { width: CW - 16, lineBreak: false }).restore();
-      y += 21;
+        .text('CONCEPTO: ' + recibo.rc_concepto, MG + 8, y + 4, { width: CW - 16 }).restore();
+      y += concH1 + 4;
 
       const COLS = [
         { key: 'nombre',    header: 'Ítem',    width: 265, align: 'left'   },
@@ -966,12 +969,14 @@ function generateReciboPDF({ recibo, tenant, cotizacion }) {
 
     } else if (manualItems) {
       // ── MODO 2: ítems manuales de mostrador ─────────────────────────────
-      fillRect(doc, MG, y, CW, 17, C.secHdr);
-      hLine(doc, MG, y,      MG + CW, '#94a3b8', 0.5);
-      hLine(doc, MG, y + 17, MG + CW, '#94a3b8', 0.5);
+      doc.font('Helvetica-Bold').fontSize(8);
+      const concH2 = Math.max(doc.heightOfString('CONCEPTO: ' + recibo.rc_concepto, { width: CW - 16 }) + 8, 17);
+      fillRect(doc, MG, y, CW, concH2, C.secHdr);
+      hLine(doc, MG, y,          MG + CW, '#94a3b8', 0.5);
+      hLine(doc, MG, y + concH2, MG + CW, '#94a3b8', 0.5);
       doc.save().font('Helvetica-Bold').fontSize(8).fillColor(C.secTxt)
-        .text('CONCEPTO: ' + recibo.rc_concepto, MG + 8, y + 5, { width: CW - 16, lineBreak: false }).restore();
-      y += 21;
+        .text('CONCEPTO: ' + recibo.rc_concepto, MG + 8, y + 4, { width: CW - 16 }).restore();
+      y += concH2 + 4;
 
       // 4 columnas: descripción, cant, precio, subtotal
       const IC = [

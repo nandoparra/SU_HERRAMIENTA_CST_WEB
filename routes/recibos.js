@@ -86,7 +86,7 @@ router.post('/recibos', async (req, res) => {
   const tenantId = req.tenant?.uid_tenant ?? 1;
   const userId   = req.session?.user?.id ?? null;
   const {
-    uid_orden, uid_cliente, rc_nombre_paga,
+    uid_orden, uid_cliente, rc_nombre_paga, rc_cliente_cedula,
     rc_fecha, rc_concepto, rc_valor,
     rc_metodo_pago = 'efectivo', rc_referencia,
     rc_items,
@@ -113,12 +113,12 @@ router.post('/recibos', async (req, res) => {
 
     const [result] = await conn.execute(
       `INSERT INTO b2c_recibo_caja
-         (tenant_id, uid_orden, uid_cliente, rc_nombre_paga, rc_consecutivo,
+         (tenant_id, uid_orden, uid_cliente, rc_nombre_paga, rc_cliente_cedula, rc_consecutivo,
           rc_fecha, rc_concepto, rc_valor, rc_metodo_pago, rc_referencia, rc_creado_por,
           rc_items)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [tenantId, uid_orden || null, uid_cliente || null, rc_nombre_paga || null,
-       next_consec, rc_fecha, rc_concepto, Number(rc_valor),
+       rc_cliente_cedula || null, next_consec, rc_fecha, rc_concepto, Number(rc_valor),
        rc_metodo_pago, rc_referencia || null, userId, itemsJson]
     );
 
@@ -140,7 +140,7 @@ router.get('/recibos/:id', async (req, res) => {
   try {
     const [[row]] = await conn.execute(
       `SELECT r.*,
-              c.cli_razon_social, c.cli_contacto, c.cli_direccion, c.cli_telefono,
+              c.cli_razon_social, c.cli_contacto, c.cli_identificacion, c.cli_direccion, c.cli_telefono,
               o.ord_consecutivo,
               u.usu_nombre AS creado_por_nombre
        FROM b2c_recibo_caja r
@@ -192,7 +192,7 @@ router.get('/recibos/:id/pdf', async (req, res) => {
   try {
     const [[recibo]] = await conn.execute(
       `SELECT r.*,
-              c.cli_razon_social, c.cli_contacto, c.cli_direccion, c.cli_telefono,
+              c.cli_razon_social, c.cli_contacto, c.cli_identificacion, c.cli_direccion, c.cli_telefono,
               o.ord_consecutivo
        FROM b2c_recibo_caja r
        LEFT JOIN b2c_cliente c ON c.uid_cliente = r.uid_cliente

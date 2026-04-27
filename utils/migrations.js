@@ -383,6 +383,20 @@ async function ensureReciboCajaItems() {
   }
 }
 
+async function ensureReciboCajaCedula() {
+  const conn = await db.getConnection();
+  try {
+    try {
+      await conn.execute(`ALTER TABLE b2c_recibo_caja ADD COLUMN rc_cliente_cedula VARCHAR(20) NULL`);
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    console.log('✅ Columna rc_cliente_cedula en b2c_recibo_caja verificada');
+  } catch (e) {
+    console.warn('⚠️ No pude agregar rc_cliente_cedula:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -395,6 +409,7 @@ async function runMigrations() {
   await ensureIvaColumns();
   await ensureReciboCajaTable();
   await ensureReciboCajaItems();
+  await ensureReciboCajaCedula();
   console.log('Migraciones completadas');
 }
 

@@ -1849,9 +1849,13 @@ Views.recibos = {
 
         <div style="margin:10px 0 4px;border-top:1px solid #f0f0f0;padding-top:10px;">
           <label>Cliente <span style="font-size:11px;color:#888;">— o escribe nombre libre para mostrador</span></label>
-          <input type="text" id="rcNCliente" placeholder="Nombre o razón social" style="width:100%;" oninput="rc_buscarCliente(this.value)">
+          <input type="text" id="rcNCliente" placeholder="Nombre o razón social" style="width:100%;" oninput="rc_buscarCliente(this.value);rc_toggleCedula()">
           <div id="rcClienteSugg" style="${SUGG_STYLE}"></div>
           <input type="hidden" id="rcNClienteId">
+          <div id="rcCedulaRow" style="margin-top:6px;display:flex;gap:8px;align-items:center;">
+            <label style="margin:0;white-space:nowrap;font-size:13px;">Cédula / NIT</label>
+            <input type="text" id="rcNCedula" placeholder="Opcional — aparece en el PDF" style="flex:1;">
+          </div>
         </div>
 
         <label style="margin-top:10px;">Fecha <span style="color:#e53e3e">*</span></label>
@@ -1970,6 +1974,14 @@ Views.recibos = {
       document.getElementById('rcNClienteId').value = id;
       document.getElementById('rcNCliente').value   = nombre;
       document.getElementById('rcClienteSugg').style.display = 'none';
+      rc_toggleCedula();
+    };
+
+    // Mostrar cédula solo cuando no hay cliente registrado vinculado
+    window.rc_toggleCedula = function() {
+      const hasId = !!document.getElementById('rcNClienteId')?.value;
+      const row   = document.getElementById('rcCedulaRow');
+      if (row) row.style.display = hasId ? 'none' : 'flex';
     };
 
     window.rc_guardar = async function() {
@@ -1993,14 +2005,16 @@ Views.recibos = {
         ? _rcItems.filter(it => it.nombre || Number(it.precio) > 0)
         : [];
 
+      const cedula = document.getElementById('rcNCedula')?.value.trim() || null;
       const body = {
         rc_fecha: fecha, rc_concepto: concepto,
         rc_valor: Number(valor), rc_metodo_pago: metodo,
         rc_referencia: ref || null,
-        uid_cliente:    clienteId  ? Number(clienteId)  : null,
-        uid_orden:      uidOrden   ? Number(uidOrden)    : null,
-        rc_nombre_paga: (!clienteId && clienteTxt) ? clienteTxt : null,
-        rc_items:       items.length ? items : undefined,
+        uid_cliente:        clienteId  ? Number(clienteId) : null,
+        uid_orden:          uidOrden   ? Number(uidOrden)  : null,
+        rc_nombre_paga:     (!clienteId && clienteTxt) ? clienteTxt : null,
+        rc_cliente_cedula:  (!clienteId && cedula)     ? cedula     : null,
+        rc_items:           items.length ? items : undefined,
       };
 
       const r = await fetch(`${API}/recibos`, {
