@@ -1696,6 +1696,187 @@ Views.inventario = {
 };
 
 // ════════════════════════════════════════════════════════════════════════════
+// VISTA: RECIBOS DE CAJA
+// ════════════════════════════════════════════════════════════════════════════
+Views.recibos = {
+  render() {
+    return `<div style="padding:22px;">
+      <div class="inv-header">
+        <h2>Recibos de Caja</h2>
+        <button class="btn btn-dark" onclick="rc_openCreate()">+ Nuevo Recibo</button>
+      </div>
+      <div class="card" style="padding:14px 16px;margin-bottom:14px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+          <label style="font-size:12px;color:#666;display:block;margin-bottom:3px;">Desde</label>
+          <input type="date" id="rcFechaDesde" style="padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+        </div>
+        <div>
+          <label style="font-size:12px;color:#666;display:block;margin-bottom:3px;">Hasta</label>
+          <input type="date" id="rcFechaHasta" style="padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+        </div>
+        <div>
+          <label style="font-size:12px;color:#666;display:block;margin-bottom:3px;">Estado</label>
+          <select id="rcEstado" style="padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+            <option value="">Todos</option>
+            <option value="activo">Activos</option>
+            <option value="anulado">Anulados</option>
+          </select>
+        </div>
+        <button class="btn btn-mid" onclick="rc_reload()">Buscar</button>
+      </div>
+      <div class="card" style="overflow-x:auto;">
+        <table class="inv-table" id="rcTable">
+          <thead><tr><th>No.</th><th>Fecha</th><th>Cliente / Nombre</th><th>Orden</th><th>Concepto</th><th>Valor</th><th>Método</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody><tr><td colspan="9" style="text-align:center;color:#aaa;padding:20px;">Cargando...</td></tr></tbody>
+        </table>
+      </div>
+    </div>`;
+  },
+  async init() {
+    const METODOS = { efectivo:'Efectivo', transferencia:'Transferencia', tarjeta:'Tarjeta', nequi:'Nequi', daviplata:'Daviplata' };
+
+    window.rc_reload = async function() {
+      const params = new URLSearchParams();
+      const desde  = document.getElementById('rcFechaDesde')?.value;
+      const hasta  = document.getElementById('rcFechaHasta')?.value;
+      const estado = document.getElementById('rcEstado')?.value;
+      if (desde)  params.set('fecha_desde', desde);
+      if (hasta)  params.set('fecha_hasta', hasta);
+      if (estado) params.set('estado', estado);
+
+      const rows = await fetch(`${API}/recibos?${params}`).then(r=>r.json()).catch(()=>[]);
+      const tb = document.querySelector('#rcTable tbody'); if (!tb) return;
+      if (!rows.length) {
+        tb.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:20px;">Sin recibos</td></tr>';
+        return;
+      }
+      tb.innerHTML = rows.map(r => {
+        const nombre = esc(r.cli_razon_social || r.cli_contacto || r.rc_nombre_paga || 'Mostrador');
+        const anulado = r.rc_estado === 'anulado';
+        return `<tr style="${anulado ? 'opacity:.55;' : ''}">
+          <td style="font-weight:600">${r.rc_consecutivo}</td>
+          <td style="white-space:nowrap">${fmtFecha(r.rc_fecha)}</td>
+          <td>${nombre}</td>
+          <td style="color:#666">${r.ord_consecutivo ? '#' + r.ord_consecutivo : '—'}</td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.rc_concepto)}">${esc(r.rc_concepto)}</td>
+          <td style="font-weight:600;white-space:nowrap">${money(r.rc_valor)}</td>
+          <td style="color:#666">${METODOS[r.rc_metodo_pago] || r.rc_metodo_pago}</td>
+          <td><span class="estado-pill" style="background:${anulado?'#fee2e2':'#dcfce7'};color:${anulado?'#b91c1c':'#166534'}">${anulado ? 'Anulado' : 'Activo'}</span></td>
+          <td style="display:flex;gap:6px;flex-wrap:wrap;">
+            <a href="${API}/recibos/${r.uid_recibo}/pdf" target="_blank" class="btn btn-sm btn-mid">PDF</a>
+            ${!anulado ? `<button class="btn btn-sm btn-grey" onclick="rc_anular(${r.uid_recibo})">Anular</button>` : ''}
+          </td>
+        </tr>`;
+      }).join('');
+    };
+
+    window.rc_anular = async function(id) {
+      if (!confirm('¿Anular este recibo? Esta acción no se puede deshacer.')) return;
+      const r = await fetch(`${API}/recibos/${id}/anular`, { method: 'PATCH' }).then(r=>r.json()).catch(()=>({error:'Error de red'}));
+      if (r.ok) { showToast('✅ Recibo anulado'); await rc_reload(); }
+      else alert('Error: ' + (r.error || 'No se pudo anular'));
+    };
+
+    window.rc_openCreate = function() {
+      document.getElementById('rcModal')?.remove();
+      const today = new Date().toISOString().slice(0,10);
+      const bg = document.createElement('div'); bg.className='modal-bg'; bg.id='rcModal';
+      bg.innerHTML = `<div class="modal" style="max-width:480px;width:94%;">
+        <h3>Nuevo Recibo de Caja</h3>
+        <label>Fecha <span style="color:#e53e3e">*</span></label>
+        <input type="date" id="rcNFecha" value="${today}" style="width:100%;">
+        <label style="margin-top:10px;">Cliente (opcional)</label>
+        <input type="text" id="rcNCliente" placeholder="Nombre o razón social del cliente" style="width:100%;" oninput="rc_buscarCliente(this.value)">
+        <div id="rcClienteSugg" style="background:#fff;border:1px solid #ddd;border-radius:6px;display:none;max-height:140px;overflow-y:auto;margin-top:2px;"></div>
+        <input type="hidden" id="rcNClienteId">
+        <label style="margin-top:10px;">Orden (opcional)</label>
+        <input type="number" id="rcNOrden" placeholder="Consecutivo de orden" style="width:100%;">
+        <label style="margin-top:10px;">Concepto <span style="color:#e53e3e">*</span></label>
+        <textarea id="rcNConcepto" rows="3" placeholder="Descripción del pago recibido..." style="width:100%;resize:vertical;"></textarea>
+        <label style="margin-top:10px;">Valor <span style="color:#e53e3e">*</span></label>
+        <input type="number" id="rcNValor" min="1" placeholder="0" style="width:100%;">
+        <label style="margin-top:10px;">Método de pago</label>
+        <select id="rcNMetodo" style="width:100%;">
+          <option value="efectivo">Efectivo</option>
+          <option value="transferencia">Transferencia bancaria</option>
+          <option value="tarjeta">Tarjeta</option>
+          <option value="nequi">Nequi</option>
+          <option value="daviplata">Daviplata</option>
+        </select>
+        <label style="margin-top:10px;">Referencia (opcional)</label>
+        <input type="text" id="rcNRef" placeholder="No. transferencia, voucher..." style="width:100%;">
+        <div id="rcNError" style="color:#c53030;font-size:13px;margin-top:8px;display:none;"></div>
+        <div class="modal-actions">
+          <button class="btn btn-grey" onclick="document.getElementById('rcModal').remove()">Cancelar</button>
+          <button class="btn btn-dark" onclick="rc_guardar()">Crear Recibo</button>
+        </div>
+      </div>`;
+      document.body.appendChild(bg);
+    };
+
+    window.rc_buscarCliente = async function(q) {
+      const sugg = document.getElementById('rcClienteSugg'); if (!sugg) return;
+      document.getElementById('rcNClienteId').value = '';
+      if (!q || q.length < 2) { sugg.style.display='none'; return; }
+      const data = await fetch(`${API}/clientes/search?q=${encodeURIComponent(q)}&limit=6`).then(r=>r.json()).catch(()=>[]);
+      if (!data.length) { sugg.style.display='none'; return; }
+      sugg.style.display = 'block';
+      sugg.innerHTML = data.map(c => {
+        const nombre = esc(c.cli_razon_social || c.cli_contacto || c.cli_identificacion);
+        return `<div style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0;" onmousedown="rc_selCliente(${c.uid_cliente},'${nombre}')">${nombre}</div>`;
+      }).join('');
+    };
+
+    window.rc_selCliente = function(id, nombre) {
+      document.getElementById('rcNClienteId').value = id;
+      document.getElementById('rcNCliente').value   = nombre;
+      document.getElementById('rcClienteSugg').style.display = 'none';
+    };
+
+    window.rc_guardar = async function() {
+      const errEl   = document.getElementById('rcNError');
+      const fecha   = document.getElementById('rcNFecha')?.value;
+      const concepto = document.getElementById('rcNConcepto')?.value.trim();
+      const valor   = document.getElementById('rcNValor')?.value;
+      const metodo  = document.getElementById('rcNMetodo')?.value;
+      const ref     = document.getElementById('rcNRef')?.value.trim();
+      const clienteId = document.getElementById('rcNClienteId')?.value || null;
+      const clienteTxt = document.getElementById('rcNCliente')?.value.trim();
+      const ordenRaw  = document.getElementById('rcNOrden')?.value.trim();
+
+      if (!fecha)    { errEl.textContent='La fecha es obligatoria.';   errEl.style.display='block'; return; }
+      if (!concepto) { errEl.textContent='El concepto es obligatorio.'; errEl.style.display='block'; return; }
+      if (!valor || Number(valor) <= 0) { errEl.textContent='El valor debe ser mayor a cero.'; errEl.style.display='block'; return; }
+      errEl.style.display = 'none';
+
+      const body = {
+        rc_fecha: fecha, rc_concepto: concepto,
+        rc_valor: Number(valor), rc_metodo_pago: metodo,
+        rc_referencia: ref || null,
+        uid_cliente: clienteId ? Number(clienteId) : null,
+        rc_nombre_paga: (!clienteId && clienteTxt) ? clienteTxt : null,
+        uid_orden: ordenRaw ? Number(ordenRaw) : null,
+      };
+
+      const r = await fetch(`${API}/recibos`, {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+      }).then(r=>r.json()).catch(()=>({error:'Error de red'}));
+
+      if (r.uid_recibo) {
+        document.getElementById('rcModal')?.remove();
+        showToast('✅ Recibo #' + r.rc_consecutivo + ' creado');
+        await rc_reload();
+      } else {
+        errEl.textContent = r.error || 'No se pudo crear el recibo';
+        errEl.style.display = 'block';
+      }
+    };
+
+    await rc_reload();
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
 // VISTA: NUEVA ORDEN (wizard)
 // ════════════════════════════════════════════════════════════════════════════
 Views.nuevaOrden = {
