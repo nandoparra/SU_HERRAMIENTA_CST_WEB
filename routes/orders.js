@@ -135,13 +135,16 @@ router.get('/orders/search', searchLimiter, async (req, res) => {
          WHERE o.tenant_id = ?
            AND (CAST(o.ord_consecutivo AS CHAR) LIKE ?
            OR c.cli_identificacion LIKE ?
+           ${digits ? "OR REPLACE(REPLACE(REPLACE(c.cli_identificacion,'.',''),'-',''),' ','') LIKE ?" : ''}
            OR c.cli_razon_social LIKE ?
            OR c.cli_contacto LIKE ?
            OR REPLACE(REPLACE(REPLACE(c.cli_telefono,' ',''),'-',''),'+','') LIKE ?)
          GROUP BY o.uid_orden
          ORDER BY o.ord_fecha DESC
          LIMIT 20`,
-        [tenantId, likeText, likeDigits, likeText, likeText, digits ? likeDigits : likeText]
+        digits
+          ? [tenantId, likeText, likeDigits, likeDigits, likeText, likeText, likeDigits]
+          : [tenantId, likeText, likeText, likeText, likeText, likeText]
       );
       res.json(rows);
     } finally {
