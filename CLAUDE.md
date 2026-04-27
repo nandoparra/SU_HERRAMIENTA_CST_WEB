@@ -69,6 +69,9 @@ routes/pdf.js                      GET descargar/POST enviar PDFs
                                      └─ /pdf/orden — PDF con todas las máquinas de la orden
                                      └─ /print/orden — HTML wrapper con auto-print
                                      └─ /informes/:uid — requireInterno
+routes/recibos.js                  6 endpoints recibos de caja (requireInterno)
+                                     └─ GET /recibos, POST /recibos, GET /recibos/cotizacion-orden/:uid
+                                     └─ GET /recibos/:id, PATCH /recibos/:id/anular, GET /recibos/:id/pdf
 routes/crear-orden.js              POST crear cliente/herramienta/orden + fotos + factura garantía
                                      └─ todos los endpoints con requireInterno
                                      └─ POST /crear-orden/factura/:uid_orden — upload PDF factura garantía nivel orden (legacy, compat)
@@ -131,11 +134,11 @@ Para rollback: `git checkout v2026-04-26-pre-cleanup`.
 
 ```
 main                           Estado estable (HEAD)
-feature/modulo-recibos         Módulo A — Recibos de caja (en desarrollo)
 ```
 
 ### Historial de ramas mergeadas (referencia)
 ```
+feature/modulo-recibos         Módulo A — Recibos de caja — MERGEADO 2026-04-26
 feature/login                  Login + sesiones + roles — MERGEADO
 feature/crear-orden            Módulo crear orden + fotos — MERGEADO
 feature/wa-autorizacion        Flujo autorización WA (1/2/3/4) — MERGEADO
@@ -1033,17 +1036,61 @@ Cambios en `utils/wa-handler.js`:
 
 ---
 
-## Plan facturación — Tarea 3 (pendiente de implementación)
+## Plan facturación — Tarea 3
 
-Tres módulos planificados, sin implementar aún. Prerequisito principal: mergear ramas pendientes (especialmente `feature/dashboard`) antes de iniciar.
+| Módulo | Estado | Esfuerzo | Prerequisito DIAN |
+|--------|--------|----------|-------------------|
+| A — Recibo de caja | ✅ MERGEADO 2026-04-26 | — | No |
+| B — POS básico | Pendiente | 2 días | No |
+| C — Factura electrónica | Pendiente | 3-4 días | Sí (NIT + resolución DIAN + cuenta Factus) |
 
-| Módulo | Descripción | Esfuerzo | Prerequisito DIAN |
-|--------|-------------|----------|-------------------|
-| A — Recibo de caja | Registra cobros por orden, tabla `b2c_recibo_caja`, 5 endpoints + PDF | 1 día | No |
-| B — POS básico | Venta directa con ítems, tablas `b2c_venta` + `b2c_venta_item`, 7 endpoints + PDF | 2 días | No |
-| C — Factura electrónica | Integración Factus API → DIAN, tabla `b2c_factura_electronica`, config por tenant | 3-4 días | Sí (NIT habilitado + resolución DIAN + cuenta Factus) |
+Orden de ejecución: B → C. El módulo B es el siguiente.
 
-Orden de ejecución: A → B → C. Los módulos A y B son independientes de DIAN.
+---
+
+## Módulo A — Recibos de caja (MERGEADO 2026-04-26)
+
+### Tabla `b2c_recibo_caja`
+Auto-migrada al arrancar. Columnas principales:
+- `uid_recibo` AI PK, `tenant_id`, `rc_consecutivo` (por tenant), `uid_orden` NULL, `uid_cliente` NULL
+- `rc_nombre_paga` VARCHAR — nombre libre para ventas de mostrador
+- `rc_cliente_cedula` VARCHAR(20) NULL — cédula para clientes sin cuenta (aparece en PDF)
+- `rc_fecha` DATE, `rc_concepto` TEXT, `rc_valor` DECIMAL(12,2)
+- `rc_metodo_pago` ENUM('efectivo','transferencia','tarjeta','cheque','otro') DEFAULT 'efectivo'
+- `rc_referencia` VARCHAR(100) NULL, `rc_estado` ENUM('activo','anulado') DEFAULT 'activo'
+- `rc_creado_por` FK → b2c_usuario, `rc_items` JSON NULL — ítems manuales opcionales
+
+### Endpoints (`routes/recibos.js`, montado en server.js bajo `/api`)
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/recibos` | Lista con filtros: estado, fecha_desde/hasta, uid_cliente, uid_orden |
+| POST | `/recibos` | Crear recibo (consecutivo auto por tenant, transacción) |
+| GET | `/recibos/cotizacion-orden/:uidOrden` | Datos cotización para modal — ANTES de /:id |
+| GET | `/recibos/:id` | Detalle con JOIN cliente, orden, usuario |
+| PATCH | `/recibos/:id/anular` | Anular recibo (409 si ya anulado) |
+| GET | `/recibos/:id/pdf` | PDF del recibo |
+
+### PDF — 3 modos (`generateReciboPDF` en `utils/pdf-generator.js`)
+1. **Con cotización** (`cotizacion != null`): desglose completo por máquina igual al PDF de cotización — mano de obra + ítems/repuestos + subtotal por máquina + resumen IVA + total
+2. **Con ítems manuales** (`rc_items` JSON array): tabla de 4 columnas — descripción, cantidad, precio unitario, subtotal
+3. **Sin detalle**: solo bloque CONCEPTO + VALOR (recibo simple)
+
+PDF siempre incluye: header empresa, datos cliente (CC/NIT si disponible), método de pago, referencia, sello "ANULADO" en rojo si aplica, total recibido en verde.
+
+### Vista dashboard (`Views.recibos` en `public/assets/dashboard.js`)
+- Pestaña "Recibos" en sidebar (entre Clientes e Inventario)
+- Lista con filtros: estado, fecha desde/hasta, buscar por cliente/orden
+- Botones por fila: Ver PDF, Anular
+- Modal "Nuevo Recibo":
+  - **Buscar orden** (opcional): autocomplete → rellena cliente y concepto automáticamente; si la orden tiene cotización muestra badge verde y pre-llena el valor total
+  - **Cédula / NIT**: busca clientes registrados vía `/api/clientes/search` con dropdown; si no hay match, guarda la cédula como texto libre en el PDF
+  - **Nombre / Razón social**: búsqueda secundaria por nombre
+  - **Ítems del servicio** (opcional): tabla dinámica solo cuando no hay cotización vinculada
+  - Campos: Fecha, Concepto, Valor total, Método de pago, Referencia
+
+### Búsqueda por cédula/NIT — fixes aplicados
+- `GET /api/clientes/search`: añadida normalización REPLACE para cédulas con puntos/guiones ("9.862.087-1" → encontrado buscando "9862087")
+- `GET /api/orders/search`: mismo fix para búsqueda de órdenes por cédula del cliente
 
 ---
 
