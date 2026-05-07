@@ -397,6 +397,147 @@ async function ensureReciboCajaCedula() {
   }
 }
 
+async function ensureVentaTables() {
+  const conn = await db.getConnection();
+  try {
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_venta (
+        uid_venta              INT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id              INT NOT NULL,
+        uid_orden              INT NULL,
+        uid_cliente            INT NULL,
+        uid_recibo             INT NULL,
+        ven_consecutivo        INT NOT NULL DEFAULT 0,
+        ven_fecha              DATE NOT NULL,
+        ven_subtotal           DECIMAL(14,2) DEFAULT 0,
+        ven_descuento          DECIMAL(14,2) DEFAULT 0,
+        ven_iva                DECIMAL(14,2) DEFAULT 0,
+        ven_total              DECIMAL(14,2) DEFAULT 0,
+        ven_metodo_pago        ENUM('efectivo','transferencia','tarjeta','nequi','daviplata','credito') DEFAULT 'efectivo',
+        ven_referencia         VARCHAR(100) NULL,
+        ven_notas              TEXT NULL,
+        ven_estado             ENUM('abierta','pagada','anulada') DEFAULT 'abierta',
+        ven_mano_obra          DECIMAL(14,2) DEFAULT 0,
+        ven_costo_repuestos    DECIMAL(14,2) DEFAULT 0,
+        ven_utilidad_repuestos DECIMAL(14,2) DEFAULT 0,
+        ven_margen_repuestos   DECIMAL(7,4)  DEFAULT 0,
+        ven_utilidad_total     DECIMAL(14,2) DEFAULT 0,
+        ven_margen_total       DECIMAL(7,4)  DEFAULT 0,
+        ven_es_rentable        TINYINT(1)    DEFAULT 0,
+        ven_utilidad_objetivo  DECIMAL(14,2) DEFAULT 60000,
+        ven_diferencia_utilidad DECIMAL(14,2) DEFAULT 0,
+        ven_creado_por         INT NULL,
+        created_at             DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_venta_tenant  (tenant_id),
+        INDEX idx_venta_cliente (uid_cliente),
+        INDEX idx_venta_orden   (uid_orden),
+        INDEX idx_venta_fecha   (ven_fecha),
+        FOREIGN KEY (tenant_id) REFERENCES b2c_tenant(uid_tenant)
+      )
+    `);
+
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_venta_item (
+        uid_item             INT AUTO_INCREMENT PRIMARY KEY,
+        uid_venta            INT NOT NULL,
+        tenant_id            INT NOT NULL,
+        vi_descripcion       VARCHAR(255) NOT NULL,
+        vi_tipo              ENUM('mano_obra','repuesto','servicio','otro') DEFAULT 'repuesto',
+        vi_cantidad          DECIMAL(10,3) DEFAULT 1,
+        vi_precio_unitario   DECIMAL(14,2) DEFAULT 0,
+        vi_costo_unitario    DECIMAL(14,2) DEFAULT 0,
+        vi_descuento_pct     DECIMAL(5,2)  DEFAULT 0,
+        vi_iva_pct           DECIMAL(5,2)  DEFAULT 0,
+        vi_subtotal          DECIMAL(14,2) DEFAULT 0,
+        vi_total             DECIMAL(14,2) DEFAULT 0,
+        INDEX idx_vitem_venta (uid_venta),
+        FOREIGN KEY (uid_venta)   REFERENCES b2c_venta(uid_venta),
+        FOREIGN KEY (tenant_id)   REFERENCES b2c_tenant(uid_tenant)
+      )
+    `);
+
+    console.log('✅ Tablas b2c_venta + b2c_venta_item verificadas/creadas');
+  } catch (e) {
+    console.warn('⚠️ No pude crear tablas de venta:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
+async function ensureConfigFinanciera() {
+  const conn = await db.getConnection();
+  try {
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_config_financiera (
+        uid_config               INT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id                INT NOT NULL,
+        cf_arriendo              DECIMAL(14,2) DEFAULT 0,
+        cf_energia               DECIMAL(14,2) DEFAULT 0,
+        cf_agua                  DECIMAL(14,2) DEFAULT 0,
+        cf_internet              DECIMAL(14,2) DEFAULT 0,
+        cf_telefono              DECIMAL(14,2) DEFAULT 0,
+        cf_salarios              DECIMAL(14,2) DEFAULT 0,
+        cf_seguridad_social      DECIMAL(14,2) DEFAULT 0,
+        cf_parafiscales          DECIMAL(14,2) DEFAULT 0,
+        cf_mantenimiento         DECIMAL(14,2) DEFAULT 0,
+        cf_otros                 DECIMAL(14,2) DEFAULT 0,
+        cf_descripcion_otros     VARCHAR(255)  NULL,
+        cf_total_costos_fijos    DECIMAL(14,2) DEFAULT 0,
+        cf_meta_ahorro_mes       DECIMAL(14,2) DEFAULT 2500000,
+        cf_meta_total_mes        DECIMAL(14,2) DEFAULT 13900000,
+        cf_mano_obra_base        DECIMAL(14,2) DEFAULT 35000,
+        cf_margen_objetivo_rep   DECIMAL(5,4)  DEFAULT 0.5000,
+        cf_utilidad_objetivo_min DECIMAL(14,2) DEFAULT 60000,
+        cf_utilidad_objetivo_opt DECIMAL(14,2) DEFAULT 85000,
+        cf_vigente_desde         DATE          NOT NULL,
+        cf_vigente_hasta         DATE          NULL,
+        updated_at               DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        updated_by               INT           NULL,
+        INDEX idx_cfg_tenant (tenant_id),
+        FOREIGN KEY (tenant_id) REFERENCES b2c_tenant(uid_tenant)
+      )
+    `);
+    console.log('✅ Tabla b2c_config_financiera verificada/creada');
+  } catch (e) {
+    console.warn('⚠️ No pude crear b2c_config_financiera:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
+async function seedConfigFinanciera() {
+  const conn = await db.getConnection();
+  try {
+    // Insertar config inicial solo si no existe ninguna para ese tenant
+    const [tenants] = await conn.execute(
+      `SELECT uid_tenant FROM b2c_tenant WHERE ten_estado = 'activo'`
+    );
+    for (const { uid_tenant } of tenants) {
+      const [[existing]] = await conn.execute(
+        `SELECT uid_config FROM b2c_config_financiera WHERE tenant_id = ? LIMIT 1`,
+        [uid_tenant]
+      );
+      if (existing) continue;
+
+      const hoy = new Date().toISOString().slice(0, 10);
+      await conn.execute(
+        `INSERT INTO b2c_config_financiera
+           (tenant_id, cf_total_costos_fijos, cf_meta_ahorro_mes, cf_meta_total_mes,
+            cf_mano_obra_base, cf_margen_objetivo_rep,
+            cf_utilidad_objetivo_min, cf_utilidad_objetivo_opt,
+            cf_vigente_desde)
+         VALUES (?, 11400000, 2500000, 13900000, 35000, 0.5000, 60000, 85000, ?)`,
+        [uid_tenant, hoy]
+      );
+      console.log(`✅ Config financiera inicial insertada para tenant ${uid_tenant}`);
+    }
+  } catch (e) {
+    console.warn('⚠️ No pude insertar config financiera inicial:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -410,6 +551,9 @@ async function runMigrations() {
   await ensureReciboCajaTable();
   await ensureReciboCajaItems();
   await ensureReciboCajaCedula();
+  await ensureVentaTables();
+  await ensureConfigFinanciera();
+  await seedConfigFinanciera();
   console.log('Migraciones completadas');
 }
 
