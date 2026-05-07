@@ -3312,6 +3312,123 @@ Views.ventas = {
       }
     };
 
+    // ── Detalle venta ──────────────────────────────────────────────────────
+    window.ven_verDetalle = async function(id) {
+      const rp = document.getElementById('venRight'); if (!rp) return;
+      document.getElementById('venPanel')?.classList.add('immersive');
+      rp.innerHTML = `<div style="padding:20px;color:#aaa;">Cargando...</div>`;
+
+      const venta = await fetch(`${API}/ventas/${id}`).then(r=>r.json()).catch(()=>null);
+      if (!venta) { rp.innerHTML = `<div style="padding:20px;color:#e53e3e;">Error al cargar la venta.</div>`; return; }
+
+      const est     = VEN_ESTADO_COLORS[venta.ven_estado] || { bg:'#f3f4f6', color:'#374151' };
+      const cliente = esc(venta.cli_razon_social || venta.cli_contacto || 'Mostrador');
+      const esBorr  = venta.ven_estado === 'borrador';
+      const esAnul  = venta.ven_estado === 'anulada';
+
+      // Panel financiero — solo admin
+      let financieroHtml = '';
+      if (isAdmin() && venta.financiero) {
+        const f   = venta.financiero;
+        const sug = venta.sugerencias || [];
+        const pct = n => (Number(n)*100).toFixed(1) + '%';
+        const rentColor = f.ven_es_rentable ? '#166534' : '#991b1b';
+        const rentLabel = f.ven_es_rentable ? '✅ RENTABLE' : '❌ NO RENTABLE';
+        financieroHtml = `
+          <div class="card" style="margin-top:14px;border:2px solid ${f.ven_es_rentable?'#86efac':'#fca5a5'};">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+              <span style="font-size:13px;font-weight:700;color:#1d3557;">📊 Análisis financiero</span>
+              <span style="font-size:12px;font-weight:700;color:${rentColor};background:${f.ven_es_rentable?'#dcfce7':'#fee2e2'};padding:2px 10px;border-radius:12px;">${rentLabel}</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;">
+              <div><span style="color:#666;">Mano de obra:</span> <strong>${money(f.ven_mano_obra)}</strong></div>
+              <div><span style="color:#666;">Costo repuestos:</span> <strong>${money(f.ven_costo_repuestos)}</strong></div>
+              <div><span style="color:#666;">Utilidad repuestos:</span> <strong>${money(f.ven_utilidad_repuestos)}</strong></div>
+              <div><span style="color:#666;">Margen repuestos:</span> <strong>${pct(f.ven_margen_repuestos)}</strong></div>
+              <div><span style="color:#666;">Utilidad total:</span> <strong style="color:${rentColor};">${money(f.ven_utilidad_total)}</strong></div>
+              <div><span style="color:#666;">Objetivo mínimo:</span> <strong>${money(f.ven_utilidad_objetivo)}</strong></div>
+            </div>
+            ${!f.ven_es_rentable && sug.length ? `
+              <div style="margin-top:10px;padding:8px;background:#fef9c3;border-radius:6px;">
+                <div style="font-size:11px;font-weight:700;color:#854d0e;margin-bottom:5px;">💡 Sugerencias para mejorar rentabilidad:</div>
+                ${sug.map(s => `<div style="font-size:11px;color:#854d0e;padding:2px 0;">• ${esc(s)}</div>`).join('')}
+              </div>` : ''}
+          </div>`;
+      }
+
+      rp.innerHTML = `
+        <div style="padding:16px 20px;">
+          <div class="mobile-back" onclick="ven_back()">← Volver a ventas</div>
+
+          <div class="card" style="margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+              <div>
+                <div style="font-size:18px;font-weight:700;color:#1d3557;">Venta #${venta.ven_consecutivo}</div>
+                <div style="font-size:13px;color:#666;margin-top:2px;">${fmtFecha(venta.ven_fecha)} · ${VEN_METODOS[venta.ven_metodo_pago] || venta.ven_metodo_pago}</div>
+              </div>
+              <span class="estado-pill" style="font-size:13px;background:${est.bg};color:${est.color};">${venta.ven_estado}</span>
+            </div>
+            ${venta.cli_razon_social || venta.cli_contacto ? `<div style="margin-top:8px;font-size:13px;"><span style="color:#888;">Cliente:</span> <strong>${cliente}</strong>${venta.cli_identificacion?`<span style="color:#aaa;font-size:11px;"> · CC/NIT ${esc(venta.cli_identificacion)}</span>`:''}</div>` : ''}
+            ${venta.ord_consecutivo ? `<div style="font-size:12px;color:#888;margin-top:3px;">Orden #${venta.ord_consecutivo}</div>` : ''}
+            ${venta.ven_notas ? `<div style="font-size:12px;color:#666;margin-top:6px;padding:6px 8px;background:#f8fafc;border-radius:5px;">📝 ${esc(venta.ven_notas)}</div>` : ''}
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+              <a href="${API}/ventas/${venta.uid_venta}/pdf" target="_blank" class="btn btn-sm btn-mid">📄 PDF</a>
+              ${esBorr ? `<button class="btn btn-sm btn-dark" onclick="ven_pagar(${venta.uid_venta})">💳 Marcar pagada</button>` : ''}
+              ${!esAnul ? `<button class="btn btn-sm btn-grey" onclick="ven_anular(${venta.uid_venta})">🚫 Anular</button>` : ''}
+            </div>
+          </div>
+
+          <div class="card">
+            <div style="font-size:12px;font-weight:600;color:#1d3557;margin-bottom:8px;">ÍTEMS</div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead><tr style="background:#f0f4f8;">
+                <th style="padding:5px 6px;text-align:left;">Descripción</th>
+                <th style="padding:5px 4px;width:52px;text-align:center;">Tipo</th>
+                <th style="padding:5px 3px;width:36px;text-align:center;">Cant</th>
+                <th style="padding:5px 6px;width:80px;text-align:right;">Precio</th>
+                <th style="padding:5px 6px;width:80px;text-align:right;">Total</th>
+              </tr></thead>
+              <tbody>
+                ${(venta.items||[]).map((it,i) => `
+                  <tr style="${i%2===1?'background:#fafafa;':''}border-top:1px solid #f0f0f0;">
+                    <td style="padding:5px 6px;">${esc(it.vi_descripcion||'')}</td>
+                    <td style="padding:5px 4px;text-align:center;color:#888;font-size:11px;">${it.vi_tipo==='mano_obra'?'M.Obra':'Repuesto'}</td>
+                    <td style="padding:5px 3px;text-align:center;">${it.vi_cantidad}</td>
+                    <td style="padding:5px 6px;text-align:right;">${money(it.vi_precio_unitario)}</td>
+                    <td style="padding:5px 6px;text-align:right;font-weight:600;">${money(it.vi_total)}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+            <div style="display:flex;justify-content:flex-end;margin-top:10px;padding-top:8px;border-top:2px solid #1d3557;">
+              <div style="text-align:right;font-size:14px;">
+                ${Number(venta.ven_descuento)>0 ? `<div style="color:#888;font-size:12px;">Subtotal: ${money(venta.ven_subtotal)}</div><div style="color:#991b1b;font-size:12px;">Descuento: −${money(venta.ven_descuento)}</div>` : ''}
+                ${Number(venta.ven_iva)>0 ? `<div style="color:#888;font-size:12px;">IVA: ${money(venta.ven_iva)}</div>` : ''}
+                <div style="font-size:16px;font-weight:700;color:#1d3557;">TOTAL: ${money(venta.ven_total)}</div>
+              </div>
+            </div>
+          </div>
+
+          ${financieroHtml}
+        </div>`;
+    };
+
+    window.ven_pagar = async function(id) {
+      if (!confirm('¿Marcar esta venta como pagada?')) return;
+      const r = await fetch(`${API}/ventas/${id}/pagar`, { method:'PATCH' }).then(r=>r.json()).catch(()=>({error:'Error de red'}));
+      if (r.ok) { showToast('✅ Venta marcada como pagada'); await ven_reload(); ven_verDetalle(id); }
+      else alert('Error: ' + (r.error || 'No se pudo marcar como pagada'));
+    };
+
+    window.ven_anular = async function(id) {
+      if (!confirm('¿Anular esta venta? Esta acción no se puede deshacer.')) return;
+      const r = await fetch(`${API}/ventas/${id}/anular`, { method:'PATCH' }).then(r=>r.json()).catch(()=>({error:'Error de red'}));
+      if (r.ok) { showToast('✅ Venta anulada'); await ven_reload(); ven_verDetalle(id); }
+      else alert('Error: ' + (r.error || 'No se pudo anular'));
+    };
+  } // fin Views.ventas.init
+}; // fin Views.ventas
+
 // ── Session init ──────────────────────────────────────────────────────────────
 (async function() {
   const me = await fetch('/me').then(r=>r.json()).catch(()=>({}));
