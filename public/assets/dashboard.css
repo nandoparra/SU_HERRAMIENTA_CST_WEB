@@ -392,3 +392,8 @@
     .no-success .no-slist{text-align:left;max-width:400px;margin:0 auto 24px;}
     .no-nav-row{display:flex;justify-content:space-between;margin-top:8px;}
     @media(max-width:600px){.no-grid2,.no-grid3{grid-template-columns:1fr;}}
+
+    /* Ocultar flechitas spinner en inputs numéricos de la tabla de ítems de ventas */
+    #venItemsTbl input[type="number"]::-webkit-inner-spin-button,
+    #venItemsTbl input[type="number"]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+    #venItemsTbl input[type="number"] { -moz-appearance:textfield; }
