@@ -3238,8 +3238,33 @@ Views.ventas = {
     window.ven_onItem = function(i, field, val) {
       if (!_venItems[i]) return;
       _venItems[i][field] = ['vi_descripcion','vi_tipo'].includes(field) ? val : (Number(val)||0);
-      if (field === 'vi_descripcion') return; // pure text — no effect on totals, skip re-render
-      ven_renderItems();
+
+      // Texto y tipo: no afectan columnas calculadas — solo recalcular totales
+      if (field === 'vi_descripcion' || field === 'vi_tipo') { ven_recalcTotales(); return; }
+
+      // Campos numéricos: actualizar SOLO las celdas Total y Margen de la fila en-place.
+      // No reconstruir el DOM — type="number" no soporta setSelectionRange y pierde el cursor.
+      const calc = ven_calcItem(_venItems[i]);
+      const tbl  = document.getElementById('venItemsTbl');
+      if (tbl) {
+        const row = tbl.querySelector(`[data-ven-row="${i}"]`)?.closest('tr');
+        if (row) {
+          const cells = row.cells;
+          // Total: siempre en la penúltima celda (antes del botón ✕)
+          const totalCell = cells[cells.length - 2];
+          if (totalCell) {
+            totalCell.textContent = money(calc._subtotal);
+            totalCell.style.cssText = 'text-align:right;padding-right:4px;font-weight:600;white-space:nowrap;';
+          }
+          // Margen: índice 5 cuando la columna costo está visible
+          if (_venShowCosto && cells[5]) {
+            const m = calc._margen;
+            cells[5].textContent = m !== null ? m.toFixed(1) + '%' : '—';
+            cells[5].style.color = m !== null && m >= 40 ? '#166534' : '#991b1b';
+          }
+        }
+      }
+      ven_recalcTotales();
     };
     window.ven_toggleCostos = function() {
       _venShowCosto = document.getElementById('venChkCostos')?.checked || false;
