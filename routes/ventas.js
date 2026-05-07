@@ -5,6 +5,7 @@ const db         = require('../utils/db');
 const { requireInterno } = require('../middleware/auth');
 const { logAudit }       = require('../utils/audit');
 const { calcularRentabilidad, generarSugerencias } = require('../services/financiero');
+const { generateVentaPDF } = require('../utils/pdf-generator');
 const log = require('../utils/logger');
 
 router.use(requireInterno);
@@ -388,6 +389,46 @@ router.post('/ventas/desde-orden/:orderId', async (req, res) => {
   } catch (e) {
     await conn.rollback().catch(() => {});
     log.error({ err: e }, 'Error creando venta desde orden');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
+// ─── GET /api/ventas/:id/pdf ──────────────────────────────────────────────────
+router.get('/ventas/:id/pdf', async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const conn = await db.getConnection();
+  try {
+    const [[venta]] = await conn.execute(
+      `SELECT v.*,
+              c.cli_razon_social, c.cli_contacto, c.cli_identificacion,
+              o.ord_consecutivo,
+              u.usu_nombre AS creado_por_nombre
+       FROM b2c_venta v
+       LEFT JOIN b2c_cliente c ON c.uid_cliente = v.uid_cliente
+       LEFT JOIN b2c_orden   o ON o.uid_orden   = v.uid_orden
+       LEFT JOIN b2c_usuario u ON u.uid_usuario = v.ven_creado_por
+       WHERE v.uid_venta = ? AND v.tenant_id = ?`,
+      [req.params.id, tenantId]
+    );
+    if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
+
+    const [items] = await conn.execute(
+      `SELECT * FROM b2c_venta_item WHERE uid_venta = ? ORDER BY uid_item`,
+      [venta.uid_venta]
+    );
+
+    const pdf = await generateVentaPDF({ venta, items, tenant: req.tenant });
+    const filename = `venta-${venta.ven_consecutivo}.pdf`;
+    res.set({
+      'Content-Type':        'application/pdf',
+      'Content-Disposition': `inline; filename="${filename}"`,
+      'Content-Length':      pdf.length,
+    });
+    res.send(pdf);
+  } catch (e) {
+    log.error({ err: e }, 'Error generando PDF de venta');
     res.status(500).json({ error: 'Error interno del servidor' });
   } finally {
     conn.release();
