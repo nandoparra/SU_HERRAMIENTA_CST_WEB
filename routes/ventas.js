@@ -244,4 +244,57 @@ router.post('/ventas', async (req, res) => {
   }
 });
 
+// ─── PATCH /api/ventas/:id/pagar ─────────────────────────────────────────────
+router.patch('/ventas/:id/pagar', async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const conn = await db.getConnection();
+  try {
+    const [[row]] = await conn.execute(
+      `SELECT uid_venta, ven_estado FROM b2c_venta WHERE uid_venta = ? AND tenant_id = ?`,
+      [req.params.id, tenantId]
+    );
+    if (!row) return res.status(404).json({ error: 'Venta no encontrada' });
+    if (row.ven_estado === 'pagada')  return res.status(409).json({ error: 'La venta ya está pagada' });
+    if (row.ven_estado === 'anulada') return res.status(409).json({ error: 'No se puede pagar una venta anulada' });
+
+    await conn.execute(
+      `UPDATE b2c_venta SET ven_estado = 'pagada' WHERE uid_venta = ?`,
+      [req.params.id]
+    );
+    await logAudit(req, 'venta_pagada', 'b2c_venta', req.params.id, {});
+    res.json({ ok: true });
+  } catch (e) {
+    log.error({ err: e }, 'Error marcando venta como pagada');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
+// ─── PATCH /api/ventas/:id/anular ────────────────────────────────────────────
+router.patch('/ventas/:id/anular', async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const conn = await db.getConnection();
+  try {
+    const [[row]] = await conn.execute(
+      `SELECT uid_venta, ven_estado FROM b2c_venta WHERE uid_venta = ? AND tenant_id = ?`,
+      [req.params.id, tenantId]
+    );
+    if (!row) return res.status(404).json({ error: 'Venta no encontrada' });
+    if (row.ven_estado === 'anulada') return res.status(409).json({ error: 'La venta ya está anulada' });
+
+    await conn.execute(
+      `UPDATE b2c_venta SET ven_estado = 'anulada' WHERE uid_venta = ?`,
+      [req.params.id]
+    );
+    await logAudit(req, 'venta_anulada', 'b2c_venta', req.params.id, {});
+    res.json({ ok: true });
+  } catch (e) {
+    log.error({ err: e }, 'Error anulando venta');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
 module.exports = router;
