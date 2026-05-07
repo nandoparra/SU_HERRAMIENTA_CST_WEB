@@ -139,6 +139,7 @@ function closeSidebar() {
 const VIEW_LABELS = {
   inicio:'Inicio', ordenes:'Órdenes', cotizaciones:'Cotizaciones',
   clientes:'Clientes', funcionarios:'Funcionarios', inventario:'Inventario',
+  recibos:'Recibos', ventas:'Ventas',
   nuevaOrden:'Nueva Orden',
   misOrdenes:'Mis Órdenes', buscarOrden:'Buscar Orden'
 };
@@ -3034,6 +3035,399 @@ Views.buscarOrden = {
     window.bus_verDetalle = (uid) => tec_verDetalle(uid, 'busRight', 'busPanel');
   }
 };
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: VENTAS (POS)
+// ════════════════════════════════════════════════════════════════════════════
+Views.ventas = {
+  render() {
+    const now = new Date();
+    const mes = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    return `
+      <div class="two-panel" id="venPanel">
+        <div class="pnl-left">
+          <div class="search-box">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+              <h2>Ventas</h2>
+              <button class="btn btn-dark" onclick="ven_openCreate()">+ Nueva</button>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+              <div>
+                <label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Mes</label>
+                <input type="month" id="venMes" value="${mes}"
+                       style="padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;"
+                       onchange="ven_reload()">
+              </div>
+              <div>
+                <label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Estado</label>
+                <select id="venEstado"
+                        style="padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;"
+                        onchange="ven_reload()">
+                  <option value="">Todos</option>
+                  <option value="borrador">Borrador</option>
+                  <option value="pagada">Pagada</option>
+                  <option value="anulada">Anulada</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="results-list" id="venResults">
+            <div class="results-empty">Cargando...</div>
+          </div>
+        </div>
+        <div class="pnl-right" id="venRight">
+          <div class="mobile-back" onclick="ven_back()">← Volver a ventas</div>
+          <div class="empty-state">
+            <div class="es-icon">🛒</div>
+            <p>Selecciona una venta para ver el detalle</p>
+          </div>
+        </div>
+      </div>`;
+  },
+
+  async init() {
+    const VEN_ESTADO_COLORS = {
+      borrador: { bg:'#fef9c3', color:'#854d0e' },
+      pagada:   { bg:'#dcfce7', color:'#166534' },
+      anulada:  { bg:'#fee2e2', color:'#991b1b' },
+    };
+    const VEN_METODOS = { efectivo:'Efectivo', transferencia:'Transferencia', tarjeta:'Tarjeta', cheque:'Cheque', otro:'Otro' };
+
+    window.ven_back = () => { document.getElementById('venPanel')?.classList.remove('immersive'); };
+
+    window.ven_reload = async function() {
+      const mes    = document.getElementById('venMes')?.value    || '';
+      const estado = document.getElementById('venEstado')?.value || '';
+      const params = new URLSearchParams();
+      if (mes)    { params.set('fecha_desde', mes + '-01'); params.set('fecha_hasta', mes + '-31'); }
+      if (estado) params.set('estado', estado);
+
+      const rl = document.getElementById('venResults'); if (!rl) return;
+      rl.innerHTML = '<div class="results-empty">Cargando...</div>';
+      const rows = await fetch(`${API}/ventas?${params}`).then(r=>r.json()).catch(()=>[]);
+      if (!rows.length) { rl.innerHTML = '<div class="results-empty">Sin ventas en el período</div>'; return; }
+
+      rl.innerHTML = rows.map(v => {
+        const est   = VEN_ESTADO_COLORS[v.ven_estado] || { bg:'#f3f4f6', color:'#374151' };
+        const label = esc(v.cli_razon_social || v.cli_contacto || 'Mostrador');
+        const orden = v.ord_consecutivo ? `<span style="color:#888;font-size:11px;"> · Orden #${v.ord_consecutivo}</span>` : '';
+        return `<div class="result-card" onclick="ven_verDetalle(${v.uid_venta})">
+          <div class="rc-top">
+            <span class="rc-num">Venta #${v.ven_consecutivo}</span>
+            <span class="rc-fecha">${fmtFecha(v.ven_fecha)}</span>
+          </div>
+          <div class="rc-cliente">${label}${orden}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+            <span style="font-weight:700;font-size:14px;">${money(v.ven_total)}</span>
+            <span class="estado-pill" style="background:${est.bg};color:${est.color};">${v.ven_estado}</span>
+          </div>
+        </div>`;
+      }).join('');
+    };
+
+    await window.ven_reload();
+
+    // ── Modal nueva venta ──────────────────────────────────────────────────
+    let _venItems = [];
+    let _venShowCosto = false;
+
+    function ven_calcItem(it) {
+      const precio   = Number(it.vi_precio_unitario) || 0;
+      const cantidad = Number(it.vi_cantidad)        || 1;
+      const dscto    = Number(it.vi_descuento_pct)   || 0;
+      const subtotal = precio * cantidad;
+      const total    = subtotal * (1 - dscto / 100);
+      const costo    = Number(it.vi_costo_unitario)  || 0;
+      const margen   = precio > 0 ? ((precio - costo) / precio * 100) : null;
+      return { ...it, _subtotal: total, _margen: margen };
+    }
+
+    function ven_renderItems() {
+      const tbl = document.getElementById('venItemsTbl'); if (!tbl) return;
+      const showC = _venShowCosto;
+
+      const colHeader = showC
+        ? `<th style="padding:4px 5px;width:78px;text-align:right;">Costo</th><th style="padding:4px 4px;width:54px;text-align:center;">Margen</th>`
+        : '';
+      tbl.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="background:#f0f4f8;">
+          <th style="padding:4px 5px;text-align:left;">Descripción</th>
+          <th style="padding:4px 4px;width:72px;">Tipo</th>
+          <th style="padding:4px 3px;width:42px;text-align:center;">Cant</th>
+          <th style="padding:4px 5px;width:80px;text-align:right;">Precio</th>
+          ${colHeader}
+          <th style="padding:4px 3px;width:46px;text-align:center;">Dscto%</th>
+          <th style="padding:4px 5px;width:78px;text-align:right;">Total</th>
+          <th style="width:20px;"></th>
+        </tr></thead>
+        <tbody>${_venItems.map((it, i) => {
+          const calc = ven_calcItem(it);
+          const costoCol = showC ? `
+            <td><input type="number" min="0" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:right;" value="${it.vi_costo_unitario||0}" oninput="ven_onItem(${i},'vi_costo_unitario',this.value)"></td>
+            <td style="text-align:center;padding-right:3px;color:${calc._margen!==null&&calc._margen>=40?'#166534':'#991b1b'};font-size:11px;font-weight:600;">${calc._margen !== null ? calc._margen.toFixed(1)+'%' : '—'}</td>
+          ` : '';
+          return `<tr style="border-top:1px solid #f0f0f0;">
+            <td><input style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px 5px;font-size:12px;" value="${esc(it.vi_descripcion||'')}" oninput="ven_onItem(${i},'vi_descripcion',this.value)" placeholder="Descripción..."></td>
+            <td><select style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px 2px;font-size:11px;" onchange="ven_onItem(${i},'vi_tipo',this.value)">
+              <option value="repuesto" ${it.vi_tipo==='repuesto'?'selected':''}>Repuesto</option>
+              <option value="mano_obra" ${it.vi_tipo==='mano_obra'?'selected':''}>M.Obra</option>
+            </select></td>
+            <td><input type="number" min="1" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:center;" value="${it.vi_cantidad||1}" oninput="ven_onItem(${i},'vi_cantidad',this.value)"></td>
+            <td><input type="number" min="0" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:right;" value="${it.vi_precio_unitario||0}" oninput="ven_onItem(${i},'vi_precio_unitario',this.value)"></td>
+            ${costoCol}
+            <td><input type="number" min="0" max="100" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:center;" value="${it.vi_descuento_pct||0}" oninput="ven_onItem(${i},'vi_descuento_pct',this.value)"></td>
+            <td style="text-align:right;padding-right:4px;font-weight:600;white-space:nowrap;">${money(calc._subtotal)}</td>
+            <td><button type="button" onclick="ven_removeItem(${i})" style="background:none;border:none;cursor:pointer;color:#e53e3e;font-size:14px;padding:0 2px;">✕</button></td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+      ven_recalcTotales();
+    }
+
+    function ven_recalcTotales() {
+      let subtotal = 0, descuento = 0, total = 0;
+      _venItems.forEach(it => {
+        const c = ven_calcItem(it);
+        const base = (Number(it.vi_precio_unitario)||0) * (Number(it.vi_cantidad)||1);
+        subtotal  += base;
+        descuento += base * ((Number(it.vi_descuento_pct)||0) / 100);
+        total     += c._subtotal;
+      });
+      const el = document.getElementById('venTotales'); if (!el) return;
+      el.innerHTML = `
+        <div style="display:flex;justify-content:flex-end;gap:24px;font-size:13px;margin-top:10px;">
+          <div style="text-align:right;">
+            ${descuento > 0 ? `<div style="color:#888;">Subtotal: ${money(subtotal)}</div><div style="color:#991b1b;">Descuento: −${money(descuento)}</div>` : ''}
+            <div style="font-size:16px;font-weight:700;color:#1d3557;border-top:2px solid #1d3557;padding-top:4px;margin-top:4px;">
+              TOTAL: ${money(total)}
+            </div>
+          </div>
+        </div>`;
+    }
+
+    window.ven_addItem = function() {
+      _venItems.push({ vi_descripcion:'', vi_tipo:'repuesto', vi_cantidad:1,
+                       vi_precio_unitario:0, vi_costo_unitario:0, vi_descuento_pct:0 });
+      ven_renderItems();
+    };
+    window.ven_removeItem = function(i) { _venItems.splice(i,1); ven_renderItems(); };
+    window.ven_onItem = function(i, field, val) {
+      if (!_venItems[i]) return;
+      _venItems[i][field] = ['vi_descripcion','vi_tipo'].includes(field) ? val : (Number(val)||0);
+      ven_renderItems();
+    };
+    window.ven_toggleCostos = function() {
+      _venShowCosto = document.getElementById('venChkCostos')?.checked || false;
+      ven_renderItems();
+    };
+
+    window.ven_openCreate = function() {
+      document.getElementById('venCreateModal')?.remove();
+      _venItems = [{ vi_descripcion:'', vi_tipo:'repuesto', vi_cantidad:1,
+                     vi_precio_unitario:0, vi_costo_unitario:0, vi_descuento_pct:0 }];
+      _venShowCosto = false;
+      const today = new Date().toISOString().slice(0,10);
+      const bg = document.createElement('div');
+      bg.className = 'modal-bg'; bg.id = 'venCreateModal';
+      bg.innerHTML = `<div class="modal" style="max-width:720px;width:96%;max-height:92vh;overflow-y:auto;">
+        <h3>Nueva Venta</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+          <div>
+            <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Fecha <span style="color:#e53e3e">*</span></label>
+            <input type="date" id="venFecha" value="${today}" style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Método de pago</label>
+            <select id="venMetodo" style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+              <option value="efectivo">Efectivo</option>
+              <option value="transferencia">Transferencia</option>
+              <option value="tarjeta">Tarjeta</option>
+              <option value="cheque">Cheque</option>
+              <option value="otro">Otro</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-bottom:10px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:#555;">
+            <input type="checkbox" id="venChkCostos" onchange="ven_toggleCostos()" style="width:14px;height:14px;accent-color:#1d3557;">
+            Mostrar columna de costo (para análisis de margen)
+          </label>
+        </div>
+
+        <div style="margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <span style="font-size:12px;font-weight:600;color:#1d3557;">ÍTEMS DEL SERVICIO</span>
+            <button type="button" class="btn btn-sm btn-mid" onclick="ven_addItem()">+ Agregar ítem</button>
+          </div>
+          <div id="venItemsTbl"></div>
+          <div id="venTotales"></div>
+        </div>
+
+        <div>
+          <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Notas</label>
+          <textarea id="venNotas" rows="2" style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;resize:vertical;" placeholder="Observaciones opcionales..."></textarea>
+        </div>
+
+        <div id="venCreateErr" style="display:none;margin-top:8px;padding:8px 10px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:13px;"></div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button class="btn btn-grey" onclick="document.getElementById('venCreateModal')?.remove()">Cancelar</button>
+          <button class="btn btn-dark" onclick="ven_guardar()">Crear Venta</button>
+        </div>
+      </div>`;
+      document.body.appendChild(bg);
+      bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
+      ven_renderItems();
+    };
+
+    window.ven_guardar = async function() {
+      const fecha  = document.getElementById('venFecha')?.value;
+      const metodo = document.getElementById('venMetodo')?.value || 'efectivo';
+      const notas  = document.getElementById('venNotas')?.value?.trim() || null;
+      const errEl  = document.getElementById('venCreateErr');
+
+      if (!fecha) { errEl.textContent = 'La fecha es requerida.'; errEl.style.display='block'; return; }
+      if (!_venItems.length) { errEl.textContent = 'Agrega al menos un ítem.'; errEl.style.display='block'; return; }
+      const sinDesc = _venItems.find(i => !i.vi_descripcion?.trim());
+      if (sinDesc) { errEl.textContent = 'Todos los ítems deben tener descripción.'; errEl.style.display='block'; return; }
+      errEl.style.display = 'none';
+
+      const body = {
+        ven_fecha:       fecha,
+        ven_metodo_pago: metodo,
+        ven_notas:       notas,
+        items:           _venItems,
+      };
+      const r = await fetch(`${API}/ventas`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+                        .then(r=>r.json()).catch(()=>({error:'Error de red'}));
+      if (r.uid_venta) {
+        document.getElementById('venCreateModal')?.remove();
+        showToast(`✅ Venta #${r.ven_consecutivo} creada`);
+        await ven_reload();
+        ven_verDetalle(r.uid_venta);
+      } else {
+        errEl.textContent = r.error || 'Error al crear la venta.';
+        errEl.style.display = 'block';
+      }
+    };
+
+    // ── Detalle venta ──────────────────────────────────────────────────────
+    window.ven_verDetalle = async function(id) {
+      const rp = document.getElementById('venRight'); if (!rp) return;
+      document.getElementById('venPanel')?.classList.add('immersive');
+      rp.innerHTML = `<div style="padding:20px;color:#aaa;">Cargando...</div>`;
+
+      const venta = await fetch(`${API}/ventas/${id}`).then(r=>r.json()).catch(()=>null);
+      if (!venta) { rp.innerHTML = `<div style="padding:20px;color:#e53e3e;">Error al cargar la venta.</div>`; return; }
+
+      const est     = VEN_ESTADO_COLORS[venta.ven_estado] || { bg:'#f3f4f6', color:'#374151' };
+      const cliente = esc(venta.cli_razon_social || venta.cli_contacto || 'Mostrador');
+      const esBorr  = venta.ven_estado === 'borrador';
+      const esAnul  = venta.ven_estado === 'anulada';
+
+      // Panel financiero — solo admin
+      let financieroHtml = '';
+      if (isAdmin() && venta.financiero) {
+        const f   = venta.financiero;
+        const sug = venta.sugerencias || [];
+        const pct = n => (Number(n)*100).toFixed(1) + '%';
+        const rentColor = f.ven_es_rentable ? '#166534' : '#991b1b';
+        const rentLabel = f.ven_es_rentable ? '✅ RENTABLE' : '❌ NO RENTABLE';
+        financieroHtml = `
+          <div class="card" style="margin-top:14px;border:2px solid ${f.ven_es_rentable?'#86efac':'#fca5a5'};">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+              <span style="font-size:13px;font-weight:700;color:#1d3557;">📊 Análisis financiero</span>
+              <span style="font-size:12px;font-weight:700;color:${rentColor};background:${f.ven_es_rentable?'#dcfce7':'#fee2e2'};padding:2px 10px;border-radius:12px;">${rentLabel}</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;">
+              <div><span style="color:#666;">Mano de obra:</span> <strong>${money(f.ven_mano_obra)}</strong></div>
+              <div><span style="color:#666;">Costo repuestos:</span> <strong>${money(f.ven_costo_repuestos)}</strong></div>
+              <div><span style="color:#666;">Utilidad repuestos:</span> <strong>${money(f.ven_utilidad_repuestos)}</strong></div>
+              <div><span style="color:#666;">Margen repuestos:</span> <strong>${pct(f.ven_margen_repuestos)}</strong></div>
+              <div><span style="color:#666;">Utilidad total:</span> <strong style="color:${rentColor};">${money(f.ven_utilidad_total)}</strong></div>
+              <div><span style="color:#666;">Objetivo mínimo:</span> <strong>${money(f.ven_utilidad_objetivo)}</strong></div>
+            </div>
+            ${!f.ven_es_rentable && sug.length ? `
+              <div style="margin-top:10px;padding:8px;background:#fef9c3;border-radius:6px;">
+                <div style="font-size:11px;font-weight:700;color:#854d0e;margin-bottom:5px;">💡 Sugerencias para mejorar rentabilidad:</div>
+                ${sug.map(s => `<div style="font-size:11px;color:#854d0e;padding:2px 0;">• ${esc(s)}</div>`).join('')}
+              </div>` : ''}
+          </div>`;
+      }
+
+      rp.innerHTML = `
+        <div style="padding:16px 20px;">
+          <div class="mobile-back" onclick="ven_back()">← Volver a ventas</div>
+
+          <div class="card" style="margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+              <div>
+                <div style="font-size:18px;font-weight:700;color:#1d3557;">Venta #${venta.ven_consecutivo}</div>
+                <div style="font-size:13px;color:#666;margin-top:2px;">${fmtFecha(venta.ven_fecha)} · ${VEN_METODOS[venta.ven_metodo_pago] || venta.ven_metodo_pago}</div>
+              </div>
+              <span class="estado-pill" style="font-size:13px;background:${est.bg};color:${est.color};">${venta.ven_estado}</span>
+            </div>
+            ${venta.cli_razon_social || venta.cli_contacto ? `<div style="margin-top:8px;font-size:13px;"><span style="color:#888;">Cliente:</span> <strong>${cliente}</strong>${venta.cli_identificacion?`<span style="color:#aaa;font-size:11px;"> · CC/NIT ${esc(venta.cli_identificacion)}</span>`:''}</div>` : ''}
+            ${venta.ord_consecutivo ? `<div style="font-size:12px;color:#888;margin-top:3px;">Orden #${venta.ord_consecutivo}</div>` : ''}
+            ${venta.ven_notas ? `<div style="font-size:12px;color:#666;margin-top:6px;padding:6px 8px;background:#f8fafc;border-radius:5px;">📝 ${esc(venta.ven_notas)}</div>` : ''}
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+              <a href="${API}/ventas/${venta.uid_venta}/pdf" target="_blank" class="btn btn-sm btn-mid">📄 PDF</a>
+              ${esBorr ? `<button class="btn btn-sm btn-dark" onclick="ven_pagar(${venta.uid_venta})">💳 Marcar pagada</button>` : ''}
+              ${!esAnul ? `<button class="btn btn-sm btn-grey" onclick="ven_anular(${venta.uid_venta})">🚫 Anular</button>` : ''}
+            </div>
+          </div>
+
+          <div class="card">
+            <div style="font-size:12px;font-weight:600;color:#1d3557;margin-bottom:8px;">ÍTEMS</div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead><tr style="background:#f0f4f8;">
+                <th style="padding:5px 6px;text-align:left;">Descripción</th>
+                <th style="padding:5px 4px;width:52px;text-align:center;">Tipo</th>
+                <th style="padding:5px 3px;width:36px;text-align:center;">Cant</th>
+                <th style="padding:5px 6px;width:80px;text-align:right;">Precio</th>
+                <th style="padding:5px 6px;width:80px;text-align:right;">Total</th>
+              </tr></thead>
+              <tbody>
+                ${(venta.items||[]).map((it,i) => `
+                  <tr style="${i%2===1?'background:#fafafa;':''}border-top:1px solid #f0f0f0;">
+                    <td style="padding:5px 6px;">${esc(it.vi_descripcion||'')}</td>
+                    <td style="padding:5px 4px;text-align:center;color:#888;font-size:11px;">${it.vi_tipo==='mano_obra'?'M.Obra':'Repuesto'}</td>
+                    <td style="padding:5px 3px;text-align:center;">${it.vi_cantidad}</td>
+                    <td style="padding:5px 6px;text-align:right;">${money(it.vi_precio_unitario)}</td>
+                    <td style="padding:5px 6px;text-align:right;font-weight:600;">${money(it.vi_total)}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+            <div style="display:flex;justify-content:flex-end;margin-top:10px;padding-top:8px;border-top:2px solid #1d3557;">
+              <div style="text-align:right;font-size:14px;">
+                ${Number(venta.ven_descuento)>0 ? `<div style="color:#888;font-size:12px;">Subtotal: ${money(venta.ven_subtotal)}</div><div style="color:#991b1b;font-size:12px;">Descuento: −${money(venta.ven_descuento)}</div>` : ''}
+                ${Number(venta.ven_iva)>0 ? `<div style="color:#888;font-size:12px;">IVA: ${money(venta.ven_iva)}</div>` : ''}
+                <div style="font-size:16px;font-weight:700;color:#1d3557;">TOTAL: ${money(venta.ven_total)}</div>
+              </div>
+            </div>
+          </div>
+
+          ${financieroHtml}
+        </div>`;
+    };
+
+    window.ven_pagar = async function(id) {
+      if (!confirm('¿Marcar esta venta como pagada?')) return;
+      const r = await fetch(`${API}/ventas/${id}/pagar`, { method:'PATCH' }).then(r=>r.json()).catch(()=>({error:'Error de red'}));
+      if (r.ok) { showToast('✅ Venta marcada como pagada'); await ven_reload(); ven_verDetalle(id); }
+      else alert('Error: ' + (r.error || 'No se pudo marcar como pagada'));
+    };
+
+    window.ven_anular = async function(id) {
+      if (!confirm('¿Anular esta venta? Esta acción no se puede deshacer.')) return;
+      const r = await fetch(`${API}/ventas/${id}/anular`, { method:'PATCH' }).then(r=>r.json()).catch(()=>({error:'Error de red'}));
+      if (r.ok) { showToast('✅ Venta anulada'); await ven_reload(); ven_verDetalle(id); }
+      else alert('Error: ' + (r.error || 'No se pudo anular'));
+    };
+  } // fin Views.ventas.init
+}; // fin Views.ventas
 
 // ── Session init ──────────────────────────────────────────────────────────────
 (async function() {
