@@ -3144,8 +3144,18 @@ Views.ventas = {
 
     function ven_renderItems() {
       const tbl = document.getElementById('venItemsTbl'); if (!tbl) return;
-      const showC = _venShowCosto;
 
+      // Save focus before DOM rebuild so typing isn't interrupted
+      const active = document.activeElement;
+      let focusRow = null, focusField = null, selStart = null, selEnd = null;
+      if (active && tbl.contains(active) && active.dataset.venRow !== undefined) {
+        focusRow   = active.dataset.venRow;
+        focusField = active.dataset.venField;
+        selStart   = active.selectionStart;
+        selEnd     = active.selectionEnd;
+      }
+
+      const showC = _venShowCosto;
       const colHeader = showC
         ? `<th style="padding:4px 5px;width:78px;text-align:right;">Costo</th><th style="padding:4px 4px;width:54px;text-align:center;">Margen</th>`
         : '';
@@ -3163,24 +3173,36 @@ Views.ventas = {
         <tbody>${_venItems.map((it, i) => {
           const calc = ven_calcItem(it);
           const costoCol = showC ? `
-            <td><input type="number" min="0" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:right;" value="${it.vi_costo_unitario||0}" oninput="ven_onItem(${i},'vi_costo_unitario',this.value)"></td>
+            <td><input type="number" min="0" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:right;" value="${it.vi_costo_unitario||0}" data-ven-row="${i}" data-ven-field="vi_costo_unitario" oninput="ven_onItem(${i},'vi_costo_unitario',this.value)"></td>
             <td style="text-align:center;padding-right:3px;color:${calc._margen!==null&&calc._margen>=40?'#166534':'#991b1b'};font-size:11px;font-weight:600;">${calc._margen !== null ? calc._margen.toFixed(1)+'%' : '—'}</td>
           ` : '';
           return `<tr style="border-top:1px solid #f0f0f0;">
-            <td><input style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px 5px;font-size:12px;" value="${esc(it.vi_descripcion||'')}" oninput="ven_onItem(${i},'vi_descripcion',this.value)" placeholder="Descripción..."></td>
+            <td><input style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px 5px;font-size:12px;" value="${esc(it.vi_descripcion||'')}" data-ven-row="${i}" data-ven-field="vi_descripcion" oninput="ven_onItem(${i},'vi_descripcion',this.value)" placeholder="Descripción..."></td>
             <td><select style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px 2px;font-size:11px;" onchange="ven_onItem(${i},'vi_tipo',this.value)">
               <option value="repuesto" ${it.vi_tipo==='repuesto'?'selected':''}>Repuesto</option>
               <option value="mano_obra" ${it.vi_tipo==='mano_obra'?'selected':''}>M.Obra</option>
             </select></td>
-            <td><input type="number" min="1" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:center;" value="${it.vi_cantidad||1}" oninput="ven_onItem(${i},'vi_cantidad',this.value)"></td>
-            <td><input type="number" min="0" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:right;" value="${it.vi_precio_unitario||0}" oninput="ven_onItem(${i},'vi_precio_unitario',this.value)"></td>
+            <td><input type="number" min="1" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:center;" value="${it.vi_cantidad||1}" data-ven-row="${i}" data-ven-field="vi_cantidad" oninput="ven_onItem(${i},'vi_cantidad',this.value)"></td>
+            <td><input type="number" min="0" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:right;" value="${it.vi_precio_unitario||0}" data-ven-row="${i}" data-ven-field="vi_precio_unitario" oninput="ven_onItem(${i},'vi_precio_unitario',this.value)"></td>
             ${costoCol}
-            <td><input type="number" min="0" max="100" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:center;" value="${it.vi_descuento_pct||0}" oninput="ven_onItem(${i},'vi_descuento_pct',this.value)"></td>
+            <td><input type="number" min="0" max="100" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:center;" value="${it.vi_descuento_pct||0}" data-ven-row="${i}" data-ven-field="vi_descuento_pct" oninput="ven_onItem(${i},'vi_descuento_pct',this.value)"></td>
             <td style="text-align:right;padding-right:4px;font-weight:600;white-space:nowrap;">${money(calc._subtotal)}</td>
             <td><button type="button" onclick="ven_removeItem(${i})" style="background:none;border:none;cursor:pointer;color:#e53e3e;font-size:14px;padding:0 2px;">✕</button></td>
           </tr>`;
         }).join('')}</tbody>
       </table>`;
+
+      // Restore focus to the same input after rebuild
+      if (focusRow !== null) {
+        const el = tbl.querySelector(`[data-ven-row="${focusRow}"][data-ven-field="${focusField}"]`);
+        if (el) {
+          el.focus();
+          if (selStart !== null && el.setSelectionRange) {
+            try { el.setSelectionRange(selStart, selEnd); } catch (_) {}
+          }
+        }
+      }
+
       ven_recalcTotales();
     }
 
@@ -3214,6 +3236,7 @@ Views.ventas = {
     window.ven_onItem = function(i, field, val) {
       if (!_venItems[i]) return;
       _venItems[i][field] = ['vi_descripcion','vi_tipo'].includes(field) ? val : (Number(val)||0);
+      if (field === 'vi_descripcion') return; // pure text — no effect on totals, skip re-render
       ven_renderItems();
     };
     window.ven_toggleCostos = function() {
