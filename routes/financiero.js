@@ -44,14 +44,20 @@ router.put('/financiero/config', async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo administradores' });
   const tenantId = req.tenant?.uid_tenant ?? 1;
   const {
-    cf_utilidad_objetivo_min,
-    cf_utilidad_objetivo_opt,
-    cf_margen_objetivo_rep,
-    cf_meta_total_mes,
+    cf_utilidad_objetivo_min, cf_utilidad_objetivo_opt,
+    cf_margen_objetivo_rep, cf_meta_total_mes,
+    cf_arriendo = 0, cf_energia = 0, cf_agua = 0, cf_internet = 0, cf_telefono = 0,
+    cf_salarios = 0, cf_seguridad_social = 0, cf_parafiscales = 0,
+    cf_mantenimiento = 0, cf_otros = 0, cf_descripcion_otros = null,
+    cf_meta_ahorro_mes = 2500000, cf_mano_obra_base = 35000,
   } = req.body;
 
   if (cf_utilidad_objetivo_min == null || cf_meta_total_mes == null)
     return res.status(400).json({ error: 'cf_utilidad_objetivo_min y cf_meta_total_mes son requeridos' });
+
+  const totalFijos = [cf_arriendo, cf_energia, cf_agua, cf_internet, cf_telefono,
+    cf_salarios, cf_seguridad_social, cf_parafiscales, cf_mantenimiento, cf_otros]
+    .reduce((s, v) => s + Number(v || 0), 0);
 
   const conn = await db.getConnection();
   try {
@@ -66,21 +72,33 @@ router.put('/financiero/config', async (req, res) => {
 
     const [result] = await conn.execute(
       `INSERT INTO b2c_config_financiera
-         (tenant_id, cf_utilidad_objetivo_min, cf_utilidad_objetivo_opt,
-          cf_margen_objetivo_rep, cf_meta_total_mes, cf_vigente_desde)
-       VALUES (?, ?, ?, ?, ?, CURDATE())`,
+         (tenant_id,
+          cf_arriendo, cf_energia, cf_agua, cf_internet, cf_telefono,
+          cf_salarios, cf_seguridad_social, cf_parafiscales, cf_mantenimiento, cf_otros,
+          cf_descripcion_otros, cf_total_costos_fijos,
+          cf_meta_ahorro_mes, cf_meta_total_mes, cf_mano_obra_base,
+          cf_margen_objetivo_rep, cf_utilidad_objetivo_min, cf_utilidad_objetivo_opt,
+          cf_vigente_desde, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), ?)`,
       [
         tenantId,
+        Number(cf_arriendo),        Number(cf_energia),          Number(cf_agua),
+        Number(cf_internet),        Number(cf_telefono),
+        Number(cf_salarios),        Number(cf_seguridad_social), Number(cf_parafiscales),
+        Number(cf_mantenimiento),   Number(cf_otros),
+        cf_descripcion_otros || null,
+        totalFijos,
+        Number(cf_meta_ahorro_mes), Number(cf_meta_total_mes),   Number(cf_mano_obra_base),
+        Number(cf_margen_objetivo_rep ?? 0.5),
         Number(cf_utilidad_objetivo_min),
         Number(cf_utilidad_objetivo_opt ?? cf_utilidad_objetivo_min),
-        Number(cf_margen_objetivo_rep ?? 0.5),
-        Number(cf_meta_total_mes),
+        req.session?.user?.id || null,
       ]
     );
 
     await conn.commit();
     await logAudit(req, 'config_financiera_actualizada', 'b2c_config_financiera',
-      String(result.insertId), { cf_utilidad_objetivo_min, cf_meta_total_mes });
+      String(result.insertId), { cf_utilidad_objetivo_min, cf_meta_total_mes, cf_total_costos_fijos: totalFijos });
     res.status(201).json({ uid_config: result.insertId });
   } catch (e) {
     await conn.rollback();
