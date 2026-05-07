@@ -139,7 +139,7 @@ function closeSidebar() {
 const VIEW_LABELS = {
   inicio:'Inicio', ordenes:'Órdenes', cotizaciones:'Cotizaciones',
   clientes:'Clientes', funcionarios:'Funcionarios', inventario:'Inventario',
-  recibos:'Recibos', ventas:'Ventas',
+  recibos:'Recibos', ventas:'Ventas', finanzas:'Finanzas',
   nuevaOrden:'Nueva Orden',
   misOrdenes:'Mis Órdenes', buscarOrden:'Buscar Orden'
 };
@@ -3453,6 +3453,10 @@ Views.ventas = {
     document.querySelectorAll('.nav-item').forEach(el => {
       if (TEC_VIEWS.includes(el.dataset.view)) el.style.display = 'none';
     });
+    // Mostrar nav-items solo para admin
+    if (isAdmin()) {
+      document.querySelectorAll('.nav-item.admin-only').forEach(el => el.style.display = '');
+    }
   }
 
   // Hash-based routing
