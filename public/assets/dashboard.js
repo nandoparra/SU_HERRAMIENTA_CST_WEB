@@ -139,7 +139,7 @@ function closeSidebar() {
 const VIEW_LABELS = {
   inicio:'Inicio', ordenes:'Órdenes', cotizaciones:'Cotizaciones',
   clientes:'Clientes', funcionarios:'Funcionarios', inventario:'Inventario',
-  recibos:'Recibos', ventas:'Ventas',
+  recibos:'Recibos', ventas:'Ventas', finanzas:'Finanzas',
   nuevaOrden:'Nueva Orden',
   misOrdenes:'Mis Órdenes', buscarOrden:'Buscar Orden'
 };
@@ -3429,6 +3429,433 @@ Views.ventas = {
   } // fin Views.ventas.init
 }; // fin Views.ventas
 
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: FINANZAS (solo admin)
+// ════════════════════════════════════════════════════════════════════════════
+Views.finanzas = {
+  _data: null,
+
+  render() {
+    const now = new Date();
+    const mes = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    return `
+      <div class="dash-wrap" id="finWrap" style="max-width:900px;margin:0 auto;">
+        <div class="dash-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+          <h2>📊 Dashboard Financiero</h2>
+          <input type="month" id="finMes" value="${mes}"
+                 style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;"
+                 onchange="fin_load()">
+        </div>
+
+        <!-- KPI cards -->
+        <div class="kpi-grid" id="finKpis" style="margin-bottom:14px;">
+          <div class="kpi-card kc-grey" style="grid-column:1/-1;justify-content:center;min-height:70px;">
+            <span style="color:#aaa;font-size:13px;">Cargando...</span>
+          </div>
+        </div>
+
+        <!-- Barra de progreso hacia meta mensual -->
+        <div class="card" id="finMetaCard" style="margin-bottom:14px;display:none;"></div>
+
+        <!-- Gráfica utilidad diaria -->
+        <div class="card" id="finChartCard" style="margin-bottom:14px;display:none;">
+          <div style="font-size:13px;font-weight:600;color:#1d3557;margin-bottom:10px;">Utilidad diaria del mes</div>
+          <div id="finChart"></div>
+        </div>
+
+        <!-- Desglose + Meta diaria inteligente -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;" id="finDesgloseRow">
+          <div class="card" id="finDesgloseCard"></div>
+          <div class="card" id="finMetaDiariaCard"></div>
+        </div>
+
+        <!-- Configuración financiera -->
+        <div class="card" id="finConfigCard" style="margin-bottom:14px;"></div>
+
+        <!-- Historial de configuraciones -->
+        <div class="card" id="finHistCard"></div>
+      </div>`;
+  },
+
+  async init() {
+    const pct  = (n, d) => d > 0 ? ((Number(n)/Number(d))*100).toFixed(1)+'%' : '—';
+    const fmtK = n => { const v = Math.round(Number(n||0)/1000); return (v>=0?'':'−')+'$'+Math.abs(v)+'K'; };
+
+    window.fin_load = async function() {
+      const mes    = document.getElementById('finMes')?.value || new Date().toISOString().slice(0,7);
+      const kpiEl  = document.getElementById('finKpis'); if (!kpiEl) return;
+
+      kpiEl.innerHTML = `<div class="kpi-card kc-grey" style="grid-column:1/-1;justify-content:center;min-height:70px;"><span style="color:#aaa;font-size:13px;">Cargando...</span></div>`;
+
+      const [dashboard, cfg] = await Promise.all([
+        fetch(`${API}/financiero/dashboard?mes=${mes}`).then(r=>r.json()).catch(()=>null),
+        fetch(`${API}/financiero/config`).then(r=>r.json()).catch(()=>null),
+      ]);
+
+      Views.finanzas._data = { dashboard, cfg, mes };
+
+      if (!dashboard) {
+        kpiEl.innerHTML = `<div class="kpi-card kc-grey" style="grid-column:1/-1;"><span style="color:#aaa;">Error al cargar datos.</span></div>`;
+        return;
+      }
+
+      // ── KPI cards ──────────────────────────────────────────────────────
+      const rentPct = dashboard.total_ventas > 0
+        ? Math.round(dashboard.ventas_rentables / dashboard.total_ventas * 100) : 0;
+      const cumplPct = Math.min(100, Math.round((dashboard.cumplimiento_meta_pct || 0) * 100));
+
+      kpiEl.innerHTML = `
+        <div class="kpi-card kc-blue">
+          <div class="kpi-icon">💰</div>
+          <div class="kpi-val">${fmtK(dashboard.utilidad_acumulada)}</div>
+          <div class="kpi-lbl">Utilidad acumulada</div>
+        </div>
+        <div class="kpi-card kc-green">
+          <div class="kpi-icon">🎯</div>
+          <div class="kpi-val">${cumplPct}%</div>
+          <div class="kpi-lbl">Cumplimiento meta</div>
+        </div>
+        <div class="kpi-card kc-orange">
+          <div class="kpi-icon">📋</div>
+          <div class="kpi-val">${dashboard.total_ventas}</div>
+          <div class="kpi-lbl">Ventas del mes</div>
+        </div>
+        <div class="kpi-card ${rentPct>=80?'kc-green':rentPct>=50?'kc-orange':'kc-grey'}">
+          <div class="kpi-icon">✅</div>
+          <div class="kpi-val">${rentPct}%</div>
+          <div class="kpi-lbl">Ventas rentables</div>
+        </div>`;
+
+      // ── Barra progreso meta ─────────────────────────────────────────────
+      const metaCard = document.getElementById('finMetaCard');
+      if (metaCard) {
+        const utilidad = Number(dashboard.utilidad_acumulada);
+        const meta     = Number(dashboard.meta_total_mes);
+        const faltante = Number(dashboard.faltante_para_meta);
+        const proyec   = Number(dashboard.proyeccion_fin_mes);
+        const barPct   = Math.min(100, meta > 0 ? (utilidad/meta)*100 : 0);
+        const barColor = barPct >= 100 ? '#22c55e' : barPct >= 60 ? '#f59e0b' : '#ef4444';
+        metaCard.style.display = '';
+        metaCard.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;flex-wrap:wrap;gap:6px;">
+            <span style="font-size:13px;font-weight:600;color:#1d3557;">Meta mensual: ${money(meta)}</span>
+            <span style="font-size:12px;color:#666;">Día ${dashboard.dias_transcurridos}/${dashboard.dias_del_mes}</span>
+          </div>
+          <div style="height:18px;background:#f0f4f8;border-radius:9px;overflow:hidden;margin-bottom:8px;">
+            <div style="height:100%;width:${barPct.toFixed(1)}%;background:${barColor};border-radius:9px;transition:width .6s;"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;flex-wrap:wrap;gap:6px;">
+            <span>Acumulado: <strong style="color:${barColor}">${money(utilidad)}</strong> (${barPct.toFixed(1)}%)</span>
+            ${faltante > 0
+              ? `<span>Faltante: <strong style="color:#991b1b;">${money(faltante)}</strong></span>`
+              : `<span style="color:#166534;font-weight:700;">✅ Meta alcanzada</span>`}
+            <span>Proyección: <strong>${money(proyec)}</strong></span>
+          </div>`;
+      }
+
+      fin_renderChart(dashboard);
+      fin_renderDesglose(dashboard);
+      await fin_renderMetaDiaria(dashboard, mes);
+      fin_renderConfig(cfg);
+      await fin_renderHistorial();
+    };
+
+    await fin_load();
+  },
+};
+
+// ─── Finanzas — gráfica utilidad diaria (SVG) ────────────────────────────────
+function fin_renderChart(dashboard) {
+  const el   = document.getElementById('finChart');
+  const card = document.getElementById('finChartCard');
+  if (!el || !card) return;
+
+  const dias = dashboard.utilidad_por_dia || [];
+  if (dias.length === 0) {
+    el.innerHTML = '<p style="color:#aaa;font-size:13px;text-align:center;padding:20px 0;">Sin ventas registradas este mes.</p>';
+    card.style.display = '';
+    return;
+  }
+
+  const values = dias.map(d => Number(d.utilidad));
+  const maxAbs = Math.max(...values.map(Math.abs), 1);
+  const W = 600, H = 130, BOTTOM = 20, AREA = H - BOTTOM;
+  const step = (W - 20) / Math.max(dias.length, 1);
+  const barW = Math.max(4, Math.floor(step) - 2);
+
+  let svg = '';
+  dias.forEach((d, i) => {
+    const v = Number(d.utilidad);
+    const h = Math.max(2, Math.round((Math.abs(v) / maxAbs) * (AREA - 4)));
+    const x = (10 + i * step).toFixed(1);
+    const y = AREA - h;
+    const c = v >= 0 ? '#22c55e' : '#ef4444';
+    svg += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${c}" rx="2" opacity="0.85"><title>${d.dia}: ${money(v)}</title></rect>`;
+    if (dias.length <= 15 || i % Math.ceil(dias.length / 10) === 0 || i === dias.length - 1) {
+      const day = String(d.dia || '').slice(-2).replace(/^0/, '');
+      svg += `<text x="${(Number(x) + barW / 2).toFixed(1)}" y="${H - 3}" text-anchor="middle" font-size="9" fill="#999">${day}</text>`;
+    }
+  });
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;" xmlns="http://www.w3.org/2000/svg">${svg}</svg>`;
+  card.style.display = '';
+}
+
+// ─── Finanzas — desglose mensual ─────────────────────────────────────────────
+function fin_renderDesglose(dashboard) {
+  const el = document.getElementById('finDesgloseCard');
+  if (!el) return;
+
+  const totalMO     = Number(dashboard.ventas_mano_obra_total  || 0);
+  const totalRep    = Number(dashboard.ventas_repuestos_total  || 0);
+  const costoRep    = Number(dashboard.costo_repuestos_total   || 0);
+  const utilidad    = Number(dashboard.utilidad_acumulada      || 0);
+  const totalIngr   = totalMO + totalRep;
+  const margenRep   = totalRep > 0 ? ((totalRep - costoRep) / totalRep * 100).toFixed(1) : '—';
+
+  el.innerHTML = `
+    <div style="font-size:13px;font-weight:600;color:#1d3557;margin-bottom:10px;">Desglose del mes</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <tr style="border-bottom:1px solid #f0f4f8;">
+        <td style="padding:5px 0;color:#555;">Ingresos totales</td>
+        <td style="text-align:right;font-weight:600;">${money(totalIngr)}</td>
+      </tr>
+      <tr>
+        <td style="padding:4px 0 4px 14px;color:#777;">↳ Mano de obra</td>
+        <td style="text-align:right;color:#1d4ed8;">${money(totalMO)}</td>
+      </tr>
+      <tr style="border-bottom:1px solid #f0f4f8;">
+        <td style="padding:4px 0 4px 14px;color:#777;">↳ Repuestos</td>
+        <td style="text-align:right;color:#1d4ed8;">${money(totalRep)}</td>
+      </tr>
+      <tr style="border-bottom:1px solid #f0f4f8;">
+        <td style="padding:4px 0;color:#555;">Costo de repuestos</td>
+        <td style="text-align:right;color:#dc2626;">${money(costoRep)}</td>
+      </tr>
+      <tr style="border-bottom:1px solid #f0f4f8;">
+        <td style="padding:4px 0;color:#777;font-size:11px;">Margen en repuestos</td>
+        <td style="text-align:right;font-size:11px;color:#555;">${margenRep}%</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 0;font-weight:700;color:${utilidad>=0?'#166534':'#991b1b'};">Utilidad neta acumulada</td>
+        <td style="text-align:right;font-weight:700;font-size:13px;color:${utilidad>=0?'#166534':'#991b1b'};">${money(utilidad)}</td>
+      </tr>
+    </table>`;
+}
+
+// ─── Finanzas — meta diaria inteligente (promedio 30 días) ───────────────────
+async function fin_renderMetaDiaria(dashboard, mes) {
+  const el = document.getElementById('finMetaDiariaCard');
+  if (!el) return;
+
+  // Fetch mes anterior para calcular promedio histórico 30 días
+  const [y, m] = mes.split('-').map(Number);
+  const prevDate = new Date(y, m - 2, 1);
+  const prevMes  = `${prevDate.getFullYear()}-${String(prevDate.getMonth()+1).padStart(2,'0')}`;
+  let prevData = null;
+  try {
+    const r = await fetch(`${API}/financiero/dashboard?mes=${prevMes}`);
+    if (r.ok) prevData = await r.json();
+  } catch (_) {}
+
+  const allDays = [
+    ...(prevData?.utilidad_por_dia || []),
+    ...(dashboard.utilidad_por_dia || []),
+  ].sort((a, b) => (a.dia||'').localeCompare(b.dia||''));
+
+  const last30 = allDays.slice(-30);
+  const promedioHist = last30.length
+    ? Math.round(last30.reduce((s, d) => s + Number(d.utilidad), 0) / last30.length)
+    : 0;
+
+  const diasRestantes = Math.max(0, dashboard.dias_del_mes - dashboard.dias_transcurridos);
+  const faltante      = Number(dashboard.faltante_para_meta || 0);
+  const metaDiaria    = diasRestantes > 0 ? Math.round(faltante / diasRestantes) : 0;
+  const alcanzable    = promedioHist >= metaDiaria;
+
+  el.innerHTML = `
+    <div style="font-size:13px;font-weight:600;color:#1d3557;margin-bottom:10px;">Meta diaria inteligente</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+      <div style="background:#f8fafc;border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:18px;font-weight:700;color:#1d3557;">${money(metaDiaria)}</div>
+        <div style="font-size:11px;color:#888;margin-top:2px;">Necesario/día</div>
+      </div>
+      <div style="background:#f8fafc;border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:18px;font-weight:700;color:#374151;">${money(promedioHist)}</div>
+        <div style="font-size:11px;color:#888;margin-top:2px;">Promedio ${last30.length}d</div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:#666;margin-bottom:8px;">
+      ${diasRestantes > 0
+        ? `Quedan <strong>${diasRestantes} días</strong> · Faltante: <strong style="color:#991b1b;">${money(faltante)}</strong>`
+        : '<strong>Mes finalizado.</strong>'}
+    </div>
+    <div style="padding:8px 10px;border-radius:6px;font-size:12px;
+                background:${alcanzable?'#f0fdf4':'#fef2f2'};
+                color:${alcanzable?'#166534':'#991b1b'};">
+      ${alcanzable
+        ? '✅ Meta alcanzable con el ritmo histórico'
+        : `⚠️ Meta ${money(metaDiaria - promedioHist)} por encima del promedio histórico`}
+    </div>`;
+}
+
+// ─── Finanzas — formulario configuración de costos ───────────────────────────
+function fin_renderConfig(cfg) {
+  const el = document.getElementById('finConfigCard');
+  if (!el) return;
+  const c   = cfg || {};
+  const raw = (f, def = 0) => Number(c[f] ?? def);
+
+  function cfRow(field, label, def = 0) {
+    return `<div class="no-fgroup">
+      <label style="font-size:11px;color:#555;">${label}</label>
+      <input id="cfInput_${field}" type="number" step="1000" min="0"
+        style="width:100%;font-size:12px;" value="${raw(field, def)}">
+    </div>`;
+  }
+
+  el.innerHTML = `
+    <div style="font-size:13px;font-weight:600;color:#1d3557;margin-bottom:12px;">
+      ⚙️ Configuración financiera
+      <span style="font-size:11px;font-weight:400;color:#888;margin-left:8px;">vigente desde ${c.cf_vigente_desde||'—'}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:8px;letter-spacing:.5px;">Costos Fijos / Mes</div>
+        ${cfRow('cf_arriendo','Arriendo')}
+        ${cfRow('cf_energia','Energía')}
+        ${cfRow('cf_agua','Agua')}
+        ${cfRow('cf_internet','Internet')}
+        ${cfRow('cf_telefono','Teléfono')}
+        ${cfRow('cf_mantenimiento','Mantenimiento')}
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:8px;letter-spacing:.5px;">Personal / Mes</div>
+        ${cfRow('cf_salarios','Salarios')}
+        ${cfRow('cf_seguridad_social','Seguridad social')}
+        ${cfRow('cf_parafiscales','Parafiscales')}
+        ${cfRow('cf_otros','Otros costos')}
+        <div class="no-fgroup" style="margin-top:4px;">
+          <label style="font-size:11px;color:#555;">Descripción otros</label>
+          <input id="cfInput_cf_descripcion_otros" type="text" style="width:100%;font-size:12px;"
+            value="${(c.cf_descripcion_otros||'').replace(/"/g,'&quot;')}"
+            placeholder="Ej: publicidad, contabilidad...">
+        </div>
+      </div>
+    </div>
+    <div style="border-top:1px solid #e5e7eb;margin-top:14px;padding-top:14px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:8px;letter-spacing:.5px;">Objetivos de rentabilidad por venta</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+        ${cfRow('cf_utilidad_objetivo_min','Utilidad mínima',60000)}
+        ${cfRow('cf_utilidad_objetivo_opt','Utilidad óptima',85000)}
+        ${cfRow('cf_mano_obra_base','Mano de obra base',35000)}
+        <div class="no-fgroup">
+          <label style="font-size:11px;color:#555;">Margen obj. repuestos (0–1)</label>
+          <input id="cfInput_cf_margen_objetivo_rep" type="number" step="0.05" min="0" max="1"
+            style="width:100%;font-size:12px;" value="${Number(c.cf_margen_objetivo_rep??0.5).toFixed(2)}">
+        </div>
+        ${cfRow('cf_meta_ahorro_mes','Meta ahorro / mes',2500000)}
+        ${cfRow('cf_meta_total_mes','Meta total / mes',13900000)}
+      </div>
+    </div>
+    <div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-dark" style="min-width:150px;" onclick="fin_guardarConfig()">💾 Guardar configuración</button>
+      <span id="finConfigMsg" style="font-size:12px;"></span>
+    </div>`;
+}
+
+window.fin_guardarConfig = async function() {
+  const get = id => {
+    const el = document.getElementById(`cfInput_${id}`);
+    if (!el) return null;
+    return el.type === 'text' ? el.value.trim() : Number(el.value) || 0;
+  };
+  const body = {
+    cf_arriendo:              get('cf_arriendo'),
+    cf_energia:               get('cf_energia'),
+    cf_agua:                  get('cf_agua'),
+    cf_internet:              get('cf_internet'),
+    cf_telefono:              get('cf_telefono'),
+    cf_salarios:              get('cf_salarios'),
+    cf_seguridad_social:      get('cf_seguridad_social'),
+    cf_parafiscales:          get('cf_parafiscales'),
+    cf_mantenimiento:         get('cf_mantenimiento'),
+    cf_otros:                 get('cf_otros'),
+    cf_descripcion_otros:     get('cf_descripcion_otros'),
+    cf_utilidad_objetivo_min: get('cf_utilidad_objetivo_min'),
+    cf_utilidad_objetivo_opt: get('cf_utilidad_objetivo_opt'),
+    cf_mano_obra_base:        get('cf_mano_obra_base'),
+    cf_margen_objetivo_rep:   get('cf_margen_objetivo_rep'),
+    cf_meta_ahorro_mes:       get('cf_meta_ahorro_mes'),
+    cf_meta_total_mes:        get('cf_meta_total_mes'),
+  };
+  const msgEl = document.getElementById('finConfigMsg');
+  if (msgEl) { msgEl.style.color = '#555'; msgEl.textContent = 'Guardando...'; }
+  try {
+    const r = await fetch(`${API}/financiero/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Error al guardar');
+    showToast('Configuración financiera guardada');
+    if (msgEl) msgEl.textContent = '';
+    await fin_load();
+  } catch (e) {
+    if (msgEl) { msgEl.style.color = '#dc2626'; msgEl.textContent = e.message; }
+  }
+};
+
+// ─── Finanzas — historial de configuraciones ─────────────────────────────────
+async function fin_renderHistorial() {
+  const el = document.getElementById('finHistCard');
+  if (!el) return;
+  el.innerHTML = `
+    <div style="font-size:13px;font-weight:600;color:#1d3557;margin-bottom:10px;">📋 Historial de configuraciones</div>
+    <div style="color:#aaa;font-size:13px;">Cargando...</div>`;
+  try {
+    const r    = await fetch(`${API}/financiero/config/historial`);
+    const rows = await r.json();
+    if (!Array.isArray(rows) || rows.length === 0) {
+      el.querySelector('div:last-child').textContent = 'Sin historial.';
+      return;
+    }
+    const tbody = rows.map(c => `
+      <tr style="border-bottom:1px solid #f0f4f8;font-size:12px;">
+        <td style="padding:6px 4px;">${c.cf_vigente_desde||'—'}</td>
+        <td style="padding:6px 4px;color:#888;">${c.cf_vigente_hasta||'—'}</td>
+        <td style="padding:6px 4px;text-align:right;">${money(c.cf_meta_total_mes)}</td>
+        <td style="padding:6px 4px;text-align:right;">${money(c.cf_utilidad_objetivo_min)}</td>
+        <td style="padding:6px 4px;text-align:right;color:#dc2626;">${money(c.cf_total_costos_fijos)}</td>
+        <td style="padding:6px 4px;text-align:center;">
+          ${c.cf_vigente_hasta === null
+            ? '<span style="background:#166534;color:#fff;padding:1px 7px;border-radius:4px;font-size:11px;">Activa</span>'
+            : '<span style="font-size:11px;color:#888;">Cerrada</span>'}
+        </td>
+      </tr>`).join('');
+    el.innerHTML = `
+      <div style="font-size:13px;font-weight:600;color:#1d3557;margin-bottom:10px;">📋 Historial de configuraciones</div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="font-size:11px;text-transform:uppercase;color:#888;border-bottom:1px solid #e5e7eb;">
+              <th style="padding:6px 4px;text-align:left;font-weight:600;">Desde</th>
+              <th style="padding:6px 4px;text-align:left;font-weight:600;">Hasta</th>
+              <th style="padding:6px 4px;text-align:right;font-weight:600;">Meta mes</th>
+              <th style="padding:6px 4px;text-align:right;font-weight:600;">Util. mínima</th>
+              <th style="padding:6px 4px;text-align:right;font-weight:600;">Costos fijos</th>
+              <th style="padding:6px 4px;text-align:center;font-weight:600;">Estado</th>
+            </tr>
+          </thead>
+          <tbody>${tbody}</tbody>
+        </table>
+      </div>`;
+  } catch (_) {
+    el.innerHTML = `<div style="color:#aaa;font-size:13px;">Error cargando historial.</div>`;
+  }
+}
+
 // ── Session init ──────────────────────────────────────────────────────────────
 (async function() {
   const me = await fetch('/me').then(r=>r.json()).catch(()=>({}));
@@ -3453,6 +3880,10 @@ Views.ventas = {
     document.querySelectorAll('.nav-item').forEach(el => {
       if (TEC_VIEWS.includes(el.dataset.view)) el.style.display = 'none';
     });
+    // Mostrar nav-items solo para admin
+    if (isAdmin()) {
+      document.querySelectorAll('.nav-item.admin-only').forEach(el => el.style.display = '');
+    }
   }
 
   // Hash-based routing
