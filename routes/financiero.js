@@ -113,4 +113,23 @@ router.get('/financiero/config/historial', async (req, res) => {
   }
 });
 
+// ─── 4. GET /api/financiero/dashboard?mes=YYYY-MM ──────────────────────────
+router.get('/financiero/dashboard', async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const mes = req.query.mes || new Date().toISOString().slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(mes))
+    return res.status(400).json({ error: 'mes debe tener formato YYYY-MM' });
+
+  const conn = await db.getConnection();
+  try {
+    const kpis = await calcularDashboardMensual({ tenantId, mes, conn });
+    res.json({ mes, ...kpis });
+  } catch (e) {
+    log.error({ err: e }, 'Error calculando dashboard financiero');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
 module.exports = router;
