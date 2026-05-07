@@ -72,10 +72,11 @@ async function test(name, fn) {
       'Falta lógica de restauración de foco');
   });
 
-  await test('Bug1: ven_onItem omite re-render para vi_descripcion', () => {
+  await test('Bug1: ven_onItem no reconstruye el DOM para texto ni números', () => {
     assert.ok(
-      js.includes("field === 'vi_descripcion') return"),
-      'Falta early-return para vi_descripcion en ven_onItem'
+      js.includes("vi_descripcion' || field === 'vi_tipo") &&
+      js.includes('ven_recalcTotales(); return;'),
+      'Falta early-return para vi_descripcion/vi_tipo en ven_onItem'
     );
   });
 
