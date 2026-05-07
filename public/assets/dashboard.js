@@ -3036,6 +3036,97 @@ Views.buscarOrden = {
   }
 };
 
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: VENTAS (POS)
+// ════════════════════════════════════════════════════════════════════════════
+Views.ventas = {
+  render() {
+    const now = new Date();
+    const mes = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    return `
+      <div class="two-panel" id="venPanel">
+        <div class="pnl-left">
+          <div class="search-box">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+              <h2>Ventas</h2>
+              <button class="btn btn-dark" onclick="ven_openCreate()">+ Nueva</button>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+              <div>
+                <label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Mes</label>
+                <input type="month" id="venMes" value="${mes}"
+                       style="padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;"
+                       onchange="ven_reload()">
+              </div>
+              <div>
+                <label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Estado</label>
+                <select id="venEstado"
+                        style="padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;"
+                        onchange="ven_reload()">
+                  <option value="">Todos</option>
+                  <option value="borrador">Borrador</option>
+                  <option value="pagada">Pagada</option>
+                  <option value="anulada">Anulada</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="results-list" id="venResults">
+            <div class="results-empty">Cargando...</div>
+          </div>
+        </div>
+        <div class="pnl-right" id="venRight">
+          <div class="mobile-back" onclick="ven_back()">← Volver a ventas</div>
+          <div class="empty-state">
+            <div class="es-icon">🛒</div>
+            <p>Selecciona una venta para ver el detalle</p>
+          </div>
+        </div>
+      </div>`;
+  },
+
+  async init() {
+    const VEN_ESTADO_COLORS = {
+      borrador: { bg:'#fef9c3', color:'#854d0e' },
+      pagada:   { bg:'#dcfce7', color:'#166534' },
+      anulada:  { bg:'#fee2e2', color:'#991b1b' },
+    };
+    const VEN_METODOS = { efectivo:'Efectivo', transferencia:'Transferencia', tarjeta:'Tarjeta', cheque:'Cheque', otro:'Otro' };
+
+    window.ven_back = () => { document.getElementById('venPanel')?.classList.remove('immersive'); };
+
+    window.ven_reload = async function() {
+      const mes    = document.getElementById('venMes')?.value    || '';
+      const estado = document.getElementById('venEstado')?.value || '';
+      const params = new URLSearchParams();
+      if (mes)    { params.set('fecha_desde', mes + '-01'); params.set('fecha_hasta', mes + '-31'); }
+      if (estado) params.set('estado', estado);
+
+      const rl = document.getElementById('venResults'); if (!rl) return;
+      rl.innerHTML = '<div class="results-empty">Cargando...</div>';
+      const rows = await fetch(`${API}/ventas?${params}`).then(r=>r.json()).catch(()=>[]);
+      if (!rows.length) { rl.innerHTML = '<div class="results-empty">Sin ventas en el período</div>'; return; }
+
+      rl.innerHTML = rows.map(v => {
+        const est   = VEN_ESTADO_COLORS[v.ven_estado] || { bg:'#f3f4f6', color:'#374151' };
+        const label = esc(v.cli_razon_social || v.cli_contacto || 'Mostrador');
+        const orden = v.ord_consecutivo ? `<span style="color:#888;font-size:11px;"> · Orden #${v.ord_consecutivo}</span>` : '';
+        return `<div class="result-card" onclick="ven_verDetalle(${v.uid_venta})">
+          <div class="rc-top">
+            <span class="rc-num">Venta #${v.ven_consecutivo}</span>
+            <span class="rc-fecha">${fmtFecha(v.ven_fecha)}</span>
+          </div>
+          <div class="rc-cliente">${label}${orden}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+            <span style="font-weight:700;font-size:14px;">${money(v.ven_total)}</span>
+            <span class="estado-pill" style="background:${est.bg};color:${est.color};">${v.ven_estado}</span>
+          </div>
+        </div>`;
+      }).join('');
+    };
+
+    await window.ven_reload();
+
 // ── Session init ──────────────────────────────────────────────────────────────
 (async function() {
   const me = await fetch('/me').then(r=>r.json()).catch(()=>({}));
