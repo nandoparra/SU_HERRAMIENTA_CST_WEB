@@ -578,6 +578,7 @@ Views.ordenes = {
             <button class="btn btn-mid" onclick="ord_enviarPDFCotWA(${orden.uid_orden},this)">📤 PDF Cotización WA</button>
             <button class="btn btn-orange" onclick="ord_generarMsgCot(${orden.uid_orden},this)">🤖 Generar mensaje</button>
             <button class="btn btn-orange" id="btnSendCotWA-${orden.uid_orden}" onclick="ord_enviarCotWA(${orden.uid_orden},this)" disabled>📱 Enviar WA</button>
+            <button class="btn btn-green" onclick="ord_generarVenta(${orden.uid_orden},this)">💳 Generar venta</button>
             <div id="msgPreview-${orden.uid_orden}" style="display:none;margin:8px 0;padding:10px 12px;background:#f1f8e9;border-left:3px solid #66bb6a;border-radius:4px;white-space:pre-wrap;font-size:13px;line-height:1.5;max-height:220px;overflow-y:auto;"></div>
             `:''}
           </div>
@@ -3130,6 +3131,7 @@ Views.ventas = {
     // ── Modal nueva venta ──────────────────────────────────────────────────
     let _venItems = [];
     let _venShowCosto = false;
+    let _venOrdenId = null;
 
     function ven_calcItem(it) {
       const precio   = Number(it.vi_precio_unitario) || 0;
@@ -3249,11 +3251,26 @@ Views.ventas = {
       _venItems = [{ vi_descripcion:'', vi_tipo:'repuesto', vi_cantidad:1,
                      vi_precio_unitario:0, vi_costo_unitario:0, vi_descuento_pct:0 }];
       _venShowCosto = false;
+      _venOrdenId = null;
       const today = new Date().toISOString().slice(0,10);
       const bg = document.createElement('div');
       bg.className = 'modal-bg'; bg.id = 'venCreateModal';
       bg.innerHTML = `<div class="modal" style="max-width:720px;width:96%;max-height:92vh;overflow-y:auto;">
         <h3>Nueva Venta</h3>
+
+        <!-- Cargar ítems desde orden existente -->
+        <div style="margin-bottom:14px;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+          <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:8px;">📦 Cargar desde orden <span style="font-weight:400;color:#888;">(opcional)</span></div>
+          <div style="position:relative;">
+            <input type="text" id="venOrdBuscar" autocomplete="off"
+              placeholder="Número de orden o nombre del cliente..."
+              style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;box-sizing:border-box;"
+              oninput="ven_buscarOrden(this.value)">
+            <div id="venOrdResultados" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:1000;max-height:180px;overflow-y:auto;margin-top:2px;"></div>
+          </div>
+          <div id="venOrdSelMsg" style="font-size:12px;margin-top:6px;display:none;"></div>
+        </div>
+
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
           <div>
             <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Fecha <span style="color:#e53e3e">*</span></label>
@@ -3320,6 +3337,7 @@ Views.ventas = {
         ven_fecha:       fecha,
         ven_metodo_pago: metodo,
         ven_notas:       notas,
+        uid_orden:       _venOrdenId || undefined,
         items:           _venItems,
       };
       const r = await fetch(`${API}/ventas`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
@@ -3332,6 +3350,100 @@ Views.ventas = {
       } else {
         errEl.textContent = r.error || 'Error al crear la venta.';
         errEl.style.display = 'block';
+      }
+    };
+
+    // ── Buscador de órdenes dentro del modal Nueva Venta ─────────────────
+    let _venOrdTimer = null;
+    window.ven_buscarOrden = function(q) {
+      clearTimeout(_venOrdTimer);
+      const rEl = document.getElementById('venOrdResultados');
+      if (!rEl) return;
+      if (!q || q.trim().length < 2) { rEl.style.display = 'none'; return; }
+      _venOrdTimer = setTimeout(async () => {
+        rEl.style.display = '';
+        rEl.innerHTML = '<div style="padding:8px 12px;color:#aaa;font-size:13px;">Buscando...</div>';
+        try {
+          const rows = await fetch(`${API}/orders/search?q=${encodeURIComponent(q.trim())}&limit=8`)
+            .then(r => r.json());
+          const list = Array.isArray(rows) ? rows : [];
+          if (!list.length) {
+            rEl.innerHTML = '<div style="padding:8px 12px;color:#aaa;font-size:13px;">Sin resultados.</div>';
+            return;
+          }
+          rEl.innerHTML = list.map(o => {
+            const cl = esc(o.cli_razon_social || o.cli_contacto || '—');
+            const fecha = fmtFecha(o.ord_fecha);
+            return `<div style="padding:9px 12px;cursor:pointer;border-bottom:1px solid #f0f4f8;font-size:13px;"
+                         onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''"
+                         onclick="ven_seleccionarOrden(${o.uid_orden},${o.ord_consecutivo},'${cl.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')">
+              <strong>#${o.ord_consecutivo}</strong> — ${cl}
+              <span style="float:right;color:#aaa;font-size:11px;">${fecha}</span>
+            </div>`;
+          }).join('');
+        } catch (_) {
+          rEl.innerHTML = '<div style="padding:8px 12px;color:#aaa;font-size:13px;">Error buscando órdenes.</div>';
+        }
+      }, 300);
+    };
+
+    window.ven_seleccionarOrden = async function(uidOrden, consecutivo, cliente) {
+      const rEl  = document.getElementById('venOrdResultados');
+      const bEl  = document.getElementById('venOrdBuscar');
+      const msgEl = document.getElementById('venOrdSelMsg');
+      if (rEl)  rEl.style.display  = 'none';
+      if (bEl)  bEl.value = `#${consecutivo} — ${cliente}`;
+      if (msgEl) { msgEl.style.color = '#555'; msgEl.textContent = 'Cargando cotización...'; msgEl.style.display = ''; }
+
+      try {
+        const data = await fetch(`${API}/recibos/cotizacion-orden/${uidOrden}`).then(r => r.json());
+        if (!data.hasCotizacion) {
+          if (msgEl) { msgEl.style.color = '#991b1b'; msgEl.textContent = `La orden #${consecutivo} no tiene cotización registrada.`; }
+          return;
+        }
+        const items = [];
+        for (const m of data.machines) {
+          const label = [m.her_nombre, m.her_marca].filter(Boolean).join(' ');
+          if (Number(m.mano_obra) > 0) {
+            items.push({ vi_descripcion:`Mano de obra — ${label}`, vi_tipo:'mano_obra',
+              vi_cantidad:1, vi_precio_unitario:Number(m.mano_obra), vi_costo_unitario:0, vi_descuento_pct:0 });
+          }
+          for (const it of data.items.filter(i => String(i.uid_herramienta_orden) === String(m.uid_herramienta_orden))) {
+            items.push({ vi_descripcion:it.nombre, vi_tipo:'repuesto',
+              vi_cantidad:Number(it.cantidad), vi_precio_unitario:Number(it.precio), vi_costo_unitario:0, vi_descuento_pct:0 });
+          }
+        }
+        if (!items.length) {
+          if (msgEl) { msgEl.style.color = '#991b1b'; msgEl.textContent = 'La cotización no tiene ítems cargables.'; }
+          return;
+        }
+        _venItems = items;
+        _venOrdenId = uidOrden;
+        ven_renderItems();
+        if (msgEl) {
+          msgEl.style.color = '#166534';
+          msgEl.textContent = `✅ ${items.length} ítem(s) cargados desde orden #${consecutivo}`;
+        }
+      } catch (_) {
+        if (msgEl) { msgEl.style.color = '#991b1b'; msgEl.textContent = 'Error al cargar la cotización.'; }
+      }
+    };
+
+    // ── Generar venta desde detalle de orden ─────────────────────────────
+    window.ord_generarVenta = async function(uidOrden, btn) {
+      if (!confirm('¿Crear una venta con los ítems de la cotización aprobada de esta orden?')) return;
+      const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Generando...';
+      try {
+        const r = await fetch(`${API}/ventas/desde-orden/${uidOrden}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'Error al crear la venta');
+        showToast(`✅ Venta #${d.ven_consecutivo} creada`);
+        navigate('ventas');
+      } catch (e) {
+        alert('⚠️ ' + e.message);
+        btn.disabled = false; btn.textContent = orig;
       }
     };
 
