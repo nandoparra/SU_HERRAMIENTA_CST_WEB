@@ -101,7 +101,7 @@ router.get('/financiero/config/historial', async (req, res) => {
     const [rows] = await conn.execute(
       `SELECT * FROM b2c_config_financiera
        WHERE tenant_id = ?
-       ORDER BY cf_vigente_desde DESC`,
+       ORDER BY cf_vigente_desde DESC, uid_config DESC`,
       [tenantId]
     );
     res.json(rows);
@@ -117,7 +117,7 @@ router.get('/financiero/config/historial', async (req, res) => {
 router.get('/financiero/dashboard', async (req, res) => {
   const tenantId = req.tenant?.uid_tenant ?? 1;
   const mes = req.query.mes || new Date().toISOString().slice(0, 7);
-  if (!/^\d{4}-\d{2}$/.test(mes))
+  if (!/^\d{4}-\d{2}$/.test(mes) || Number(mes.slice(5)) < 1 || Number(mes.slice(5)) > 12)
     return res.status(400).json({ error: 'mes debe tener formato YYYY-MM' });
 
   const conn = await db.getConnection();
@@ -138,7 +138,7 @@ router.get('/financiero/ventas', async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo administradores' });
   const tenantId = req.tenant?.uid_tenant ?? 1;
   const mes      = req.query.mes || new Date().toISOString().slice(0, 7);
-  if (!/^\d{4}-\d{2}$/.test(mes))
+  if (!/^\d{4}-\d{2}$/.test(mes) || Number(mes.slice(5)) < 1 || Number(mes.slice(5)) > 12)
     return res.status(400).json({ error: 'mes debe tener formato YYYY-MM' });
 
   const fechaInicio = `${mes}-01`;
