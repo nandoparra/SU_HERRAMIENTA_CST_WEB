@@ -155,17 +155,78 @@ router.get('/ventas/:id', async (req, res) => {
   }
 });
 
-// ─── POST /api/ventas — crear venta ──────────────────────────────────────────
-router.post('/ventas', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
-  const userId   = req.session?.user?.id ?? null;
-  const ivaResp  = !!(req.tenant?.ten_iva_responsable);
+/**
+ * Lógica compartida de creación de venta — usada por POST /ventas y POST /ventas/desde-orden.
+ * Requiere conexión con transacción ya iniciada por el caller.
+ * @returns {{ uid_venta, ven_consecutivo }}
+ */
+async function crearVentaInterna(conn, { tenantId, userId, ivaResp, body }) {
   const {
     uid_cliente, uid_orden,
     ven_fecha, ven_metodo_pago = 'efectivo',
     ven_referencia, ven_notas,
     items = [],
-  } = req.body;
+  } = body;
+
+  const [[{ next_consec }]] = await conn.execute(
+    `SELECT COALESCE(MAX(ven_consecutivo), 0) + 1 AS next_consec
+     FROM b2c_venta WHERE tenant_id = ?`,
+    [tenantId]
+  );
+
+  const itemsCalc    = items.map(i => calcularItem(i, ivaResp));
+  const totales      = calcularTotalesCabecera(itemsCalc);
+  const cfg          = await getConfigActiva(conn, tenantId);
+  const rentabilidad = calcularRentabilidad({ items: itemsCalc, configFinanciera: cfg });
+
+  const [result] = await conn.execute(
+    `INSERT INTO b2c_venta
+       (tenant_id, uid_orden, uid_cliente, ven_consecutivo, ven_fecha,
+        ven_subtotal, ven_descuento, ven_iva, ven_total,
+        ven_metodo_pago, ven_referencia, ven_notas,
+        ven_mano_obra, ven_costo_repuestos, ven_utilidad_repuestos,
+        ven_margen_repuestos, ven_utilidad_total, ven_margen_total,
+        ven_es_rentable, ven_utilidad_objetivo, ven_diferencia_utilidad,
+        ven_creado_por)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      tenantId, uid_orden || null, uid_cliente || null, next_consec, ven_fecha,
+      totales.ven_subtotal, totales.ven_descuento, totales.ven_iva, totales.ven_total,
+      ven_metodo_pago, ven_referencia || null, ven_notas || null,
+      rentabilidad.ven_mano_obra, rentabilidad.ven_costo_repuestos,
+      rentabilidad.ven_utilidad_repuestos, rentabilidad.ven_margen_repuestos,
+      rentabilidad.ven_utilidad_total, rentabilidad.ven_margen_total,
+      rentabilidad.ven_es_rentable, rentabilidad.ven_utilidad_objetivo,
+      rentabilidad.ven_diferencia_utilidad, userId,
+    ]
+  );
+  const uid_venta = result.insertId;
+
+  for (const i of itemsCalc) {
+    await conn.execute(
+      `INSERT INTO b2c_venta_item
+         (uid_venta, tenant_id, vi_descripcion, vi_tipo, vi_cantidad,
+          vi_precio_unitario, vi_costo_unitario, vi_descuento_pct,
+          vi_iva_pct, vi_subtotal, vi_total)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        uid_venta, tenantId,
+        i.vi_descripcion, i.vi_tipo || 'repuesto', i.vi_cantidad,
+        i.vi_precio_unitario, Number(i.vi_costo_unitario) || 0,
+        i.vi_descuento_pct, i.vi_iva_pct, i.vi_subtotal, i.vi_total,
+      ]
+    );
+  }
+
+  return { uid_venta, ven_consecutivo: next_consec, ven_total: totales.ven_total };
+}
+
+// ─── POST /api/ventas — crear venta ──────────────────────────────────────────
+router.post('/ventas', async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const userId   = req.session?.user?.id ?? null;
+  const ivaResp  = !!(req.tenant?.ten_iva_responsable);
+  const { ven_fecha, items = [] } = req.body;
 
   if (!ven_fecha) return res.status(400).json({ error: 'ven_fecha es requerido' });
   if (!Array.isArray(items) || !items.length)
@@ -174,67 +235,14 @@ router.post('/ventas', async (req, res) => {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
-
-    // Consecutivo por tenant
-    const [[{ next_consec }]] = await conn.execute(
-      `SELECT COALESCE(MAX(ven_consecutivo), 0) + 1 AS next_consec
-       FROM b2c_venta WHERE tenant_id = ?`,
-      [tenantId]
+    const { uid_venta, ven_consecutivo, ven_total } = await crearVentaInterna(
+      conn, { tenantId, userId, ivaResp, body: req.body }
     );
-
-    // Calcular ítems
-    const itemsCalc = items.map(i => calcularItem(i, ivaResp));
-    const totales   = calcularTotalesCabecera(itemsCalc);
-
-    // Rentabilidad
-    const cfg          = await getConfigActiva(conn, tenantId);
-    const rentabilidad = calcularRentabilidad({ items: itemsCalc, configFinanciera: cfg });
-
-    const [result] = await conn.execute(
-      `INSERT INTO b2c_venta
-         (tenant_id, uid_orden, uid_cliente, ven_consecutivo, ven_fecha,
-          ven_subtotal, ven_descuento, ven_iva, ven_total,
-          ven_metodo_pago, ven_referencia, ven_notas,
-          ven_mano_obra, ven_costo_repuestos, ven_utilidad_repuestos,
-          ven_margen_repuestos, ven_utilidad_total, ven_margen_total,
-          ven_es_rentable, ven_utilidad_objetivo, ven_diferencia_utilidad,
-          ven_creado_por)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        tenantId, uid_orden || null, uid_cliente || null, next_consec, ven_fecha,
-        totales.ven_subtotal, totales.ven_descuento, totales.ven_iva, totales.ven_total,
-        ven_metodo_pago, ven_referencia || null, ven_notas || null,
-        rentabilidad.ven_mano_obra, rentabilidad.ven_costo_repuestos,
-        rentabilidad.ven_utilidad_repuestos, rentabilidad.ven_margen_repuestos,
-        rentabilidad.ven_utilidad_total, rentabilidad.ven_margen_total,
-        rentabilidad.ven_es_rentable, rentabilidad.ven_utilidad_objetivo,
-        rentabilidad.ven_diferencia_utilidad, userId,
-      ]
-    );
-    const uid_venta = result.insertId;
-
-    // Insertar ítems
-    for (const i of itemsCalc) {
-      await conn.execute(
-        `INSERT INTO b2c_venta_item
-           (uid_venta, tenant_id, vi_descripcion, vi_tipo, vi_cantidad,
-            vi_precio_unitario, vi_costo_unitario, vi_descuento_pct,
-            vi_iva_pct, vi_subtotal, vi_total)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          uid_venta, tenantId,
-          i.vi_descripcion, i.vi_tipo || 'repuesto', i.vi_cantidad,
-          i.vi_precio_unitario, Number(i.vi_costo_unitario) || 0,
-          i.vi_descuento_pct, i.vi_iva_pct, i.vi_subtotal, i.vi_total,
-        ]
-      );
-    }
-
     await conn.commit();
     await logAudit(req, 'venta_creada', 'b2c_venta', String(uid_venta), {
-      ven_consecutivo: next_consec, ven_total: totales.ven_total,
+      ven_consecutivo, ven_total,
     });
-    res.status(201).json({ uid_venta, ven_consecutivo: next_consec });
+    res.status(201).json({ uid_venta, ven_consecutivo });
   } catch (e) {
     await conn.rollback();
     log.error({ err: e }, 'Error creando venta');
@@ -291,6 +299,95 @@ router.patch('/ventas/:id/anular', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     log.error({ err: e }, 'Error anulando venta');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
+// ─── POST /api/ventas/desde-orden/:orderId ────────────────────────────────────
+// Pre-carga ítems desde la cotización aprobada y crea la venta en una transacción.
+router.post('/ventas/desde-orden/:orderId', async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const userId   = req.session?.user?.id ?? null;
+  const ivaResp  = !!(req.tenant?.ten_iva_responsable);
+  const conn = await db.getConnection();
+  try {
+    const [[orden]] = await conn.execute(
+      `SELECT uid_orden, ord_consecutivo, uid_cliente
+       FROM b2c_orden WHERE uid_orden = ? AND tenant_id = ?`,
+      [req.params.orderId, tenantId]
+    );
+    if (!orden) return res.status(404).json({ error: 'Orden no encontrada' });
+
+    const [machines] = await conn.execute(
+      `SELECT cm.uid_herramienta_orden, cm.mano_obra,
+              h.her_nombre, h.her_marca
+       FROM b2c_cotizacion_maquina cm
+       LEFT JOIN b2c_herramienta_orden ho ON ho.uid_herramienta_orden = cm.uid_herramienta_orden
+       LEFT JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+       WHERE cm.uid_orden = ?
+       ORDER BY cm.uid_herramienta_orden`,
+      [orden.uid_orden]
+    );
+    if (!machines.length)
+      return res.status(422).json({ error: 'La orden no tiene cotización registrada' });
+
+    const [cotItems] = await conn.execute(
+      `SELECT uid_herramienta_orden, nombre, cantidad, precio
+       FROM b2c_cotizacion_item WHERE uid_orden = ?
+       ORDER BY uid_herramienta_orden, id`,
+      [orden.uid_orden]
+    );
+
+    const items = [];
+    for (const m of machines) {
+      const label = [m.her_nombre, m.her_marca].filter(Boolean).join(' ');
+      if (Number(m.mano_obra) > 0) {
+        items.push({
+          vi_descripcion:     `Mano de obra — ${label}`,
+          vi_tipo:            'mano_obra',
+          vi_cantidad:        1,
+          vi_precio_unitario: Number(m.mano_obra),
+          vi_costo_unitario:  0,
+          vi_descuento_pct:   0,
+          vi_iva_pct:         0,
+        });
+      }
+      for (const it of cotItems.filter(i => String(i.uid_herramienta_orden) === String(m.uid_herramienta_orden))) {
+        items.push({
+          vi_descripcion:     it.nombre,
+          vi_tipo:            'repuesto',
+          vi_cantidad:        Number(it.cantidad),
+          vi_precio_unitario: Number(it.precio),
+          vi_costo_unitario:  0,
+          vi_descuento_pct:   0,
+          vi_iva_pct:         0,
+        });
+      }
+    }
+
+    const body = {
+      uid_orden:       orden.uid_orden,
+      uid_cliente:     orden.uid_cliente,
+      ven_fecha:       new Date().toISOString().slice(0, 10),
+      ven_metodo_pago: req.body?.ven_metodo_pago || 'efectivo',
+      ven_notas:       `Generada desde orden #${orden.ord_consecutivo}`,
+      items,
+    };
+
+    await conn.beginTransaction();
+    const { uid_venta, ven_consecutivo, ven_total } = await crearVentaInterna(
+      conn, { tenantId, userId, ivaResp, body }
+    );
+    await conn.commit();
+    await logAudit(req, 'venta_creada', 'b2c_venta', String(uid_venta), {
+      ven_consecutivo, ven_total, desde_orden: orden.uid_orden,
+    });
+    res.status(201).json({ uid_venta, ven_consecutivo });
+  } catch (e) {
+    await conn.rollback().catch(() => {});
+    log.error({ err: e }, 'Error creando venta desde orden');
     res.status(500).json({ error: 'Error interno del servidor' });
   } finally {
     conn.release();
