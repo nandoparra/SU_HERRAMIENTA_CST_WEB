@@ -155,4 +155,93 @@ router.get('/ventas/:id', async (req, res) => {
   }
 });
 
+// ─── POST /api/ventas — crear venta ──────────────────────────────────────────
+router.post('/ventas', async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const userId   = req.session?.user?.id ?? null;
+  const ivaResp  = !!(req.tenant?.ten_iva_responsable);
+  const {
+    uid_cliente, uid_orden,
+    ven_fecha, ven_metodo_pago = 'efectivo',
+    ven_referencia, ven_notas,
+    items = [],
+  } = req.body;
+
+  if (!ven_fecha) return res.status(400).json({ error: 'ven_fecha es requerido' });
+  if (!Array.isArray(items) || !items.length)
+    return res.status(400).json({ error: 'Se requiere al menos un ítem' });
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // Consecutivo por tenant
+    const [[{ next_consec }]] = await conn.execute(
+      `SELECT COALESCE(MAX(ven_consecutivo), 0) + 1 AS next_consec
+       FROM b2c_venta WHERE tenant_id = ?`,
+      [tenantId]
+    );
+
+    // Calcular ítems
+    const itemsCalc = items.map(i => calcularItem(i, ivaResp));
+    const totales   = calcularTotalesCabecera(itemsCalc);
+
+    // Rentabilidad
+    const cfg          = await getConfigActiva(conn, tenantId);
+    const rentabilidad = calcularRentabilidad({ items: itemsCalc, configFinanciera: cfg });
+
+    const [result] = await conn.execute(
+      `INSERT INTO b2c_venta
+         (tenant_id, uid_orden, uid_cliente, ven_consecutivo, ven_fecha,
+          ven_subtotal, ven_descuento, ven_iva, ven_total,
+          ven_metodo_pago, ven_referencia, ven_notas,
+          ven_mano_obra, ven_costo_repuestos, ven_utilidad_repuestos,
+          ven_margen_repuestos, ven_utilidad_total, ven_margen_total,
+          ven_es_rentable, ven_utilidad_objetivo, ven_diferencia_utilidad,
+          ven_creado_por)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        tenantId, uid_orden || null, uid_cliente || null, next_consec, ven_fecha,
+        totales.ven_subtotal, totales.ven_descuento, totales.ven_iva, totales.ven_total,
+        ven_metodo_pago, ven_referencia || null, ven_notas || null,
+        rentabilidad.ven_mano_obra, rentabilidad.ven_costo_repuestos,
+        rentabilidad.ven_utilidad_repuestos, rentabilidad.ven_margen_repuestos,
+        rentabilidad.ven_utilidad_total, rentabilidad.ven_margen_total,
+        rentabilidad.ven_es_rentable, rentabilidad.ven_utilidad_objetivo,
+        rentabilidad.ven_diferencia_utilidad, userId,
+      ]
+    );
+    const uid_venta = result.insertId;
+
+    // Insertar ítems
+    for (const i of itemsCalc) {
+      await conn.execute(
+        `INSERT INTO b2c_venta_item
+           (uid_venta, tenant_id, vi_descripcion, vi_tipo, vi_cantidad,
+            vi_precio_unitario, vi_costo_unitario, vi_descuento_pct,
+            vi_iva_pct, vi_subtotal, vi_total)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          uid_venta, tenantId,
+          i.vi_descripcion, i.vi_tipo || 'repuesto', i.vi_cantidad,
+          i.vi_precio_unitario, Number(i.vi_costo_unitario) || 0,
+          i.vi_descuento_pct, i.vi_iva_pct, i.vi_subtotal, i.vi_total,
+        ]
+      );
+    }
+
+    await conn.commit();
+    await logAudit(req, 'venta_creada', 'b2c_venta', String(uid_venta), {
+      ven_consecutivo: next_consec, ven_total: totales.ven_total,
+    });
+    res.status(201).json({ uid_venta, ven_consecutivo: next_consec });
+  } catch (e) {
+    await conn.rollback();
+    log.error({ err: e }, 'Error creando venta');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
 module.exports = router;
