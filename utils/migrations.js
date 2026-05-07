@@ -505,6 +505,39 @@ async function ensureConfigFinanciera() {
   }
 }
 
+async function seedConfigFinanciera() {
+  const conn = await db.getConnection();
+  try {
+    // Insertar config inicial solo si no existe ninguna para ese tenant
+    const [tenants] = await conn.execute(
+      `SELECT uid_tenant FROM b2c_tenant WHERE ten_estado = 'activo'`
+    );
+    for (const { uid_tenant } of tenants) {
+      const [[existing]] = await conn.execute(
+        `SELECT uid_config FROM b2c_config_financiera WHERE tenant_id = ? LIMIT 1`,
+        [uid_tenant]
+      );
+      if (existing) continue;
+
+      const hoy = new Date().toISOString().slice(0, 10);
+      await conn.execute(
+        `INSERT INTO b2c_config_financiera
+           (tenant_id, cf_total_costos_fijos, cf_meta_ahorro_mes, cf_meta_total_mes,
+            cf_mano_obra_base, cf_margen_objetivo_rep,
+            cf_utilidad_objetivo_min, cf_utilidad_objetivo_opt,
+            cf_vigente_desde)
+         VALUES (?, 11400000, 2500000, 13900000, 35000, 0.5000, 60000, 85000, ?)`,
+        [uid_tenant, hoy]
+      );
+      console.log(`✅ Config financiera inicial insertada para tenant ${uid_tenant}`);
+    }
+  } catch (e) {
+    console.warn('⚠️ No pude insertar config financiera inicial:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -520,6 +553,7 @@ async function runMigrations() {
   await ensureReciboCajaCedula();
   await ensureVentaTables();
   await ensureConfigFinanciera();
+  await seedConfigFinanciera();
   console.log('Migraciones completadas');
 }
 
