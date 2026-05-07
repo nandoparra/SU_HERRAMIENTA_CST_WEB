@@ -3127,6 +3127,191 @@ Views.ventas = {
 
     await window.ven_reload();
 
+    // ── Modal nueva venta ──────────────────────────────────────────────────
+    let _venItems = [];
+    let _venShowCosto = false;
+
+    function ven_calcItem(it) {
+      const precio   = Number(it.vi_precio_unitario) || 0;
+      const cantidad = Number(it.vi_cantidad)        || 1;
+      const dscto    = Number(it.vi_descuento_pct)   || 0;
+      const subtotal = precio * cantidad;
+      const total    = subtotal * (1 - dscto / 100);
+      const costo    = Number(it.vi_costo_unitario)  || 0;
+      const margen   = precio > 0 ? ((precio - costo) / precio * 100) : null;
+      return { ...it, _subtotal: total, _margen: margen };
+    }
+
+    function ven_renderItems() {
+      const tbl = document.getElementById('venItemsTbl'); if (!tbl) return;
+      const showC = _venShowCosto;
+
+      const colHeader = showC
+        ? `<th style="padding:4px 5px;width:78px;text-align:right;">Costo</th><th style="padding:4px 4px;width:54px;text-align:center;">Margen</th>`
+        : '';
+      tbl.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="background:#f0f4f8;">
+          <th style="padding:4px 5px;text-align:left;">Descripción</th>
+          <th style="padding:4px 4px;width:72px;">Tipo</th>
+          <th style="padding:4px 3px;width:42px;text-align:center;">Cant</th>
+          <th style="padding:4px 5px;width:80px;text-align:right;">Precio</th>
+          ${colHeader}
+          <th style="padding:4px 3px;width:46px;text-align:center;">Dscto%</th>
+          <th style="padding:4px 5px;width:78px;text-align:right;">Total</th>
+          <th style="width:20px;"></th>
+        </tr></thead>
+        <tbody>${_venItems.map((it, i) => {
+          const calc = ven_calcItem(it);
+          const costoCol = showC ? `
+            <td><input type="number" min="0" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:right;" value="${it.vi_costo_unitario||0}" oninput="ven_onItem(${i},'vi_costo_unitario',this.value)"></td>
+            <td style="text-align:center;padding-right:3px;color:${calc._margen!==null&&calc._margen>=40?'#166534':'#991b1b'};font-size:11px;font-weight:600;">${calc._margen !== null ? calc._margen.toFixed(1)+'%' : '—'}</td>
+          ` : '';
+          return `<tr style="border-top:1px solid #f0f0f0;">
+            <td><input style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px 5px;font-size:12px;" value="${esc(it.vi_descripcion||'')}" oninput="ven_onItem(${i},'vi_descripcion',this.value)" placeholder="Descripción..."></td>
+            <td><select style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px 2px;font-size:11px;" onchange="ven_onItem(${i},'vi_tipo',this.value)">
+              <option value="repuesto" ${it.vi_tipo==='repuesto'?'selected':''}>Repuesto</option>
+              <option value="mano_obra" ${it.vi_tipo==='mano_obra'?'selected':''}>M.Obra</option>
+            </select></td>
+            <td><input type="number" min="1" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:center;" value="${it.vi_cantidad||1}" oninput="ven_onItem(${i},'vi_cantidad',this.value)"></td>
+            <td><input type="number" min="0" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:right;" value="${it.vi_precio_unitario||0}" oninput="ven_onItem(${i},'vi_precio_unitario',this.value)"></td>
+            ${costoCol}
+            <td><input type="number" min="0" max="100" style="width:100%;border:1px solid #e2e8f0;border-radius:3px;padding:3px;font-size:12px;text-align:center;" value="${it.vi_descuento_pct||0}" oninput="ven_onItem(${i},'vi_descuento_pct',this.value)"></td>
+            <td style="text-align:right;padding-right:4px;font-weight:600;white-space:nowrap;">${money(calc._subtotal)}</td>
+            <td><button type="button" onclick="ven_removeItem(${i})" style="background:none;border:none;cursor:pointer;color:#e53e3e;font-size:14px;padding:0 2px;">✕</button></td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+      ven_recalcTotales();
+    }
+
+    function ven_recalcTotales() {
+      let subtotal = 0, descuento = 0, total = 0;
+      _venItems.forEach(it => {
+        const c = ven_calcItem(it);
+        const base = (Number(it.vi_precio_unitario)||0) * (Number(it.vi_cantidad)||1);
+        subtotal  += base;
+        descuento += base * ((Number(it.vi_descuento_pct)||0) / 100);
+        total     += c._subtotal;
+      });
+      const el = document.getElementById('venTotales'); if (!el) return;
+      el.innerHTML = `
+        <div style="display:flex;justify-content:flex-end;gap:24px;font-size:13px;margin-top:10px;">
+          <div style="text-align:right;">
+            ${descuento > 0 ? `<div style="color:#888;">Subtotal: ${money(subtotal)}</div><div style="color:#991b1b;">Descuento: −${money(descuento)}</div>` : ''}
+            <div style="font-size:16px;font-weight:700;color:#1d3557;border-top:2px solid #1d3557;padding-top:4px;margin-top:4px;">
+              TOTAL: ${money(total)}
+            </div>
+          </div>
+        </div>`;
+    }
+
+    window.ven_addItem = function() {
+      _venItems.push({ vi_descripcion:'', vi_tipo:'repuesto', vi_cantidad:1,
+                       vi_precio_unitario:0, vi_costo_unitario:0, vi_descuento_pct:0 });
+      ven_renderItems();
+    };
+    window.ven_removeItem = function(i) { _venItems.splice(i,1); ven_renderItems(); };
+    window.ven_onItem = function(i, field, val) {
+      if (!_venItems[i]) return;
+      _venItems[i][field] = ['vi_descripcion','vi_tipo'].includes(field) ? val : (Number(val)||0);
+      ven_renderItems();
+    };
+    window.ven_toggleCostos = function() {
+      _venShowCosto = document.getElementById('venChkCostos')?.checked || false;
+      ven_renderItems();
+    };
+
+    window.ven_openCreate = function() {
+      document.getElementById('venCreateModal')?.remove();
+      _venItems = [{ vi_descripcion:'', vi_tipo:'repuesto', vi_cantidad:1,
+                     vi_precio_unitario:0, vi_costo_unitario:0, vi_descuento_pct:0 }];
+      _venShowCosto = false;
+      const today = new Date().toISOString().slice(0,10);
+      const bg = document.createElement('div');
+      bg.className = 'modal-bg'; bg.id = 'venCreateModal';
+      bg.innerHTML = `<div class="modal" style="max-width:720px;width:96%;max-height:92vh;overflow-y:auto;">
+        <h3>Nueva Venta</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+          <div>
+            <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Fecha <span style="color:#e53e3e">*</span></label>
+            <input type="date" id="venFecha" value="${today}" style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Método de pago</label>
+            <select id="venMetodo" style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+              <option value="efectivo">Efectivo</option>
+              <option value="transferencia">Transferencia</option>
+              <option value="tarjeta">Tarjeta</option>
+              <option value="cheque">Cheque</option>
+              <option value="otro">Otro</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-bottom:10px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:#555;">
+            <input type="checkbox" id="venChkCostos" onchange="ven_toggleCostos()" style="width:14px;height:14px;accent-color:#1d3557;">
+            Mostrar columna de costo (para análisis de margen)
+          </label>
+        </div>
+
+        <div style="margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <span style="font-size:12px;font-weight:600;color:#1d3557;">ÍTEMS DEL SERVICIO</span>
+            <button type="button" class="btn btn-sm btn-mid" onclick="ven_addItem()">+ Agregar ítem</button>
+          </div>
+          <div id="venItemsTbl"></div>
+          <div id="venTotales"></div>
+        </div>
+
+        <div>
+          <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Notas</label>
+          <textarea id="venNotas" rows="2" style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;resize:vertical;" placeholder="Observaciones opcionales..."></textarea>
+        </div>
+
+        <div id="venCreateErr" style="display:none;margin-top:8px;padding:8px 10px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:13px;"></div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button class="btn btn-grey" onclick="document.getElementById('venCreateModal')?.remove()">Cancelar</button>
+          <button class="btn btn-dark" onclick="ven_guardar()">Crear Venta</button>
+        </div>
+      </div>`;
+      document.body.appendChild(bg);
+      bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
+      ven_renderItems();
+    };
+
+    window.ven_guardar = async function() {
+      const fecha  = document.getElementById('venFecha')?.value;
+      const metodo = document.getElementById('venMetodo')?.value || 'efectivo';
+      const notas  = document.getElementById('venNotas')?.value?.trim() || null;
+      const errEl  = document.getElementById('venCreateErr');
+
+      if (!fecha) { errEl.textContent = 'La fecha es requerida.'; errEl.style.display='block'; return; }
+      if (!_venItems.length) { errEl.textContent = 'Agrega al menos un ítem.'; errEl.style.display='block'; return; }
+      const sinDesc = _venItems.find(i => !i.vi_descripcion?.trim());
+      if (sinDesc) { errEl.textContent = 'Todos los ítems deben tener descripción.'; errEl.style.display='block'; return; }
+      errEl.style.display = 'none';
+
+      const body = {
+        ven_fecha:       fecha,
+        ven_metodo_pago: metodo,
+        ven_notas:       notas,
+        items:           _venItems,
+      };
+      const r = await fetch(`${API}/ventas`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+                        .then(r=>r.json()).catch(()=>({error:'Error de red'}));
+      if (r.uid_venta) {
+        document.getElementById('venCreateModal')?.remove();
+        showToast(`✅ Venta #${r.ven_consecutivo} creada`);
+        await ven_reload();
+        ven_verDetalle(r.uid_venta);
+      } else {
+        errEl.textContent = r.error || 'Error al crear la venta.';
+        errEl.style.display = 'block';
+      }
+    };
+
 // ── Session init ──────────────────────────────────────────────────────────────
 (async function() {
   const me = await fetch('/me').then(r=>r.json()).catch(()=>({}));
