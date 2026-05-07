@@ -1085,4 +1085,180 @@ function generateReciboPDF({ recibo, tenant, cotizacion }) {
   });
 }
 
-module.exports = { generateQuotePDF, generateMaintenancePDF, generateOrdenServicioPDF, generateReciboPDF };
+// ─── generateVentaPDF ─────────────────────────────────────────────────────────
+/**
+ * @param {object} params
+ * @param {object}   params.venta   — fila b2c_venta con JOINs (cliente, orden, creado_por_nombre)
+ * @param {Array}    params.items   — filas b2c_venta_item
+ * @param {object}  [params.tenant] — fila b2c_tenant (para IVA)
+ * @returns {Buffer}
+ */
+function generateVentaPDF({ venta, items = [], tenant }) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    const doc    = new PDFDocument({ size: 'A4', margin: MG, bufferPages: true });
+    doc.on('data', c => chunks.push(c));
+    doc.on('end',  () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const SAFE_Y = A4H - 90;
+    let y = MG;
+
+    // ── Header ───────────────────────────────────────────────────────────────
+    const docNum = `VENTA #${venta.ven_consecutivo}`;
+    try {
+      doc.image(LOGO, MG, y, { width: 40, height: 40 });
+    } catch (_) {}
+    doc.save().font('Helvetica-Bold').fontSize(11).fillColor(C.dark)
+      .text(COMPANY.name, MG + 50, y, { lineBreak: false }).restore();
+    doc.save().font('Helvetica').fontSize(8.5).fillColor(C.gry)
+      .text([COMPANY.nit, COMPANY.address, COMPANY.phone].join(' • '), MG + 50, y + 14, { width: 320 }).restore();
+
+    // doc type box
+    fillRect(doc, MG + CW - 110, y, 110, 40, C.lightBg);
+    strokeRect(doc, MG + CW - 110, y, 110, 40);
+    doc.save().font('Helvetica-Bold').fontSize(9).fillColor(C.dark)
+      .text(docNum, MG + CW - 108, y + 5, { width: 106, align: 'center' }).restore();
+    doc.save().font('Helvetica').fontSize(8).fillColor(C.gry)
+      .text(fmtDate(venta.ven_fecha), MG + CW - 108, y + 19, { width: 106, align: 'center' }).restore();
+    doc.save().font('Helvetica').fontSize(8).fillColor(C.gry)
+      .text('Estado: ' + (venta.ven_estado || '').toUpperCase(), MG + CW - 108, y + 30, { width: 106, align: 'center' }).restore();
+    y += 50;
+    hLine(doc, MG, y, MG + CW, C.dark, 1.5);
+    y += 8;
+
+    // ── Datos cliente ────────────────────────────────────────────────────────
+    const clienteNombre = venta.cli_razon_social || venta.cli_contacto || venta.ven_nombre_libre || '—';
+    const clienteId     = venta.cli_identificacion || '';
+    const ordenRef      = venta.ord_consecutivo ? `Orden #${venta.ord_consecutivo}` : '';
+
+    fillRect(doc, MG, y, CW, 22, C.lightBg);
+    strokeRect(doc, MG, y, CW, 22);
+    doc.save().font('Helvetica-Bold').fontSize(8).fillColor(C.lbl)
+      .text('CLIENTE', MG + 5, y + 7).restore();
+    doc.save().font('Helvetica').fontSize(8).fillColor(C.blk)
+      .text(clienteNombre + (clienteId ? `  |  CC/NIT: ${clienteId}` : '') + (ordenRef ? `  |  ${ordenRef}` : ''),
+            MG + 60, y + 7, { width: CW - 70, lineBreak: false }).restore();
+    y += 30;
+
+    // ── Tabla de ítems ───────────────────────────────────────────────────────
+    const COL = { desc: 220, tipo: 55, cant: 45, precio: 70, desc_: 45, total: 80 };
+    const COL_X = {
+      desc:   MG,
+      tipo:   MG + COL.desc,
+      cant:   MG + COL.desc + COL.tipo,
+      precio: MG + COL.desc + COL.tipo + COL.cant,
+      desc_:  MG + COL.desc + COL.tipo + COL.cant + COL.precio,
+      total:  MG + COL.desc + COL.tipo + COL.cant + COL.precio + COL.desc_,
+    };
+
+    function drawTableHeader(yy) {
+      fillRect(doc, MG, yy, CW, 18, C.dark);
+      const hdr = [
+        ['DESCRIPCIÓN', COL_X.desc, COL.desc, 'left'],
+        ['TIPO',        COL_X.tipo, COL.tipo, 'center'],
+        ['CANT',        COL_X.cant, COL.cant, 'center'],
+        ['PRECIO',      COL_X.precio, COL.precio, 'right'],
+        ['DSCTO%',      COL_X.desc_, COL.desc_, 'center'],
+        ['TOTAL',       COL_X.total, COL.total, 'right'],
+      ];
+      for (const [label, lx, lw, align] of hdr) {
+        doc.save().font('Helvetica-Bold').fontSize(8).fillColor(C.wht)
+          .text(label, lx + 4, yy + 5, { width: lw - 8, align, lineBreak: false }).restore();
+      }
+      return yy + 18;
+    }
+
+    y = drawTableHeader(y);
+    let rowAlt = false;
+
+    for (const item of items) {
+      const rowH = 18;
+      if (y + rowH > SAFE_Y) {
+        doc.addPage();
+        y = MG;
+        y = drawTableHeader(y);
+        rowAlt = false;
+      }
+      if (rowAlt) fillRect(doc, MG, y, CW, rowH, C.alt);
+      strokeRect(doc, MG, y, CW, rowH);
+      rowAlt = !rowAlt;
+
+      const tipo = item.vi_tipo === 'mano_obra' ? 'M. Obra' : 'Repuesto';
+      doc.save().font('Helvetica').fontSize(8).fillColor(C.blk)
+        .text(item.vi_descripcion || '', COL_X.desc + 4, y + 5, { width: COL.desc - 8, lineBreak: false }).restore();
+      doc.save().font('Helvetica').fontSize(7.5).fillColor(C.gry)
+        .text(tipo, COL_X.tipo + 4, y + 5, { width: COL.tipo - 8, align: 'center', lineBreak: false }).restore();
+      doc.save().font('Helvetica').fontSize(8).fillColor(C.blk)
+        .text(String(item.vi_cantidad), COL_X.cant + 4, y + 5, { width: COL.cant - 8, align: 'center', lineBreak: false }).restore();
+      doc.save().font('Helvetica').fontSize(8).fillColor(C.blk)
+        .text(money(item.vi_precio_unitario), COL_X.precio + 4, y + 5, { width: COL.precio - 8, align: 'right', lineBreak: false }).restore();
+      doc.save().font('Helvetica').fontSize(8).fillColor(C.blk)
+        .text(Number(item.vi_descuento_pct) > 0 ? item.vi_descuento_pct + '%' : '—',
+              COL_X.desc_ + 4, y + 5, { width: COL.desc_ - 8, align: 'center', lineBreak: false }).restore();
+      doc.save().font('Helvetica-Bold').fontSize(8).fillColor(C.blk)
+        .text(money(item.vi_total), COL_X.total + 4, y + 5, { width: COL.total - 8, align: 'right', lineBreak: false }).restore();
+      y += rowH;
+    }
+    y += 12;
+
+    // ── Resumen totales ──────────────────────────────────────────────────────
+    if (y + 80 > SAFE_Y) { doc.addPage(); y = MG; }
+    const SUMX = MG + CW - 200;
+    const ivaResponsable = tenant?.ten_iva_responsable || 0;
+
+    const totLines = [
+      ['Subtotal', venta.ven_subtotal],
+    ];
+    if (Number(venta.ven_descuento) > 0) totLines.push(['Descuento', -venta.ven_descuento]);
+    if (ivaResponsable && Number(venta.ven_iva) > 0) {
+      const ivaPct = tenant?.ten_iva_porcentaje ?? 19;
+      totLines.push([`IVA (${ivaPct}%)`, venta.ven_iva]);
+    }
+
+    for (const [lbl, val] of totLines) {
+      doc.save().font('Helvetica').fontSize(8.5).fillColor(C.gry)
+        .text(lbl, SUMX, y, { width: 100, align: 'right', lineBreak: false }).restore();
+      doc.save().font('Helvetica').fontSize(8.5).fillColor(C.blk)
+        .text(money(Math.abs(val)), SUMX + 105, y, { width: 95, align: 'right', lineBreak: false }).restore();
+      y += 14;
+    }
+
+    fillRect(doc, SUMX, y, 200, 24, C.dark);
+    doc.save().font('Helvetica-Bold').fontSize(10).fillColor(C.wht)
+      .text('TOTAL', SUMX + 6, y + 7, { width: 90, lineBreak: false }).restore();
+    doc.save().font('Helvetica-Bold').fontSize(10).fillColor(C.wht)
+      .text(money(venta.ven_total), SUMX + 100, y + 7, { width: 94, align: 'right', lineBreak: false }).restore();
+    y += 32;
+
+    // ── Método de pago ───────────────────────────────────────────────────────
+    const LABEL_METODO_V = { efectivo:'Efectivo', transferencia:'Transferencia', tarjeta:'Tarjeta', cheque:'Cheque', otro:'Otro' };
+    const metodoTxt = LABEL_METODO_V[venta.ven_metodo_pago] || venta.ven_metodo_pago;
+    const refTxt    = venta.ven_referencia ? `  —  Ref: ${venta.ven_referencia}` : '';
+    doc.save().font('Helvetica').fontSize(8.5).fillColor(C.gry)
+      .text('Forma de pago: ' + metodoTxt + refTxt, MG, y).restore();
+    if (venta.ven_notas) {
+      y += 12;
+      doc.save().font('Helvetica').fontSize(8).fillColor(C.gry)
+        .text('Notas: ' + venta.ven_notas, MG, y, { width: CW }).restore();
+    }
+
+    // ── Sello anulado ────────────────────────────────────────────────────────
+    if (venta.ven_estado === 'anulada') {
+      doc.save().font('Helvetica-Bold').fontSize(48).fillColor('#cc0000').opacity(0.2)
+        .text('ANULADA', MG, A4H / 2 - 40, { width: CW, align: 'center', rotate: -30 }).restore();
+    }
+
+    // ── Footer ───────────────────────────────────────────────────────────────
+    const footY = A4H - 35;
+    hLine(doc, MG, footY, MG + CW, C.dark, 1);
+    doc.save().font('Helvetica-Bold').fontSize(8).fillColor(C.dark)
+      .text('¡GRACIAS POR SU COMPRA!', MG, footY + 6, { width: CW, align: 'center' }).restore();
+    doc.save().font('Helvetica').fontSize(7.5).fillColor(C.gry)
+      .text(COMPANY.email + ' • ' + COMPANY.website, MG, footY + 18, { width: CW, align: 'center' }).restore();
+
+    doc.end();
+  });
+}
+
+module.exports = { generateQuotePDF, generateMaintenancePDF, generateOrdenServicioPDF, generateReciboPDF, generateVentaPDF };

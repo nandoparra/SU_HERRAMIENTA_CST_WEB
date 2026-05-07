@@ -125,6 +125,7 @@ app.use('/api', require('./routes/whatsapp'));
 app.use('/api', require('./routes/pdf'));
 app.use('/api', require('./routes/crear-orden'));
 app.use('/api', require('./routes/recibos'));
+app.use('/api', require('./routes/ventas'));
 
 // Health — solo usuarios internos autenticados
 app.get('/health', requireInterno, (req, res) => {
