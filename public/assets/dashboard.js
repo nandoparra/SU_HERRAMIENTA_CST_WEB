@@ -347,9 +347,14 @@ Views.inicio = {
 
             // Parsear máquinas: formato "nombre||estado||fecha_vence;;nombre2||..."
             const maquinasHtml = (g.maquinas || '').split(';;').map(raw => {
-              const [nombre, estado, vence] = raw.split('||');
-              const ec = GAR_ESTADO[estado] || { bg:'#888', label: estado };
-              const estBadge = `<span style="background:${ec.bg};color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;font-weight:700;flex-shrink:0;">${ec.label}</span>`;
+              const parts = raw.split('||');
+              const nombre = parts[0] || '';
+              const estado = parts.length > 1 ? parts[1] : null;
+              const vence  = parts.length > 2 ? parts[2] : '';
+              const ec = (estado && GAR_ESTADO[estado]) || { bg:'#888', label: estado || '' };
+              const estBadge = ec.label
+                ? `<span style="background:${ec.bg};color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;font-weight:700;flex-shrink:0;">${ec.label}</span>`
+                : '';
               const venceStr = vence ? ` <span style="font-size:11px;color:#888;">(vence: ${fmtFecha(vence)})</span>` : '';
               return `<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px;">${estBadge} ${esc(nombre||'')}${venceStr}</div>`;
             }).join('');
