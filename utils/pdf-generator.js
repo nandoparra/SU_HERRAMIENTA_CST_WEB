@@ -468,9 +468,8 @@ function generateMaintenancePDF({ order, machine, items, observation, proxManten
     if (items && items.length > 0) {
       y = sectionBar(doc, y, 'REPUESTOS UTILIZADOS');
       const PCOLS = [
-        { header: 'Repuesto / Componente', w: 335, align: 'left'   },
+        { header: 'Repuesto / Componente', w: 445, align: 'left'   },
         { header: 'Cantidad',              w: 70,  align: 'center' },
-        { header: 'Precio unit.',          w: 110, align: 'right'  },
       ];
       const PROW_H = 18;
       fillRect(doc, MG, y, CW, PROW_H, C.dark);
@@ -486,7 +485,7 @@ function generateMaintenancePDF({ order, machine, items, observation, proxManten
         if (i % 2 === 1) fillRect(doc, MG, y, CW, PROW_H, C.alt);
         strokeRect(doc, MG, y, CW, PROW_H);
         px = MG;
-        [truncate(it.nombre, 62), String(it.cantidad || 1), money(it.precio)].forEach((val, ci) => {
+        [truncate(it.nombre, 72), String(it.cantidad || 1)].forEach((val, ci) => {
           strokeRect(doc, px, y, PCOLS[ci].w, PROW_H);
           doc.save().font('Helvetica').fontSize(8.5).fillColor(C.blk)
             .text(val, px + 5, y + 5, { width: PCOLS[ci].w - 10, align: PCOLS[ci].align, lineBreak: false }).restore();
