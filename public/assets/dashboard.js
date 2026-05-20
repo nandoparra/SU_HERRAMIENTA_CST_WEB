@@ -304,6 +304,14 @@ Views.inicio = {
           garSec.style.display = 'none';
         } else {
           garSec.style.display = 'block';
+          const GAR_ESTADO = {
+            pendiente_revision: { bg:'#888',     label:'Pendiente' },
+            revisada:           { bg:'#2196F3',  label:'Revisada' },
+            cotizada:           { bg:'#FF9800',  label:'Cotizada' },
+            autorizada:         { bg:'#4CAF50',  label:'Autorizada' },
+            no_autorizada:      { bg:'#F44336',  label:'No autorizada' },
+            reparada:           { bg:'#9C27B0',  label:'Reparada' },
+          };
           garLst.innerHTML = garantias.map(g => {
             const hoy = new Date(); hoy.setHours(0,0,0,0);
 
@@ -336,15 +344,31 @@ Views.inicio = {
             const sinFactura = g.sin_factura
               ? `<span style="display:inline-block;font-size:11px;background:#fff3cd;color:#856404;border:1px solid #ffc107;border-radius:4px;padding:1px 7px;">⚠️ Sin factura adjunta</span>`
               : '';
+
+            // Parsear máquinas: formato "nombre||estado||fecha_vence;;nombre2||..."
+            const maquinasHtml = (g.maquinas || '').split(';;').map(raw => {
+              const parts = raw.split('||');
+              const nombre = parts[0] || '';
+              const estado = parts.length > 1 ? parts[1] : null;
+              const vence  = parts.length > 2 ? parts[2] : '';
+              const ec = (estado && GAR_ESTADO[estado]) || { bg:'#888', label: estado || '' };
+              const estBadge = ec.label
+                ? `<span style="background:${ec.bg};color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;font-weight:700;flex-shrink:0;">${ec.label}</span>`
+                : '';
+              const venceStr = vence ? ` <span style="font-size:11px;color:#888;">(vence: ${fmtFecha(vence)})</span>` : '';
+              return `<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px;">${estBadge} ${esc(nombre||'')}${venceStr}</div>`;
+            }).join('');
+
             return `
               <div class="alerta-row alerta-rojo" onclick="navigate('ordenes');setTimeout(()=>ord_verDetalle(${g.uid_orden}),50)" style="cursor:pointer;">
                 <div class="alerta-info" style="flex:1;">
-                  <div class="alerta-maq" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
                     <span style="background:#c0392b;color:#fff;font-size:11px;padding:1px 7px;border-radius:4px;font-weight:700;">GARANTÍA</span>
-                    ${esc(g.maquinas||'')}
+                    <span style="font-size:12px;font-weight:700;color:#1d3557;">Orden #${g.ord_consecutivo}</span>
+                    <span style="font-size:12px;color:#555;">${esc(g.cliente)}</span>
                   </div>
-                  <div class="alerta-cli">${esc(g.cliente)}</div>
-                  <div class="alerta-orden">Orden #${g.ord_consecutivo} · Ingreso: ${fmtFecha(g.ord_fecha)}</div>
+                  <div>${maquinasHtml}</div>
+                  <div style="font-size:11px;color:#aaa;margin-top:3px;">Ingreso: ${fmtFecha(g.ord_fecha)}</div>
                   <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;">
                     ${revBadge}${venceBadge}${sinFactura}
                   </div>

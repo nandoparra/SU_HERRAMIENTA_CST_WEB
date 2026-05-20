@@ -336,6 +336,16 @@
     }
     @media (min-width:769px) and (max-width:1024px) {
       :root{--sidebar-w:200px;}
+      /* D1 — pnl-left narrower */
+      .pnl-left{width:260px;min-width:220px;}
+      /* D2 — topbar: hide user chip, truncate title */
+      .topbar-user{display:none;}
+      .topbar-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;}
+      /* D3 — tables scroll horizontally */
+      .func-table,.inv-table,.ordenes-list-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+      /* D4 — 4-col item grids → 2 cols */
+      .item-row,.add-item-group{grid-template-columns:1fr 1fr;}
+      .item-row .del-item,.add-item-group button{grid-column:span 2;}
     }
 
     /* ══════════════════════════════════════════════════════════

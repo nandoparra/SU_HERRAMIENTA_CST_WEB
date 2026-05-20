@@ -1074,7 +1074,8 @@ function generateReciboPDF({ recibo, tenant, cotizacion }) {
       .text('ELABORADO POR', MG, y + 5).restore();
 
     // ── Footer ───────────────────────────────────────────────────────────────
-    const footY = A4H - 35;
+    const footY = A4H - MG - 30;   // dentro del área imprimible (≤ A4H - MG)
+    if (y + 20 > footY) doc.addPage();
     hLine(doc, MG, footY, MG + CW, C.dark, 1);
     doc.save().font('Helvetica-Bold').fontSize(8).fillColor(C.dark)
       .text('¡GRACIAS POR SU PAGO!', MG, footY + 6, { width: CW, align: 'center' }).restore();
@@ -1250,7 +1251,8 @@ function generateVentaPDF({ venta, items = [], tenant }) {
     }
 
     // ── Footer ───────────────────────────────────────────────────────────────
-    const footY = A4H - 35;
+    const footY = A4H - MG - 30;   // dentro del área imprimible (≤ A4H - MG)
+    if (y + 20 > footY) doc.addPage();
     hLine(doc, MG, footY, MG + CW, C.dark, 1);
     doc.save().font('Helvetica-Bold').fontSize(8).fillColor(C.dark)
       .text('¡GRACIAS POR SU COMPRA!', MG, footY + 6, { width: CW, align: 'center' }).restore();
