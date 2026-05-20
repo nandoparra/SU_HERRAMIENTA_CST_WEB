@@ -113,9 +113,12 @@ router.get('/dashboard', dashLimiter, async (req, res) => {
         SELECT o.uid_orden, o.ord_consecutivo, o.ord_fecha, o.ord_revision_limite,
                COALESCE(c.cli_razon_social, c.cli_contacto, '') AS cliente,
                GROUP_CONCAT(
-                 CONCAT(h.her_nombre, IF(ho.hor_es_garantia=1 AND ho.hor_garantia_vence IS NOT NULL,
-                   CONCAT(' (vence:', DATE_FORMAT(ho.hor_garantia_vence,'%d/%m/%y'), ')'), ''))
-                 ORDER BY h.her_nombre SEPARATOR ', '
+                 CONCAT(
+                   h.her_nombre, '||',
+                   COALESCE(ho.her_estado, 'pendiente_revision'), '||',
+                   COALESCE(IF(ho.hor_es_garantia=1, DATE_FORMAT(ho.hor_garantia_vence,'%Y-%m-%d'), ''), '')
+                 )
+                 ORDER BY h.her_nombre SEPARATOR ';;'
                ) AS maquinas,
                MIN(CASE WHEN ho.hor_es_garantia=1 THEN ho.hor_garantia_vence END) AS ord_garantia_vence,
                CASE
@@ -128,7 +131,7 @@ router.get('/dashboard', dashLimiter, async (req, res) => {
         JOIN b2c_herramienta_orden ho ON ho.uid_orden = o.uid_orden
         JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
         WHERE o.ord_tipo = 'garantia'
-          AND ho.her_estado = 'pendiente_revision'
+          AND ho.her_estado != 'entregada'
           AND o.tenant_id = ?
         GROUP BY o.uid_orden
         ORDER BY o.ord_fecha ASC
