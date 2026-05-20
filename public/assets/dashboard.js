@@ -542,16 +542,16 @@ Views.ordenes = {
             <div class="fotos-seccion">
               <div class="fotos-lbl">Recepción</div>
               ${fotosRec}
-              <label class="upload-foto-btn">+ Agregar foto
-                <input type="file" accept="image/*" style="display:none"
+              <label class="upload-foto-btn">+ Agregar fotos
+                <input type="file" accept="image/*" multiple style="display:none"
                   onchange="ord_uploadFotoRec(${orden.uid_orden},${m.uid_herramienta_orden},this)">
               </label>
             </div>
             <div class="fotos-seccion">
               <div class="fotos-lbl fotos-trabajo-lbl">Del trabajo</div>
               <div class="foto-row" id="ft-row-${m.uid_herramienta_orden}">${fotosTrab}</div>
-              <label class="upload-foto-btn">+ Agregar foto
-                <input type="file" accept="image/*" style="display:none"
+              <label class="upload-foto-btn">+ Agregar fotos
+                <input type="file" accept="image/*" multiple style="display:none"
                   onchange="ord_uploadFoto(${orden.uid_orden},${m.uid_herramienta_orden},this)">
               </label>
             </div>
@@ -874,22 +874,23 @@ Views.ordenes = {
       btn.disabled=false; btn.textContent=orig;
     };
     window.ord_uploadFotoRec = async (uidOrden, uidHo, input) => {
-      if (!input.files[0]) return;
-      const fd = new FormData(); fd.append('foto', input.files[0]);
-      input.value='';
-      try {
-        const r = await fetch(`${API}/orders/${uidOrden}/fotos-recepcion/${uidHo}`,{method:'POST',body:fd});
-        const d = await r.json();
-        if (d.success) {
-          const row = document.getElementById(`fr-row-${uidHo}`);
-          const sinFotos = row?.querySelector('.sin-fotos');
-          if (sinFotos) sinFotos.remove();
-          const div = document.createElement('div');
-          div.className='foto-thumb'; div.id=`fr-${d.uid_foto}`;
-          div.innerHTML=`<img src="${d.url}" onclick="window.open(this.src,'_blank')" alt=""><button class="del-btn" onclick="ord_delFotoRec(${d.uid_foto},event)">✕</button>`;
-          row?.appendChild(div);
-        } else alert('Error al subir foto: '+(d.error||''));
-      } catch(e) { alert(e.message); }
+      const files = Array.from(input.files);
+      if (!files.length) return;
+      input.value = '';
+      const row = document.getElementById(`fr-row-${uidHo}`);
+      for (const file of files) {
+        try {
+          const fd = new FormData(); fd.append('foto', file);
+          const d = await fetch(`${API}/orders/${uidOrden}/fotos-recepcion/${uidHo}`,{method:'POST',body:fd}).then(r=>r.json());
+          if (d.success) {
+            row?.querySelector('.sin-fotos')?.remove();
+            const div = document.createElement('div');
+            div.className='foto-thumb'; div.id=`fr-${d.uid_foto}`;
+            div.innerHTML=`<img src="${d.url}" onclick="window.open(this.src,'_blank')" alt=""><button class="del-btn" onclick="ord_delFotoRec(${d.uid_foto},event)">✕</button>`;
+            row?.appendChild(div);
+          } else showToast('⚠️ Error al subir foto: '+(d.error||''));
+        } catch(e) { showToast('⚠️ ' + e.message); }
+      }
     };
     window.ord_delFotoRec = async (uid, e) => {
       e.stopPropagation();
@@ -898,20 +899,22 @@ Views.ordenes = {
       document.getElementById(`fr-${uid}`)?.remove();
     };
     window.ord_uploadFoto = async (uidOrden, uidHo, input) => {
-      if (!input.files[0]) return;
-      const fd = new FormData(); fd.append('foto', input.files[0]);
-      input.value='';
-      try {
-        const r = await fetch(`${API}/orders/${uidOrden}/fotos-trabajo/${uidHo}`,{method:'POST',body:fd});
-        const d = await r.json();
-        if (d.success) {
-          const row = document.getElementById(`ft-row-${uidHo}`);
-          const div = document.createElement('div');
-          div.className='foto-thumb'; div.id=`ft-${d.uid_foto}`;
-          div.innerHTML=`<img src="${d.url}" onclick="window.open(this.src,'_blank')" alt=""><button class="del-btn" onclick="ord_delFoto(${d.uid_foto},event)">✕</button>`;
-          row?.appendChild(div);
-        } else alert('Error al subir foto: '+(d.error||''));
-      } catch(e) { alert(e.message); }
+      const files = Array.from(input.files);
+      if (!files.length) return;
+      input.value = '';
+      const row = document.getElementById(`ft-row-${uidHo}`);
+      for (const file of files) {
+        try {
+          const fd = new FormData(); fd.append('foto', file);
+          const d = await fetch(`${API}/orders/${uidOrden}/fotos-trabajo/${uidHo}`,{method:'POST',body:fd}).then(r=>r.json());
+          if (d.success) {
+            const div = document.createElement('div');
+            div.className='foto-thumb'; div.id=`ft-${d.uid_foto}`;
+            div.innerHTML=`<img src="${d.url}" onclick="window.open(this.src,'_blank')" alt=""><button class="del-btn" onclick="ord_delFoto(${d.uid_foto},event)">✕</button>`;
+            row?.appendChild(div);
+          } else showToast('⚠️ Error al subir foto: '+(d.error||''));
+        } catch(e) { showToast('⚠️ ' + e.message); }
+      }
     };
     window.ord_delFoto = async (uid, e) => {
       e.stopPropagation();
