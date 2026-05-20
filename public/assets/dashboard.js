@@ -328,9 +328,9 @@ Views.inicio = {
                 venceBadge = `<span class="dias-badge" style="background:#27ae60;color:#fff;">Vence: ${fmtFecha(g.ord_garantia_vence)}</span>`;
             }
 
-            // Badge límite de revisión (48h hábiles)
+            // Badge límite de revisión — solo si aún hay máquinas pendientes de revisar
             let revBadge = '';
-            if (g.ord_revision_limite) {
+            if (g.ord_revision_limite && g.pendientes_count > 0) {
               const rev = new Date(g.ord_revision_limite); rev.setHours(0,0,0,0);
               const dias = Math.round((rev - hoy) / 86400000);
               if (dias < 0)
