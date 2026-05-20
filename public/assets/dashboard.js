@@ -841,9 +841,10 @@ Views.ordenes = {
           await fetch(`${API}/orders/${_amUidOrden}/factura-maquina/${r2.uid_herramienta_orden}`, { method: 'POST', body: fd });
         }
 
+        const uidOrdenAgregada = _amUidOrden;
         showToast('✅ Máquina agregada a la orden');
         ord_cerrarAgregarMaquina();
-        ord_verDetalle(_amUidOrden);
+        ord_verDetalle(uidOrdenAgregada);
       } catch(e) {
         showToast('⚠️ ' + e.message);
         btn.disabled = false; btn.textContent = 'Agregar a la orden';
