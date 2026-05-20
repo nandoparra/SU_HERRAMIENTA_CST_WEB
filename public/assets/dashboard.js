@@ -819,8 +819,8 @@ Views.ordenes = {
               her_referencia: document.getElementById('amRef').value.trim(),
             })
           }).then(r=>r.json());
-          if (!r.uid_herramienta) throw new Error(r.error || 'Error creando máquina');
-          uidHerramienta = r.uid_herramienta;
+          if (!r.herramienta?.uid_herramienta) throw new Error(r.error || 'Error creando máquina');
+          uidHerramienta = r.herramienta.uid_herramienta;
           observaciones = document.getElementById('amNuevaObs').value.trim();
         } else {
           uidHerramienta = parseInt(document.getElementById('amSelectMaquina').value);
