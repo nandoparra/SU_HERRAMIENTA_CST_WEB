@@ -128,7 +128,7 @@ router.get('/dashboard', dashLimiter, async (req, res) => {
         JOIN b2c_herramienta_orden ho ON ho.uid_orden = o.uid_orden
         JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
         WHERE o.ord_tipo = 'garantia'
-          AND ho.her_estado IN ('pendiente_revision', 'revisada')
+          AND ho.her_estado = 'pendiente_revision'
           AND o.tenant_id = ?
         GROUP BY o.uid_orden
         ORDER BY o.ord_fecha ASC
