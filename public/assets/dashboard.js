@@ -2862,8 +2862,8 @@ async function tec_verDetalle(uid, rightId, panelId) {
         <div class="fotos-seccion">
           <div class="fotos-lbl fotos-trabajo-lbl">Del trabajo</div>
           <div class="foto-row" id="tft-row-${m.uid_herramienta_orden}">${fotosTrab}</div>
-          <label class="upload-foto-btn">+ Agregar foto
-            <input type="file" accept="image/*" style="display:none"
+          <label class="upload-foto-btn">+ Agregar fotos
+            <input type="file" accept="image/*" multiple style="display:none"
               onchange="tec_uploadFoto(${orden.uid_orden},${m.uid_herramienta_orden},this)">
           </label>
         </div>
@@ -2928,20 +2928,22 @@ window.tec_guardarObs = async (uid) => {
 };
 
 window.tec_uploadFoto = async (uidOrden, uidHo, input) => {
-  if (!input.files[0]) return;
-  const fd = new FormData(); fd.append('foto', input.files[0]);
+  const files = Array.from(input.files);
+  if (!files.length) return;
   input.value = '';
-  try {
-    const r = await fetch(`${API}/orders/${uidOrden}/fotos-trabajo/${uidHo}`, {method:'POST',body:fd});
-    const d = await r.json();
-    if (d.success) {
-      const row = document.getElementById(`tft-row-${uidHo}`);
-      const div = document.createElement('div');
-      div.className = 'foto-thumb'; div.id = `tft-${d.uid_foto}`;
-      div.innerHTML = `<img src="${d.url}" onclick="window.open(this.src,'_blank')" alt=""><button class="del-btn" onclick="tec_delFoto(${d.uid_foto},event)">✕</button>`;
-      row?.appendChild(div);
-    } else alert('Error al subir foto: '+(d.error||''));
-  } catch(e) { alert(e.message); }
+  const row = document.getElementById(`tft-row-${uidHo}`);
+  for (const file of files) {
+    try {
+      const fd = new FormData(); fd.append('foto', file);
+      const d = await fetch(`${API}/orders/${uidOrden}/fotos-trabajo/${uidHo}`, {method:'POST',body:fd}).then(r=>r.json());
+      if (d.success) {
+        const div = document.createElement('div');
+        div.className = 'foto-thumb'; div.id = `tft-${d.uid_foto}`;
+        div.innerHTML = `<img src="${d.url}" onclick="window.open(this.src,'_blank')" alt=""><button class="del-btn" onclick="tec_delFoto(${d.uid_foto},event)">✕</button>`;
+        row?.appendChild(div);
+      } else showToast('⚠️ Error al subir foto: '+(d.error||''));
+    } catch(e) { showToast('⚠️ ' + e.message); }
+  }
 };
 
 window.tec_delFoto = async (uid, e) => {
