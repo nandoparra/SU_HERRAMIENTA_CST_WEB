@@ -642,6 +642,28 @@ router.get('/orders/:orderId/detalle', ordersLimiter, async (req, res) => {
         maquinas.forEach(m => { m.cotizacion = cotMap[m.uid_herramienta_orden] || null; });
       }
 
+      // Historial de estados por máquina
+      if (maquinas.length) {
+        const ids = maquinas.map(m => m.uid_herramienta_orden);
+        const placeholders = ids.map(() => '?').join(',');
+        const [histRows] = await conn.execute(
+          `SELECT uid_herramienta_orden, estado, changed_at
+           FROM b2c_herramienta_status_log
+           WHERE uid_herramienta_orden IN (${placeholders})
+           ORDER BY changed_at ASC`,
+          ids
+        );
+        const histMap = {};
+        histRows.forEach(h => {
+          const k = Number(h.uid_herramienta_orden);
+          if (!histMap[k]) histMap[k] = [];
+          histMap[k].push({ estado: h.estado, changed_at: h.changed_at });
+        });
+        maquinas.forEach(m => { m.historial = histMap[m.uid_herramienta_orden] || []; });
+      } else {
+        maquinas.forEach(m => { m.historial = []; });
+      }
+
       res.json({ orden: ordenRow, maquinas, tieneCotizacion, cotOrden });
     } finally {
       conn.release();
