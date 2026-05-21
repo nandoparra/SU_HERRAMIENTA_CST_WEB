@@ -539,6 +539,23 @@ Views.ordenes = {
               ${m.hor_es_garantia && !m.hor_garantia_factura ? `<label class="btn btn-sm btn-teal" style="cursor:pointer;">📎 Adjuntar factura<input type="file" accept=".pdf" style="display:none" onchange="ord_subirFacturaMaquina(${orden.uid_orden},${m.uid_herramienta_orden},this)"></label>` : ''}
             </div>
             ${m.hor_observaciones?`<div class="maq-obs"><div class="maq-obs-lbl">Observaciones</div>${esc(m.hor_observaciones)}</div>`:''}
+            ${(m.historial||[]).length ? `
+            <div class="historial-section">
+              <div class="maq-obs-lbl" style="margin-bottom:6px;">Historial de estados</div>
+              <div class="historial-timeline">
+                ${m.historial.map(h => {
+                  const ec = { pendiente_revision:'#888',revisada:'#2196F3',cotizada:'#FF9800',autorizada:'#4CAF50',no_autorizada:'#F44336',reparada:'#9C27B0',entregada:'#009688' };
+                  const color = ec[h.estado] || '#888';
+                  const lbl = ELBL[h.estado] || h.estado;
+                  const dt = new Date(h.changed_at);
+                  const fecha = `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+                  return `<div class="historial-row">
+                    <div class="historial-dot" style="background:${color}"></div>
+                    <div><span class="historial-estado">${lbl}</span><span class="historial-fecha">${fecha}</span></div>
+                  </div>`;
+                }).join('')}
+              </div>
+            </div>` : ''}
             <div class="fotos-seccion">
               <div class="fotos-lbl">Recepción</div>
               ${fotosRec}
