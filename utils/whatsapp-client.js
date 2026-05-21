@@ -169,4 +169,30 @@ function getLastQR(tenantId = 1) {
   return pool.get(Number(tenantId))?.lastQR ?? null;
 }
 
-module.exports = { initTenantClient, isReady, sendWAMessage, getLastQR, registerMessageHandler };
+/**
+ * Destruye el cliente actual, borra la sesión guardada en disco y crea uno nuevo.
+ * Úsalo cuando el cliente no genera QR por tener sesión corrupta/expirada.
+ */
+async function resetTenantClient(tenantId = 1) {
+  const tid = Number(tenantId);
+  const info = pool.get(tid);
+  if (info) {
+    try { await info.client.destroy(); } catch (_) {}
+    pool.delete(tid);
+  }
+  // Borrar carpeta de sesión del disco
+  const sessionDir = tid === 1
+    ? path.join(WA_AUTH_BASE, 'session')
+    : path.join(WA_AUTH_BASE, `session-tenant_${tid}`);
+  try {
+    if (fs.existsSync(sessionDir)) fs.rmSync(sessionDir, { recursive: true, force: true });
+    console.log(`🗑️  Sesión WA [tenant ${tid}] eliminada:`, sessionDir);
+  } catch (e) {
+    console.warn('No se pudo borrar sesión:', e.message);
+  }
+  // Inicializar cliente limpio → emite 'qr'
+  const newInfo = createTenantClient(tid);
+  newInfo.client.initialize().catch(e => console.warn(`⚠️ WA reset [tenant ${tid}]:`, e.message));
+}
+
+module.exports = { initTenantClient, isReady, sendWAMessage, getLastQR, resetTenantClient, registerMessageHandler };

@@ -3,7 +3,7 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
-const { isReady, sendWAMessage, getLastQR } = require('../utils/whatsapp-client');
+const { isReady, sendWAMessage, getLastQR, resetTenantClient } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 const QRCode = require('qrcode');
 const { requireInterno } = require('../middleware/auth');
@@ -20,6 +20,17 @@ const waLimiter = rateLimit({
   validate:        { keyGeneratorIpFallback: false },
 });
 
+// Forzar reset de sesión WA — útil cuando no genera QR por sesión expirada
+router.post('/whatsapp/reset', requireInterno, async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  try {
+    await resetTenantClient(tenantId);
+    res.send('<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>🔄 Sesión reiniciada</h2><p>Espera 15 segundos y luego ve a <a href="/api/whatsapp/qr">/api/whatsapp/qr</a> para escanear el QR nuevo.</p></body></html>');
+  } catch (e) {
+    res.status(500).send('<html><body><h2>Error: ' + e.message + '</h2></body></html>');
+  }
+});
+
 // Mostrar QR para escanear desde el navegador (solo internos)
 router.get('/whatsapp/qr', requireInterno, async (req, res) => {
   const tenantId = req.tenant?.uid_tenant ?? 1;
@@ -28,7 +39,15 @@ router.get('/whatsapp/qr', requireInterno, async (req, res) => {
   }
   const qr = getLastQR(tenantId);
   if (!qr) {
-    return res.send('<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>⏳ Esperando QR...</h2><p>Recarga en unos segundos.</p><script>setTimeout(()=>location.reload(),3000)</script></body></html>');
+    return res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px">
+      <h2>⏳ Esperando QR...</h2>
+      <p>El cliente WhatsApp está inicializando. Recarga en unos segundos.</p>
+      <p style="margin-top:24px;color:#888;font-size:13px;">¿Lleva más de 30 segundos sin aparecer el QR?</p>
+      <form method="POST" action="/api/whatsapp/reset" style="margin-top:8px;">
+        <button type="submit" style="padding:10px 20px;background:#c0392b;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600;">🔄 Resetear sesión y generar QR nuevo</button>
+      </form>
+      <script>setTimeout(()=>location.reload(),4000)</script>
+    </body></html>`);
   }
   const dataUrl = await QRCode.toDataURL(qr, { width: 300, margin: 2 });
   res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px;background:#f5f5f5">
@@ -38,12 +57,6 @@ router.get('/whatsapp/qr', requireInterno, async (req, res) => {
     <p style="color:#666">Esta página se recarga automáticamente cada 10s</p>
     <script>setTimeout(()=>location.reload(),10000)</script>
   </body></html>`);
-});
-
-// Estado de conexión WA — usado por el widget del dashboard
-router.get('/whatsapp/status', requireInterno, (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
-  res.json({ ready: isReady(tenantId) });
 });
 
 // Enviar WhatsApp usando el mensaje guardado de la orden
