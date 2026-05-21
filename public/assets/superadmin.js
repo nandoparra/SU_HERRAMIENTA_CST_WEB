@@ -115,6 +115,7 @@ function openCreate() {
   document.getElementById('f_estado').value   = 'prueba';
   document.getElementById('f_plan').value     = 'mensual';
   document.getElementById('f_vence').value    = '';
+  document.getElementById('f_addon_contabilidad').checked = false;
   document.getElementById('f_slug').disabled  = false;
   document.getElementById('modalOverlay').classList.add('open');
 }
@@ -137,6 +138,7 @@ async function openEdit(id) {
     document.getElementById('f_estado').value   = t.ten_estado  || 'prueba';
     document.getElementById('f_plan').value     = t.ten_plan    || 'mensual';
     document.getElementById('f_vence').value    = t.ten_vence ? t.ten_vence.slice(0, 10) : '';
+    document.getElementById('f_addon_contabilidad').checked = !!t.addon_contabilidad;
     document.getElementById('f_slug').disabled  = !!t.ten_slug_locked;
     document.getElementById('modalOverlay').classList.add('open');
   } catch (e) {
@@ -160,6 +162,7 @@ async function saveModal() {
     ten_estado:        document.getElementById('f_estado').value,
     ten_plan:          document.getElementById('f_plan').value,
     ten_vence:         document.getElementById('f_vence').value || null,
+    addon_contabilidad: document.getElementById('f_addon_contabilidad').checked ? 1 : 0,
   };
 
   if (!body.ten_nombre) return showToast('El nombre es obligatorio', true);
