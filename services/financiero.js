@@ -150,6 +150,17 @@ async function calcularDashboardMensual({ tenantId, mes, conn }) {
   const ventasRepuestosTotal = ventas.reduce((s, v) => s + Number(v.ven_total) - Number(v.ven_mano_obra), 0);
   const costoRepuestosTotal  = ventas.reduce((s, v) => s + Number(v.ven_costo_repuestos), 0);
 
+  // Utilidades separadas por fuente
+  const utilidadManoObra   = ventasManoObraTotal;                           // M.O. sin costo de insumos
+  const utilidadRepuestos  = ventasRepuestosTotal - costoRepuestosTotal;    // margen bruto repuestos
+  const margenManoObra     = 1;                                             // siempre 100% (pura mano)
+  const margenRepuestos    = ventasRepuestosTotal > 0
+    ? utilidadRepuestos / ventasRepuestosTotal : 0;
+  const pctMoSobreUtilidad  = utilidadAcumulada > 0
+    ? utilidadManoObra  / utilidadAcumulada : 0;
+  const pctRepSobreUtilidad = utilidadAcumulada > 0
+    ? utilidadRepuestos / utilidadAcumulada : 0;
+
   const cumplimientoMetaPct  = metaTotalMes > 0 ? utilidadAcumulada / metaTotalMes : 0;
   const faltanteParaMeta     = Math.max(0, metaTotalMes - utilidadAcumulada);
   const proyeccionFinMes     = diasTranscurridos > 0
@@ -176,6 +187,12 @@ async function calcularDashboardMensual({ tenantId, mes, conn }) {
     ventas_mano_obra_total:    round2(ventasManoObraTotal),
     ventas_repuestos_total:    round2(ventasRepuestosTotal),
     costo_repuestos_total:     round2(costoRepuestosTotal),
+    utilidad_mano_obra:        round2(utilidadManoObra),
+    utilidad_repuestos:        round2(utilidadRepuestos),
+    margen_mano_obra:          round4(margenManoObra),
+    margen_repuestos:          round4(margenRepuestos),
+    pct_mo_sobre_utilidad:     round4(pctMoSobreUtilidad),
+    pct_rep_sobre_utilidad:    round4(pctRepSobreUtilidad),
     cumplimiento_meta_pct:     round4(cumplimientoMetaPct),
     faltante_para_meta:        round2(faltanteParaMeta),
     proyeccion_fin_mes:        round2(proyeccionFinMes),
