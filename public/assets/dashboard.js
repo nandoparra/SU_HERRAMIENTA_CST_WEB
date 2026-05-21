@@ -1654,6 +1654,11 @@ Views.inventario = {
         <h2>Inventario de repuestos</h2>
         ${isAdmin()?`<button class="btn btn-dark" onclick="inv_openCreate()">+ Nuevo repuesto</button>`:''}
       </div>
+      <div style="margin-bottom:12px;">
+        <input type="text" id="invBuscar" placeholder="Buscar por nombre o código..."
+          oninput="inv_filter()"
+          style="width:100%;max-width:380px;padding:8px 12px;border:1px solid #c7d2dd;border-radius:8px;font-size:13px;box-sizing:border-box;">
+      </div>
       <div class="card" style="overflow-x:auto;">
         <table class="inv-table" id="invTable">
           <thead><tr><th>Descripción</th><th>Tipo</th><th>Costo</th><th>Precio</th><th>Margen</th><th>Stock</th><th>Estado</th>${isAdmin()?'<th>Acciones</th>':''}</tr></thead>
@@ -1664,10 +1669,10 @@ Views.inventario = {
   },
   async init() {
     const TIPOS = {R:'Repuesto',S:'Servicio',M:'Mano de obra'};
-    async function inv_reload() {
-      const rows = await fetch(`${API}/inventario`).then(r=>r.json()).catch(()=>[]);
+    let _invAllRows = [];
+    function inv_renderRows(rows) {
       const tb = document.querySelector('#invTable tbody'); if (!tb) return;
-      if (!rows.length) { tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:#aaa;padding:20px;">Sin ítems</td></tr>'; return; }
+      if (!rows.length) { tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:#aaa;padding:20px;">Sin resultados</td></tr>'; return; }
       tb.innerHTML = rows.map(p=>{
         const precio = Number(p.cco_valor) || 0;
         const costo  = Number(p.cco_costo) || 0;
@@ -1690,6 +1695,18 @@ Views.inventario = {
         </tr>`;
       }).join('');
     }
+    async function inv_reload() {
+      _invAllRows = await fetch(`${API}/inventario`).then(r=>r.json()).catch(()=>[]);
+      inv_renderRows(_invAllRows);
+    }
+    window.inv_filter = function() {
+      const q = (document.getElementById('invBuscar')?.value || '').toLowerCase().trim();
+      if (!q) { inv_renderRows(_invAllRows); return; }
+      inv_renderRows(_invAllRows.filter(p =>
+        (p.cco_descripcion || '').toLowerCase().includes(q) ||
+        String(p.uid_concepto_costo).includes(q)
+      ));
+    };
     window.inv_openCreate = () => inv_openModal();
     window.inv_edit = (id, desc, val, costo, stock, tipo) => inv_openModal(id, desc, val, costo, stock, tipo);
     function inv_openModal(id=null, desc='', val=0, costo=0, stock=0, tipo='R') {
