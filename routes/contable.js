@@ -7,6 +7,11 @@ const fs       = require('fs');
 const db       = require('../utils/db');
 const Anthropic = require('@anthropic-ai/sdk');
 const { requireInterno, requireAddonContabilidad } = require('../middleware/auth');
+let _iaClient = null;
+function getIAClient() {
+  if (!_iaClient) _iaClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _iaClient;
+}
 const { UPLOADS_DIR, checkMagicBytes } = require('../utils/uploads');
 const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
@@ -199,12 +204,10 @@ router.post('/contable/egresos/extraer-factura', uploadFactura.single('factura')
     const mediaType = isPdf ? 'application/pdf' : mime;
     const sourceType = isPdf ? 'base64' : 'base64';
 
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
     const contentBlocks = [
       isPdf
-        ? { type: 'document', source: { type: sourceType, media_type: mediaType, data: b64 } }
-        : { type: 'image',    source: { type: sourceType, media_type: mediaType, data: b64 } },
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
+        : { type: 'image',    source: { type: 'base64', media_type: mediaType,          data: b64 } },
       {
         type: 'text',
         text: `Analiza esta factura o comprobante de pago y extrae los siguientes datos en formato JSON estricto, sin texto adicional:
@@ -221,11 +224,10 @@ Si no puedes extraer un campo con certeza, usa null. Responde únicamente con el
       },
     ];
 
-    const response = await client.beta.messages.create({
+    const response = await getIAClient().beta.messages.create({
       model: process.env.CLAUDE_MODEL || 'claude-opus-4-6',
       max_tokens: 512,
       messages: [{ role: 'user', content: contentBlocks }],
-      betas: ['pdfs-2024-09-25'],
     });
 
     const raw  = response.content[0]?.text?.trim() || '{}';
