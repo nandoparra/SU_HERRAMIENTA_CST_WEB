@@ -597,6 +597,57 @@ async function fixVentaItemTipos() {
   }
 }
 
+async function ensureEgresoTable() {
+  const conn = await db.getConnection();
+  try {
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_egreso (
+        uid_egreso        INT           NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        tenant_id         INT           NOT NULL DEFAULT 1,
+        egr_fecha         DATE          NOT NULL,
+        egr_concepto      VARCHAR(255)  NOT NULL,
+        egr_categoria     VARCHAR(50)   NOT NULL DEFAULT 'otros',
+        egr_valor         DECIMAL(14,2) NOT NULL DEFAULT 0,
+        egr_proveedor     VARCHAR(150)  NULL,
+        egr_nit_proveedor VARCHAR(30)   NULL,
+        egr_metodo_pago   ENUM('efectivo','transferencia','tarjeta','nequi','daviplata','credito','cheque')
+                          NOT NULL DEFAULT 'efectivo',
+        egr_referencia    VARCHAR(100)  NULL,
+        egr_notas         TEXT          NULL,
+        egr_factura_imagen VARCHAR(255) NULL,
+        egr_ia_extraido   TINYINT(1)   NOT NULL DEFAULT 0,
+        egr_estado        ENUM('activo','anulado') NOT NULL DEFAULT 'activo',
+        egr_creado_por    INT           NULL,
+        created_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_egr_tenant (tenant_id),
+        INDEX idx_egr_fecha  (egr_fecha),
+        INDEX idx_egr_cat    (egr_categoria)
+      )
+    `);
+    console.log('✅ Tabla b2c_egreso verificada/creada');
+  } catch (e) {
+    console.warn('⚠️ No pude crear b2c_egreso:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
+async function ensureContabilidadAddon() {
+  const conn = await db.getConnection();
+  try {
+    try {
+      await conn.execute(
+        `ALTER TABLE b2c_tenant ADD COLUMN addon_contabilidad TINYINT(1) NOT NULL DEFAULT 0`
+      );
+      console.log('✅ addon_contabilidad agregado a b2c_tenant');
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  } catch (e) {
+    console.warn('⚠️ No pude agregar addon_contabilidad:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -616,6 +667,8 @@ async function runMigrations() {
   await ensureInventarioColumns();
   await ensureInventarioRecepciones();
   await fixVentaItemTipos();
+  await ensureEgresoTable();
+  await ensureContabilidadAddon();
   console.log('Migraciones completadas');
 }
 

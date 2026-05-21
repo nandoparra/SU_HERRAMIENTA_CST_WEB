@@ -135,6 +135,7 @@ router.patch('/tenants/:id', requireSuperadmin, async (req, res) => {
     'ten_color_primary', 'ten_color_accent',
     'ten_wa_number', 'ten_wa_parts_number',
     'ten_estado', 'ten_plan', 'ten_vence',
+    'addon_contabilidad',
   ];
 
   const conn = await db.getConnection();
