@@ -1656,8 +1656,8 @@ Views.inventario = {
       </div>
       <div class="card" style="overflow-x:auto;">
         <table class="inv-table" id="invTable">
-          <thead><tr><th>Descripción</th><th>Tipo</th><th>Precio</th><th>Estado</th>${isAdmin()?'<th>Acciones</th>':''}</tr></thead>
-          <tbody><tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px;">Cargando...</td></tr></tbody>
+          <thead><tr><th>Descripción</th><th>Tipo</th><th>Costo</th><th>Precio</th><th>Margen</th><th>Stock</th><th>Estado</th>${isAdmin()?'<th>Acciones</th>':''}</tr></thead>
+          <tbody><tr><td colspan="8" style="text-align:center;color:#aaa;padding:20px;">Cargando...</td></tr></tbody>
         </table>
       </div>
     </div>`;
@@ -1667,54 +1667,91 @@ Views.inventario = {
     async function inv_reload() {
       const rows = await fetch(`${API}/inventario`).then(r=>r.json()).catch(()=>[]);
       const tb = document.querySelector('#invTable tbody'); if (!tb) return;
-      if (!rows.length) { tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px;">Sin ítems</td></tr>'; return; }
-      tb.innerHTML = rows.map(p=>`
+      if (!rows.length) { tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:#aaa;padding:20px;">Sin ítems</td></tr>'; return; }
+      tb.innerHTML = rows.map(p=>{
+        const precio = Number(p.cco_valor) || 0;
+        const costo  = Number(p.cco_costo) || 0;
+        const margen = precio > 0 ? Math.round((precio - costo) / precio * 100) : 0;
+        const margenColor = margen >= 40 ? '#27ae60' : margen >= 20 ? '#e67e22' : '#e74c3c';
+        const stockColor  = Number(p.cco_stock) <= 2 ? '#e74c3c' : '#333';
+        return `
         <tr>
           <td style="font-weight:500">${esc(p.cco_descripcion||'-')}</td>
           <td style="color:#666">${TIPOS[p.cco_tipo]||p.cco_tipo||'-'}</td>
-          <td class="inv-precio">${money(p.cco_valor)}</td>
+          <td class="inv-precio" style="color:#555">${money(costo)}</td>
+          <td class="inv-precio">${money(precio)}</td>
+          <td style="font-weight:700;color:${margenColor}">${margen}%</td>
+          <td style="font-weight:600;color:${stockColor}">${Number(p.cco_stock)||0}</td>
           <td><span class="estado-pill est-${p.cco_estado}">${p.cco_estado==='A'?'Activo':'Inactivo'}</span></td>
           ${isAdmin()?`<td style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="btn btn-sm btn-mid" onclick="inv_edit(${p.uid_concepto_costo},'${esc(p.cco_descripcion)}',${p.cco_valor},'${p.cco_tipo}')">Editar</button>
+            <button class="btn btn-sm btn-mid" onclick="inv_edit(${p.uid_concepto_costo},'${esc(p.cco_descripcion)}',${precio},${costo},${Number(p.cco_stock)||0},'${p.cco_tipo}')">Editar</button>
             <button class="btn btn-sm btn-grey" onclick="inv_toggle(${p.uid_concepto_costo},'${p.cco_estado==='A'?'I':'A'}')">${p.cco_estado==='A'?'Desactivar':'Activar'}</button>
           </td>`:''}
-        </tr>`).join('');
+        </tr>`;
+      }).join('');
     }
     window.inv_openCreate = () => inv_openModal();
-    window.inv_edit = (id, desc, val, tipo) => inv_openModal(id, desc, val, tipo);
-    function inv_openModal(id=null, desc='', val=0, tipo='R') {
+    window.inv_edit = (id, desc, val, costo, stock, tipo) => inv_openModal(id, desc, val, costo, stock, tipo);
+    function inv_openModal(id=null, desc='', val=0, costo=0, stock=0, tipo='R') {
       document.getElementById('invModal')?.remove();
       const bg = document.createElement('div'); bg.className='modal-bg'; bg.id='invModal';
       bg.innerHTML=`<div class="modal">
         <h3>${id?'Editar repuesto':'Nuevo repuesto'}</h3>
-        <label>Descripción</label><input id="invDesc" type="text" value="${esc(desc)}" placeholder="Ej: Carbones de motor">
-        <label>Precio ($)</label><input id="invVal" type="number" value="${val}" min="0" placeholder="0">
+        <label>Descripción</label>
+        <input id="invDesc" type="text" value="${esc(desc)}" placeholder="Ej: Carbones de motor">
         <label>Tipo</label>
         <select id="invTipo">
           <option value="R"${tipo==='R'?' selected':''}>Repuesto</option>
           <option value="S"${tipo==='S'?' selected':''}>Servicio</option>
           <option value="M"${tipo==='M'?' selected':''}>Mano de obra</option>
         </select>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
+          <div>
+            <label style="margin-top:0">Costo ($)</label>
+            <input id="invCosto" type="number" value="${costo}" min="0" placeholder="0" oninput="inv_calcMargen()">
+          </div>
+          <div>
+            <label style="margin-top:0">Precio ($)</label>
+            <input id="invVal" type="number" value="${val}" min="0" placeholder="0" oninput="inv_calcMargen()">
+          </div>
+        </div>
+        <div id="invMargenPreview" style="font-size:12px;color:#888;margin-top:4px;text-align:right;"></div>
+        <label>Stock (unidades)</label>
+        <input id="invStock" type="number" value="${stock}" min="0" placeholder="0">
         <div class="modal-actions">
           <button class="btn btn-grey" onclick="document.getElementById('invModal').remove()">Cancelar</button>
           <button class="btn btn-dark" onclick="inv_save(${id||'null'})">${id?'Guardar':'Crear'}</button>
         </div>
       </div>`;
       document.body.appendChild(bg);
+      inv_calcMargen();
     }
+    window.inv_calcMargen = () => {
+      const precio = Number(document.getElementById('invVal')?.value) || 0;
+      const costo  = Number(document.getElementById('invCosto')?.value) || 0;
+      const el = document.getElementById('invMargenPreview'); if (!el) return;
+      if (!precio) { el.textContent = ''; return; }
+      const margen = Math.round((precio - costo) / precio * 100);
+      const color = margen >= 40 ? '#27ae60' : margen >= 20 ? '#e67e22' : '#e74c3c';
+      el.innerHTML = `Margen: <strong style="color:${color}">${margen}%</strong>`;
+    };
     window.inv_save = async (id) => {
-      const desc=document.getElementById('invDesc')?.value.trim();
-      const val =document.getElementById('invVal')?.value;
-      const tipo=document.getElementById('invTipo')?.value;
-      if (!desc) { alert('Escribe una descripción'); return; }
+      const desc  = document.getElementById('invDesc')?.value.trim();
+      const val   = document.getElementById('invVal')?.value;
+      const costo = document.getElementById('invCosto')?.value;
+      const stock = document.getElementById('invStock')?.value;
+      const tipo  = document.getElementById('invTipo')?.value;
+      if (!desc) { showToast('⚠️ Escribe una descripción'); return; }
       let r;
       if (id) {
-        r = await fetch(`${API}/inventario/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({descripcion:desc,valor:Number(val)||0})}).then(r=>r.json()).catch(()=>({success:false}));
+        r = await fetch(`${API}/inventario/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({descripcion:desc,valor:Number(val)||0,costo:Number(costo)||0,stock:Number(stock)||0})}).then(r=>r.json()).catch(()=>({success:false}));
       } else {
-        r = await fetch(`${API}/inventario`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({descripcion:desc,valor:Number(val)||0,tipo})}).then(r=>r.json()).catch(()=>({success:false}));
+        r = await fetch(`${API}/inventario`,{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({descripcion:desc,valor:Number(val)||0,costo:Number(costo)||0,stock:Number(stock)||0,tipo})}).then(r=>r.json()).catch(()=>({success:false}));
       }
       if (r.success) { document.getElementById('invModal')?.remove(); showToast('✅ Guardado'); await inv_reload(); }
-      else alert('Error: '+(r.error||''));
+      else showToast('⚠️ Error: '+(r.error||''));
     };
     window.inv_toggle = async (id, estado) => {
       const r = await fetch(`${API}/inventario/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({estado})}).then(r=>r.json()).catch(()=>({success:false}));
