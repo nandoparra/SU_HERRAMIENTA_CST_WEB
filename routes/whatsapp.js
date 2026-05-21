@@ -20,6 +20,12 @@ const waLimiter = rateLimit({
   validate:        { keyGeneratorIpFallback: false },
 });
 
+// Estado de conexión WA (para banner en dashboard)
+router.get('/whatsapp/status', requireInterno, (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  res.json({ connected: isReady(tenantId) });
+});
+
 // Forzar reset de sesión WA — útil cuando no genera QR por sesión expirada
 router.post('/whatsapp/reset', requireInterno, async (req, res) => {
   const tenantId = req.tenant?.uid_tenant ?? 1;

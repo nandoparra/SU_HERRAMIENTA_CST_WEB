@@ -183,7 +183,10 @@ Views.inicio = {
             <input type="month" id="mesInput" value="${mes}" onchange="ini_load()">
           </div>
         </div>
-        <div id="waStatusBar" style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;"></div>
+        <div id="waBanner" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px;font-size:13px;">
+          <span>📵 <strong>WhatsApp desconectado</strong> — no se podrán enviar mensajes a clientes.</span>
+          <a href="/api/whatsapp/qr" target="_blank" style="margin-left:auto;white-space:nowrap;background:#1d3557;color:#fff;padding:5px 12px;border-radius:6px;text-decoration:none;font-weight:600;font-size:12px;">Conectar WhatsApp →</a>
+        </div>
         <div class="kpi-grid" id="kpiGrid">
           <div class="kpi-card kc-grey" style="grid-column:1/-1;justify-content:center;align-items:center;min-height:80px;">
             <span style="color:#aaa;font-size:13px;">Cargando...</span>
@@ -215,25 +218,13 @@ Views.inicio = {
       </div>`;
   },
   async init() {
-    async function ini_waStatus() {
-      const bar = document.getElementById('waStatusBar'); if (!bar) return;
-      try {
-        const r = await fetch(`${API}/whatsapp/status`).then(r => r.json());
-        if (r.ready) {
-          bar.style.cssText = 'margin-bottom:12px;padding:10px 14px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:#dcfce7;color:#166534;border:1px solid #bbf7d0;';
-          bar.innerHTML = '📱 <strong>WhatsApp conectado</strong> — los mensajes automáticos están activos.';
-        } else {
-          bar.style.cssText = 'margin-bottom:12px;padding:10px 14px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#fef9c3;color:#854d0e;border:1px solid #fde68a;';
-          bar.innerHTML = '⚠️ <strong>WhatsApp desconectado</strong> — los mensajes no se enviarán. &nbsp;<a href="/api/whatsapp/qr" target="_blank" style="font-weight:700;color:#854d0e;text-decoration:underline;">📷 Escanear QR para reconectar</a>';
-        }
-      } catch(_) {
-        bar.style.display = 'none';
-      }
-    }
-
     window.ini_load = async () => {
-      ini_waStatus();
       const mes = document.getElementById('mesInput')?.value || '';
+      // Banner WhatsApp
+      fetch(`${API}/whatsapp/status`).then(r=>r.json()).then(d => {
+        const b = document.getElementById('waBanner');
+        if (b) b.style.display = d.connected ? 'none' : 'flex';
+      }).catch(()=>{});
       const data = await fetch(`${API}/dashboard?mes=${mes}`).then(r=>r.json()).catch(()=>null);
       if (!data) return;
       const k = data.kpis;
