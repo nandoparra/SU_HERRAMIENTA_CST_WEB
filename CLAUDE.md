@@ -72,6 +72,15 @@ routes/pdf.js                      GET descargar/POST enviar PDFs
 routes/recibos.js                  6 endpoints recibos de caja (requireInterno)
                                      └─ GET /recibos, POST /recibos, GET /recibos/cotizacion-orden/:uid
                                      └─ GET /recibos/:id, PATCH /recibos/:id/anular, GET /recibos/:id/pdf
+routes/ventas.js                   Ventas POS (requireInterno)
+                                     └─ GET /ventas/caja-dia — ANTES de /:id (evita conflicto de rutas)
+                                     └─ GET /ventas/:id/print — HTML ticket con auto-print
+routes/contable.js                 Módulo contable con IA (requireInterno + requireAddonContabilidad)
+                                     └─ GET/POST /contable/egresos, PATCH /contable/egresos/:id
+                                     └─ PATCH /contable/egresos/:id/anular, /pagar
+                                     └─ GET /contable/vencimientos — egresos crédito pendientes
+                                     └─ POST /contable/egresos/extraer-factura — Claude Vision
+                                     └─ GET /contable/resumen — estado de resultados
 routes/crear-orden.js              POST crear cliente/herramienta/orden + fotos + factura garantía
                                      └─ todos los endpoints con requireInterno
                                      └─ POST /crear-orden/factura/:uid_orden — upload PDF factura garantía nivel orden (legacy, compat)
@@ -139,6 +148,9 @@ main                           Estado estable (HEAD)
 ### Historial de ramas mergeadas (referencia)
 ```
 feature/modulo-recibos         Módulo A — Recibos de caja — MERGEADO 2026-04-26
+feature/pos-mejorado           POS: autocomplete cliente + caja del día + ticket print — MERGEADO 2026-05-20
+feature/semana1-demos          GET /cotizaciones/pendientes dedicado — MERGEADO 2026-05-20
+feature/modulo-contable        Módulo contable IA completo — EN RAMA (pendiente merge confirmación)
 feature/login                  Login + sesiones + roles — MERGEADO
 feature/crear-orden            Módulo crear orden + fotos — MERGEADO
 feature/wa-autorizacion        Flujo autorización WA (1/2/3/4) — MERGEADO
@@ -1041,10 +1053,10 @@ Cambios en `utils/wa-handler.js`:
 | Módulo | Estado | Esfuerzo | Prerequisito DIAN |
 |--------|--------|----------|-------------------|
 | A — Recibo de caja | ✅ MERGEADO 2026-04-26 | — | No |
-| B — POS básico | Pendiente | 2 días | No |
+| B — POS básico | ✅ MERGEADO 2026-05-20 (feature/pos-mejorado) | — | No |
 | C — Factura electrónica | Pendiente | 3-4 días | Sí (NIT + resolución DIAN + cuenta Factus) |
 
-Orden de ejecución: B → C. El módulo B es el siguiente.
+Orden de ejecución: B → C. Módulo B completo — ver sección "Módulo B — POS mejorado" abajo.
 
 ---
 
@@ -1091,6 +1103,105 @@ PDF siempre incluye: header empresa, datos cliente (CC/NIT si disponible), méto
 ### Búsqueda por cédula/NIT — fixes aplicados
 - `GET /api/clientes/search`: añadida normalización REPLACE para cédulas con puntos/guiones ("9.862.087-1" → encontrado buscando "9862087")
 - `GET /api/orders/search`: mismo fix para búsqueda de órdenes por cédula del cliente
+
+---
+
+## Módulo B — POS mejorado (feature/pos-mejorado, MERGEADO 2026-05-20)
+
+Tres mejoras sobre la vista Ventas (`Views.ventas` en `public/assets/dashboard.js`):
+
+### 1. Autocomplete cliente en modal Nueva Venta
+- Input "Buscar cliente" con debounce 400ms → `GET /api/clientes/search?q=...`
+- Dropdown de resultados debajo del input; al seleccionar: llena `_venClienteId` (estado), muestra nombre del cliente
+- Si no se selecciona cliente, la venta se registra sin `uid_cliente` (mostrador)
+- Funciones: `ven_buscarCliente()`, `ven_selCliente(uid, nombre)`
+
+### 2. Panel Caja del día
+- Widget `<div id="venCajaDia">` arriba de la lista de ventas
+- Endpoint: `GET /api/ventas/caja-dia` — agrupa ventas del día por método de pago (SUM de `ven_total`)
+- Muestra total general + desglose por método (efectivo, transferencia, tarjeta, Nequi…)
+- **IMPORTANTE**: la ruta `/ventas/caja-dia` debe montarse ANTES de `GET /ventas/:id` en `routes/ventas.js` para evitar que Express lo trate como `:id`
+
+### 3. Ticket de impresión
+- Botón "🖨️ Ticket" en el detalle de venta
+- Endpoint: `GET /api/ventas/:id/print` → devuelve HTML con `window.onload = () => window.print()`
+- Se abre en `window.open()` y el diálogo de impresión se dispara automáticamente
+
+---
+
+## Cotizaciones pendientes — endpoint dedicado (feature/semana1-demos, MERGEADO 2026-05-20)
+
+Refactor arquitectural en `routes/dashboard.js`:
+- Nuevo endpoint `GET /api/cotizaciones/pendientes` — devuelve máquinas con `her_estado='revisada'` que no tienen entrada en `b2c_cotizacion_maquina`
+- Sin filtro por fecha (antes acoplado a `?mes=YYYY-MM` del dashboard general)
+- Protegido por `dashLimiter` (rate limiter existente)
+- `cot_cargarPendientes()` en `dashboard.js` llama este endpoint en lugar de `/dashboard?mes=...`
+- Cambio solo de código — comportamiento visible idéntico
+
+---
+
+## Módulo contable con IA (feature/modulo-contable — pendiente merge a main)
+
+### Addon y acceso
+- `addon_contabilidad TINYINT(1) DEFAULT 0` en `b2c_tenant` (migración automática)
+- `requireAddonContabilidad` en `middleware/auth.js` — 403 si el tenant no tiene el addon activo
+- Local dev: `middleware/tenant.js` tiene `addon_contabilidad: 1` hardcodeado para no bloquearse
+- Superadmin puede activar/desactivar el addon por tenant: campo `addon_contabilidad` en el PATCH de tenants (`routes/superadmin.js`)
+- `/me` devuelve `addons: { contabilidad: bool }` — frontend oculta el nav item si `false`
+
+### Tabla `b2c_egreso`
+Auto-migrada al arrancar. Columnas principales:
+- `uid_egreso` AI PK, `tenant_id`, `egr_fecha` DATE, `egr_concepto` TEXT
+- `egr_categoria` ENUM('nomina','arriendo','servicios','compras','mantenimiento','impuestos','otros')
+- `egr_valor` DECIMAL(12,2), `egr_metodo_pago` VARCHAR(30)
+- `egr_proveedor` VARCHAR(150) NULL, `egr_nit_proveedor` VARCHAR(30) NULL
+- `egr_referencia` VARCHAR(100) NULL, `egr_factura_imagen` VARCHAR(255) NULL
+- `egr_ia_extraido` TINYINT(1) DEFAULT 0, `egr_estado` ENUM('activo','anulado') DEFAULT 'activo'
+- **Vencimientos** (migración `ensureEgresoVencimiento`):
+  - `egr_forma_pago` ENUM('contado','credito') DEFAULT 'contado'
+  - `egr_fecha_vencimiento` DATE NULL — solo cuando `egr_forma_pago='credito'`
+  - `egr_estado_pago` ENUM('pagado','pendiente') DEFAULT 'pagado' — auto: 'pendiente' si crédito
+
+### Endpoints (`routes/contable.js`, montado bajo `/api`)
+Todos protegidos por `requireInterno` + `requireAddonContabilidad`.
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/contable/egresos` | Lista con filtros: mes, categoria, estado |
+| POST | `/contable/egresos` | Crear egreso — crédito requiere fecha_vencimiento |
+| PATCH | `/contable/egresos/:id` | Editar campos permitidos |
+| PATCH | `/contable/egresos/:id/anular` | Anular egreso |
+| PATCH | `/contable/egresos/:id/pagar` | Marcar como pagado (egr_estado_pago='pagado') |
+| GET | `/contable/vencimientos` | Egresos crédito pendientes de pago, ORDER BY fecha_vencimiento ASC |
+| POST | `/contable/egresos/extraer-factura` | Claude Vision — extrae campos de imagen/PDF de factura |
+| GET | `/contable/resumen` | Estado de resultados: ingresos (ventas+recibos) vs egresos por categoría |
+
+### Claude Vision — extracción de facturas
+- Acepta imagen/* y application/pdf (10MB max), validado con `checkMagicBytes`
+- Sube archivo a `uploads/facturas-egreso/`, lo envía a Claude como `image` o `document` content block
+- **CRÍTICO SDK @0.13.1**: usar `client.beta.messages.create()` SIN el parámetro `betas: [...]` — el SDK @0.13.1 lo rechaza con 400 "Extra inputs are not permitted". El tipo `document` ya salió de beta y funciona sin ese header.
+- Singleton `getIAClient()` para no crear instancia Anthropic en cada request
+- IA extrae: `proveedor`, `nit_proveedor`, `fecha`, `fecha_vencimiento`, `forma_pago` ('contado'|'credito'), `valor_total`, `categoria_sugerida`, `concepto`, `referencia`
+- El usuario revisa y confirma antes de guardar (no auto-save)
+
+### Vista Contable en dashboard
+Nav item "📒 Contable" — solo visible para admin si `addons.contabilidad` es true.
+
+Secciones del render:
+1. **Panel Vencimientos** (`<div id="conVencimientos">`) — aparece si hay egresos crédito pendientes:
+   - Badges de color: 🔴 vencido | ⚠️ ≤7 días | 📅 normal
+   - Botón "✅ Marcar pagado" por fila → `con_pagar(uid)` → `PATCH /contable/egresos/:id/pagar`
+2. **Estado de resultados** (`<div id="conResumen">`) — ingresos vs egresos del mes, utilidad
+3. **Lista de egresos** (`<div id="conEgresos">`) — con filtros mes/categoría/estado
+
+Modal "Nuevo Egreso":
+- Campos: fecha, categoría, concepto, valor, forma de pago (Contado/Crédito), fecha vencimiento (condicional — solo si Crédito), método de pago, proveedor, NIT, referencia
+- `con_toggleVencimiento()` controla visibilidad del campo fecha vencimiento
+- Sección IA: upload factura → "✨ Extraer con IA" → rellena todos los campos incluyendo `forma_pago` y `fecha_vencimiento`
+
+### Estado actual de la rama
+La rama `feature/modulo-contable` tiene 8 commits completos y smoke test 37/37 pasa.
+**Pendiente**: confirmar merge a main con `--no-ff` y push a GitHub.
 
 ---
 
