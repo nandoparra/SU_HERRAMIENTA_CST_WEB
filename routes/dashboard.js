@@ -463,7 +463,7 @@ router.post('/inventario/:id/recepcion', async (req, res) => {
   if (req.session?.user?.tipo !== 'A')
     return res.status(403).json({ error: 'Solo administradores' });
 
-  const { unidades, costo_unitario, fecha } = req.body;
+  const { unidades, costo_unitario, fecha, nuevo_precio } = req.body;
   const unids = parseInt(unidades);
   const costo = parseFloat(costo_unitario);
 
@@ -495,10 +495,21 @@ router.post('/inventario/:id/recepcion', async (req, res) => {
       : costo;
     const costoNuevoRed = Math.round(costoNuevo * 100) / 100;
 
-    await conn.execute(
-      `UPDATE b2c_concepto_costos SET cco_costo = ?, cco_stock = ? WHERE uid_concepto_costo = ?`,
-      [costoNuevoRed, stockNuevo, req.params.id]
-    );
+    const precioNuevo = nuevo_precio != null && !isNaN(parseFloat(nuevo_precio))
+      ? Math.round(parseFloat(nuevo_precio) * 100) / 100
+      : null;
+
+    if (precioNuevo !== null) {
+      await conn.execute(
+        `UPDATE b2c_concepto_costos SET cco_costo = ?, cco_stock = ?, cco_valor = ? WHERE uid_concepto_costo = ?`,
+        [costoNuevoRed, stockNuevo, precioNuevo, req.params.id]
+      );
+    } else {
+      await conn.execute(
+        `UPDATE b2c_concepto_costos SET cco_costo = ?, cco_stock = ? WHERE uid_concepto_costo = ?`,
+        [costoNuevoRed, stockNuevo, req.params.id]
+      );
+    }
 
     await conn.execute(
       `INSERT INTO b2c_inventario_recepciones
@@ -510,7 +521,8 @@ router.post('/inventario/:id/recepcion', async (req, res) => {
     );
 
     await conn.commit();
-    res.json({ success: true, cco_costo: costoNuevoRed, cco_stock: stockNuevo });
+    res.json({ success: true, cco_costo: costoNuevoRed, cco_stock: stockNuevo,
+               cco_valor: precioNuevo });
   } catch (e) {
     await conn.rollback();
     log.error({ err: e }, 'Error en recepcion inventario');

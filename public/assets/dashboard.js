@@ -1689,7 +1689,7 @@ Views.inventario = {
           <td style="font-weight:600;color:${stockColor}">${Number(p.cco_stock)||0}</td>
           <td><span class="estado-pill est-${p.cco_estado}">${p.cco_estado==='A'?'Activo':'Inactivo'}</span></td>
           ${isAdmin()?`<td style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="btn btn-sm" style="background:#0e7490;color:#fff;" onclick="inv_recibir(${p.uid_concepto_costo},'${esc(p.cco_descripcion)}',${costo},${Number(p.cco_stock)||0})">📥 Recibir</button>
+            <button class="btn btn-sm" style="background:#0e7490;color:#fff;" onclick="inv_recibir(${p.uid_concepto_costo},'${esc(p.cco_descripcion)}',${costo},${Number(p.cco_stock)||0},${precio})">📥 Recibir</button>
             <button class="btn btn-sm btn-mid" onclick="inv_edit(${p.uid_concepto_costo},'${esc(p.cco_descripcion)}',${precio},${costo},${Number(p.cco_stock)||0},'${p.cco_tipo}')">Editar</button>
             <button class="btn btn-sm btn-grey" onclick="inv_toggle(${p.uid_concepto_costo},'${p.cco_estado==='A'?'I':'A'}')">${p.cco_estado==='A'?'Desactivar':'Activar'}</button>
           </td>`:''}
@@ -1777,7 +1777,7 @@ Views.inventario = {
       else alert('Error: '+(r.error||''));
     };
 
-    window.inv_recibir = async function(id, desc, costoActual, stockActual) {
+    window.inv_recibir = async function(id, desc, costoActual, stockActual, precioActual) {
       document.getElementById('invRecModal')?.remove();
       const today = new Date().toISOString().slice(0,10);
       const bg = document.createElement('div'); bg.className='modal-bg'; bg.id='invRecModal';
@@ -1795,16 +1795,24 @@ Views.inventario = {
               style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
           </div>
         </div>
-        <div style="margin-top:10px;">
-          <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Costo unitario de esta compra ($) <span style="color:#e53e3e">*</span></label>
-          <input id="irCosto" type="number" min="0" placeholder="Ej: 32000" oninput="inv_prevPromedio(${costoActual},${stockActual})"
-            style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+          <div>
+            <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Costo unitario de esta compra ($) <span style="color:#e53e3e">*</span></label>
+            <input id="irCosto" type="number" min="0" placeholder="Ej: 32000" oninput="inv_prevPromedio(${costoActual},${stockActual},${precioActual})"
+              style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Nuevo precio de venta ($) <span style="color:#aaa;font-weight:400;">(opcional)</span></label>
+            <input id="irPrecio" type="number" min="0" placeholder="${precioActual}" oninput="inv_prevPromedio(${costoActual},${stockActual},${precioActual})"
+              style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          </div>
         </div>
         <div id="irPreview" style="margin-top:12px;padding:10px 12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:12px;display:none;">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
-            <div><div style="color:#888;margin-bottom:2px;">Costo anterior</div><strong style="color:#555;">${money(costoActual)}</strong></div>
-            <div><div style="color:#888;margin-bottom:2px;">Stock anterior</div><strong style="color:#555;">${stockActual} un.</strong></div>
-            <div><div style="color:#888;margin-bottom:2px;">→ Nuevo costo prom.</div><strong id="irNuevoCosto" style="color:#0e7490;font-size:14px;"></strong></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;text-align:center;">
+            <div><div style="color:#888;margin-bottom:2px;">Costo ant.</div><strong style="color:#555;">${money(costoActual)}</strong></div>
+            <div><div style="color:#888;margin-bottom:2px;">Stock ant.</div><strong style="color:#555;">${stockActual} un.</strong></div>
+            <div><div style="color:#888;margin-bottom:2px;">→ Costo prom.</div><strong id="irNuevoCosto" style="color:#0e7490;font-size:14px;"></strong></div>
+            <div><div style="color:#888;margin-bottom:2px;">Margen</div><strong id="irMargen" style="font-size:14px;"></strong></div>
           </div>
           <div style="text-align:center;margin-top:6px;color:#555;font-size:11px;">
             Nuevo stock: <strong id="irNuevoStock" style="color:#1d3557;"></strong> unidades
@@ -1833,32 +1841,41 @@ Views.inventario = {
       }).catch(()=>{});
     };
 
-    window.inv_prevPromedio = function(costoAnt, stockAnt) {
-      const unids = parseInt(document.getElementById('irUnids')?.value) || 0;
-      const costo = parseFloat(document.getElementById('irCosto')?.value);
-      const prev  = document.getElementById('irPreview');
+    window.inv_prevPromedio = function(costoAnt, stockAnt, precioAnt) {
+      const unids  = parseInt(document.getElementById('irUnids')?.value) || 0;
+      const costo  = parseFloat(document.getElementById('irCosto')?.value);
+      const precio = parseFloat(document.getElementById('irPrecio')?.value) || precioAnt;
+      const prev   = document.getElementById('irPreview');
       if (!prev) return;
       if (!unids || isNaN(costo)) { prev.style.display='none'; return; }
       const stockNuevo = stockAnt + unids;
       const costoNuevo = ((stockAnt * costoAnt) + (unids * costo)) / stockNuevo;
+      const margen = precio > 0 ? Math.round((precio - costoNuevo) / precio * 100) : null;
+      const margenColor = margen === null ? '#888' : margen >= 40 ? '#27ae60' : margen >= 20 ? '#e67e22' : '#e74c3c';
       document.getElementById('irNuevoCosto').textContent = money(Math.round(costoNuevo));
       document.getElementById('irNuevoStock').textContent = stockNuevo;
+      document.getElementById('irMargen').innerHTML = margen !== null
+        ? `<span style="color:${margenColor}">${margen}%</span>` : '—';
       prev.style.display = '';
     };
 
     window.inv_guardarRecepcion = async function(id) {
-      const unids = parseInt(document.getElementById('irUnids')?.value);
-      const costo = parseFloat(document.getElementById('irCosto')?.value);
-      const fecha = document.getElementById('irFecha')?.value;
+      const unids  = parseInt(document.getElementById('irUnids')?.value);
+      const costo  = parseFloat(document.getElementById('irCosto')?.value);
+      const fecha  = document.getElementById('irFecha')?.value;
+      const precio = document.getElementById('irPrecio')?.value;
       if (!unids || unids <= 0) { showToast('⚠️ Ingresa las unidades recibidas'); return; }
       if (isNaN(costo) || costo < 0) { showToast('⚠️ Ingresa el costo unitario'); return; }
+      const body = { unidades: unids, costo_unitario: costo, fecha };
+      if (precio && !isNaN(parseFloat(precio))) body.nuevo_precio = parseFloat(precio);
       const r = await fetch(`${API}/inventario/${id}/recepcion`, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ unidades: unids, costo_unitario: costo, fecha })
+        body: JSON.stringify(body)
       }).then(r=>r.json()).catch(()=>({error:'Error de red'}));
       if (r.success) {
         document.getElementById('invRecModal')?.remove();
-        showToast(`✅ Recepción registrada — nuevo costo prom: ${money(r.cco_costo)} · Stock: ${r.cco_stock} un.`);
+        const precioMsg = r.cco_valor ? ` · Precio: ${money(r.cco_valor)}` : '';
+        showToast(`✅ Recepción registrada — costo prom: ${money(r.cco_costo)} · Stock: ${r.cco_stock} un.${precioMsg}`);
         await inv_reload();
       } else {
         showToast('⚠️ ' + (r.error || 'Error al registrar'));
