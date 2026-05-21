@@ -3280,6 +3280,10 @@ Views.ventas = {
               </div>
             </div>
           </div>
+          <div id="venCajaDia" style="margin:10px 0 4px;padding:10px 12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:12px;">
+            <div style="font-weight:600;color:#0369a1;margin-bottom:6px;">💰 Caja del día</div>
+            <div style="color:#aaa;font-size:12px;">Cargando...</div>
+          </div>
           <div class="results-list" id="venResults">
             <div class="results-empty">Cargando...</div>
           </div>
@@ -3336,10 +3340,40 @@ Views.ventas = {
 
     await window.ven_reload();
 
+    // ── Caja del día ───────────────────────────────────────────────────────
+    window.ven_loadCajaDia = async function() {
+      const el = document.getElementById('venCajaDia'); if (!el) return;
+      try {
+        const d = await fetch(`${API}/ventas/caja-dia`).then(r => r.json());
+        const METODOS = { efectivo:'Efectivo', transferencia:'Transferencia', tarjeta:'Tarjeta', cheque:'Cheque', otro:'Otro' };
+        const filas = (d.desglose || []).map(r =>
+          `<div style="display:flex;justify-content:space-between;">
+            <span style="color:#374151;">${METODOS[r.ven_metodo_pago] || r.ven_metodo_pago}</span>
+            <span style="font-weight:600;">${money(Number(r.total))}</span>
+          </div>`
+        ).join('');
+        el.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <span style="font-weight:600;color:#0369a1;">💰 Caja del día</span>
+            <span style="font-size:11px;color:#888;">${d.cantidad} venta${d.cantidad !== 1 ? 's' : ''}</span>
+          </div>
+          ${filas || '<div style="color:#aaa;font-size:11px;">Sin ventas hoy</div>'}
+          <div style="border-top:1px solid #bae6fd;margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;">
+            <span style="font-weight:600;color:#0369a1;">Total</span>
+            <span style="font-weight:700;color:#0369a1;font-size:14px;">${money(d.total)}</span>
+          </div>`;
+      } catch (_) {
+        const el2 = document.getElementById('venCajaDia');
+        if (el2) el2.innerHTML = '<div style="color:#aaa;font-size:12px;">No se pudo cargar la caja.</div>';
+      }
+    };
+    await window.ven_loadCajaDia();
+
     // ── Modal nueva venta ──────────────────────────────────────────────────
     let _venItems = [];
     let _venShowCosto = false;
     let _venOrdenId = null;
+    let _venClienteId = null;
 
     function ven_calcItem(it) {
       const precio   = Number(it.vi_precio_unitario) || 0;
@@ -3518,6 +3552,7 @@ Views.ventas = {
                      vi_precio_unitario:0, vi_costo_unitario:0, vi_descuento_pct:0 }];
       _venShowCosto = false;
       _venOrdenId = null;
+      _venClienteId = null;
       const today = new Date().toISOString().slice(0,10);
       const bg = document.createElement('div');
       bg.className = 'modal-bg'; bg.id = 'venCreateModal';
@@ -3535,6 +3570,19 @@ Views.ventas = {
             <div id="venOrdResultados" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:1000;max-height:180px;overflow-y:auto;margin-top:2px;"></div>
           </div>
           <div id="venOrdSelMsg" style="font-size:12px;margin-top:6px;display:none;"></div>
+        </div>
+
+        <!-- Cliente (opcional) -->
+        <div style="margin-bottom:14px;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+          <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:8px;">👤 Cliente <span style="font-weight:400;color:#888;">(opcional)</span></div>
+          <div style="position:relative;">
+            <input type="text" id="venCliBuscar" autocomplete="off"
+              placeholder="Cédula, NIT o nombre del cliente..."
+              style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;box-sizing:border-box;"
+              oninput="ven_buscarCliente(this.value)">
+            <div id="venCliResultados" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:1000;max-height:180px;overflow-y:auto;margin-top:2px;"></div>
+          </div>
+          <div id="venCliSelMsg" style="font-size:12px;margin-top:6px;display:none;"></div>
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
@@ -3615,6 +3663,7 @@ Views.ventas = {
         ven_metodo_pago: metodo,
         ven_notas:       notas,
         uid_orden:       _venOrdenId || undefined,
+        uid_cliente:     _venClienteId || undefined,
         items:           _venItems,
       };
       const r = await fetch(`${API}/ventas`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
@@ -3623,6 +3672,7 @@ Views.ventas = {
         document.getElementById('venCreateModal')?.remove();
         showToast(`✅ Venta #${r.ven_consecutivo} creada`);
         await ven_reload();
+        ven_loadCajaDia();
         ven_verDetalle(r.uid_venta);
       } else {
         errEl.textContent = r.error || 'Error al crear la venta.';
@@ -3706,6 +3756,50 @@ Views.ventas = {
       }
     };
 
+    // ── Buscador de cliente dentro del modal Nueva Venta ─────────────────
+    let _venCliTimer = null;
+    window.ven_buscarCliente = function(q) {
+      clearTimeout(_venCliTimer);
+      const rEl = document.getElementById('venCliResultados');
+      if (!rEl) return;
+      if (!q || q.trim().length < 2) { rEl.style.display = 'none'; return; }
+      _venCliTimer = setTimeout(async () => {
+        rEl.style.display = '';
+        rEl.innerHTML = '<div style="padding:8px 12px;color:#aaa;font-size:13px;">Buscando...</div>';
+        try {
+          const rows = await fetch(`${API}/clientes/search?q=${encodeURIComponent(q.trim())}&limit=8`)
+            .then(r => r.json());
+          const list = Array.isArray(rows) ? rows : [];
+          if (!list.length) {
+            rEl.innerHTML = '<div style="padding:8px 12px;color:#aaa;font-size:13px;">Sin resultados.</div>';
+            return;
+          }
+          rEl.innerHTML = list.map(c => {
+            const nombre = esc(c.cli_razon_social || c.cli_contacto || '—');
+            const id = esc(c.cli_identificacion || '');
+            return `<div style="padding:9px 12px;cursor:pointer;border-bottom:1px solid #f0f4f8;font-size:13px;"
+                         onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''"
+                         onclick="ven_selCliente(${c.uid_cliente},'${nombre.replace(/'/g,"\\'").replace(/"/g,'&quot;')}','${id}')">
+              <strong>${nombre}</strong>
+              <span style="float:right;color:#aaa;font-size:11px;">${id}</span>
+            </div>`;
+          }).join('');
+        } catch (_) {
+          rEl.innerHTML = '<div style="padding:8px 12px;color:#aaa;font-size:13px;">Error buscando clientes.</div>';
+        }
+      }, 300);
+    };
+
+    window.ven_selCliente = function(uid, nombre, cedula) {
+      const rEl  = document.getElementById('venCliResultados');
+      const bEl  = document.getElementById('venCliBuscar');
+      const msgEl = document.getElementById('venCliSelMsg');
+      if (rEl)  rEl.style.display = 'none';
+      if (bEl)  bEl.value = cedula ? `${nombre} (${cedula})` : nombre;
+      _venClienteId = uid;
+      if (msgEl) { msgEl.style.color = '#166534'; msgEl.textContent = `✅ Cliente: ${nombre}`; msgEl.style.display = ''; }
+    };
+
     // ── Generar venta desde detalle de orden ─────────────────────────────
     window.ord_generarVenta = async function(uidOrden, btn) {
       if (!confirm('¿Crear una venta con los ítems de la cotización aprobada de esta orden?')) return;
@@ -3786,6 +3880,7 @@ Views.ventas = {
 
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
               <a href="${API}/ventas/${venta.uid_venta}/pdf" target="_blank" class="btn btn-sm btn-mid">📄 PDF</a>
+              <a href="${API}/ventas/${venta.uid_venta}/print" target="_blank" class="btn btn-sm btn-mid">🖨️ Ticket</a>
               ${esBorr ? `<button class="btn btn-sm btn-dark" onclick="ven_pagar(${venta.uid_venta})">💳 Marcar pagada</button>` : ''}
               ${!esAnul ? `<button class="btn btn-sm btn-grey" onclick="ven_anular(${venta.uid_venta})">🚫 Anular</button>` : ''}
             </div>
