@@ -127,6 +127,7 @@ app.use('/api', require('./routes/crear-orden'));
 app.use('/api', require('./routes/recibos'));
 app.use('/api', require('./routes/ventas'));
 app.use('/api', require('./routes/financiero'));
+app.use('/api', require('./routes/contable'));
 
 // Health — solo usuarios internos autenticados
 app.get('/health', requireInterno, (req, res) => {
