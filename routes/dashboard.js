@@ -554,4 +554,35 @@ router.get('/inventario/:id/recepciones', async (req, res) => {
   }
 });
 
+// ─── GET /api/cotizaciones/pendientes — máquinas revisadas sin cotización ─────
+// Sin filtro de fecha: devuelve TODO el historial, no solo el mes actual.
+router.get('/cotizaciones/pendientes', dashLimiter, async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const conn = await db.getConnection();
+  try {
+    const [rows] = await conn.execute(
+      `SELECT ho.uid_herramienta_orden, ho.uid_orden,
+              o.ord_consecutivo, o.ord_fecha,
+              COALESCE(c.cli_razon_social, c.cli_contacto, '') AS cliente,
+              h.her_nombre, h.her_marca
+       FROM b2c_herramienta_orden ho
+       JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
+       JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+       JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+       LEFT JOIN b2c_cotizacion_maquina cm ON cm.uid_herramienta_orden = ho.uid_herramienta_orden
+       WHERE ho.her_estado = 'revisada'
+         AND cm.uid_herramienta_orden IS NULL
+         AND o.tenant_id = ?
+       ORDER BY o.ord_fecha ASC`,
+      [tenantId]
+    );
+    res.json(rows);
+  } catch (e) {
+    log.error({ err: e }, 'Error cotizaciones/pendientes');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
 module.exports = router;
