@@ -3318,19 +3318,37 @@ Views.ventas = {
                        vi_precio_unitario:0, vi_costo_unitario:0, vi_descuento_pct:0 });
       ven_renderItems();
     };
-    window.ven_addFromCatalog = function() {
-      const sel = document.getElementById('venCatSel');
-      if (!sel || !sel.value) return;
-      const opt = sel.options[sel.selectedIndex];
+    let _venCatalog = [];
+    window.ven_catBuscar = function() {
+      const q  = (document.getElementById('venCatInput')?.value || '').toLowerCase().trim();
+      const dd = document.getElementById('venCatDrop'); if (!dd) return;
+      if (!q) { dd.style.display = 'none'; return; }
+      const hits = _venCatalog.filter(p =>
+        (p.cco_descripcion || '').toLowerCase().includes(q) ||
+        String(p.uid_concepto_costo).includes(q)
+      ).slice(0, 10);
+      if (!hits.length) { dd.style.display = 'none'; return; }
+      dd.style.display = '';
+      dd.innerHTML = hits.map(p => `
+        <div onclick="ven_catSeleccionar(${p.uid_concepto_costo})"
+             style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #f0f4f8;font-size:12px;"
+             onmouseenter="this.style.background='#f0f4f8'" onmouseleave="this.style.background=''">
+          <div style="font-weight:500">${esc(p.cco_descripcion)}</div>
+          <div style="color:#888;font-size:11px;">Cód. ${p.uid_concepto_costo} · ${money(Number(p.cco_valor)||0)}</div>
+        </div>`).join('');
+    };
+    window.ven_catSeleccionar = function(id) {
+      const p = _venCatalog.find(x => x.uid_concepto_costo === id); if (!p) return;
       _venItems.push({
-        vi_descripcion:     opt.dataset.desc  || '',
+        vi_descripcion:     p.cco_descripcion || '',
         vi_tipo:            'repuesto',
         vi_cantidad:        1,
-        vi_precio_unitario: Number(opt.dataset.precio) || 0,
-        vi_costo_unitario:  Number(opt.dataset.costo)  || 0,
+        vi_precio_unitario: Number(p.cco_valor) || 0,
+        vi_costo_unitario:  Number(p.cco_costo) || 0,
         vi_descuento_pct:   0,
       });
-      sel.value = '';
+      const inp = document.getElementById('venCatInput'); if (inp) inp.value = '';
+      const dd  = document.getElementById('venCatDrop');  if (dd)  dd.style.display = 'none';
       ven_renderItems();
     };
     window.ven_removeItem = function(i) { _venItems.splice(i,1); ven_renderItems(); };
@@ -3423,9 +3441,12 @@ Views.ventas = {
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
             <span style="font-size:12px;font-weight:600;color:#1d3557;">ÍTEMS DEL SERVICIO</span>
             <div style="display:flex;gap:6px;align-items:center;">
-              <select id="venCatSel" onchange="ven_addFromCatalog()" style="font-size:12px;padding:4px 7px;border:1px solid #c7d2dd;border-radius:6px;color:#1d3557;max-width:220px;">
-                <option value="">+ Desde catálogo...</option>
-              </select>
+              <div style="position:relative;">
+                <input type="text" id="venCatInput" placeholder="Buscar en catálogo..." autocomplete="off"
+                  oninput="ven_catBuscar()"
+                  style="font-size:12px;padding:5px 9px;border:1px solid #c7d2dd;border-radius:6px;width:200px;">
+                <div id="venCatDrop" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:1000;max-height:200px;overflow-y:auto;margin-top:2px;min-width:240px;"></div>
+              </div>
               <button type="button" class="btn btn-sm btn-mid" onclick="ven_addItem()">+ Manual</button>
             </div>
           </div>
@@ -3449,11 +3470,7 @@ Views.ventas = {
       bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
       ven_renderItems();
       fetch(`${API}/inventario`).then(r=>r.json()).then(items => {
-        const sel = document.getElementById('venCatSel'); if (!sel) return;
-        const activos = items.filter(p => p.cco_estado === 'A' && p.cco_tipo === 'R');
-        if (!activos.length) return;
-        sel.innerHTML = '<option value="">+ Desde catálogo...</option>' +
-          activos.map(p => `<option value="${p.uid_concepto_costo}" data-desc="${esc(p.cco_descripcion)}" data-precio="${Number(p.cco_valor)||0}" data-costo="${Number(p.cco_costo)||0}">${esc(p.cco_descripcion)} ($${Number(p.cco_valor||0).toLocaleString('es-CO')})</option>`).join('');
+        _venCatalog = items.filter(p => p.cco_estado === 'A');
       }).catch(() => {});
     };
 
