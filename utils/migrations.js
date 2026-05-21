@@ -632,6 +632,33 @@ async function ensureEgresoTable() {
   }
 }
 
+async function ensureEgresoVencimiento() {
+  const conn = await db.getConnection();
+  try {
+    const cols = [
+      [`egr_forma_pago`,         `ENUM('contado','credito') NOT NULL DEFAULT 'contado'`],
+      [`egr_fecha_vencimiento`,  `DATE NULL`],
+      [`egr_estado_pago`,        `ENUM('pendiente','pagado') NOT NULL DEFAULT 'pagado'`],
+    ];
+    for (const [col, def] of cols) {
+      try {
+        await conn.execute(`ALTER TABLE b2c_egreso ADD COLUMN ${col} ${def}`);
+        console.log(`✅ ${col} agregado a b2c_egreso`);
+      } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    }
+    // Índice para consultar vencimientos pendientes rápido
+    try {
+      await conn.execute(
+        `ALTER TABLE b2c_egreso ADD INDEX idx_egr_venc (tenant_id, egr_estado_pago, egr_fecha_vencimiento)`
+      );
+    } catch (_) {}
+  } catch (e) {
+    console.warn('⚠️ No pude agregar columnas de vencimiento a b2c_egreso:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function ensureContabilidadAddon() {
   const conn = await db.getConnection();
   try {
@@ -669,6 +696,7 @@ async function runMigrations() {
   await fixVentaItemTipos();
   await ensureEgresoTable();
   await ensureContabilidadAddon();
+  await ensureEgresoVencimiento();
   console.log('Migraciones completadas');
 }
 
