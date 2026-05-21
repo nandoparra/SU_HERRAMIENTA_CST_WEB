@@ -538,6 +538,39 @@ async function seedConfigFinanciera() {
   }
 }
 
+async function ensureInventarioColumns() {
+  const conn = await db.getConnection();
+  try {
+    // cco_costo — precio de compra del repuesto (para calcular margen)
+    try {
+      await conn.execute(`ALTER TABLE b2c_concepto_costos ADD COLUMN cco_costo DECIMAL(12,2) NOT NULL DEFAULT 0`);
+      console.log('✅ cco_costo agregado a b2c_concepto_costos');
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+
+    // cco_stock — unidades disponibles en bodega
+    try {
+      await conn.execute(`ALTER TABLE b2c_concepto_costos ADD COLUMN cco_stock INT NOT NULL DEFAULT 0`);
+      console.log('✅ cco_stock agregado a b2c_concepto_costos');
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+  } finally {
+    conn.release();
+  }
+}
+
+async function fixVentaItemTipos() {
+  const conn = await db.getConnection();
+  try {
+    await conn.execute(`
+      UPDATE b2c_venta_item
+      SET vi_tipo = 'mano_obra'
+      WHERE vi_tipo != 'mano_obra'
+        AND (vi_descripcion LIKE 'Mano de obra%' OR vi_descripcion LIKE 'Mano obra%')
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -554,6 +587,8 @@ async function runMigrations() {
   await ensureVentaTables();
   await ensureConfigFinanciera();
   await seedConfigFinanciera();
+  await ensureInventarioColumns();
+  await fixVentaItemTipos();
   console.log('Migraciones completadas');
 }
 

@@ -393,7 +393,7 @@ router.get('/inventario', async (req, res) => {
     const conn = await db.getConnection();
     try {
       const [rows] = await conn.execute(
-        `SELECT uid_concepto_costo, cco_descripcion, cco_valor, cco_tipo, cco_estado
+        `SELECT uid_concepto_costo, cco_descripcion, cco_valor, cco_costo, cco_stock, cco_tipo, cco_estado
          FROM b2c_concepto_costos
          WHERE tenant_id = ?
          ORDER BY cco_tipo, cco_descripcion`,
@@ -412,16 +412,16 @@ router.post('/inventario', async (req, res) => {
   if (req.session?.user?.tipo !== 'A')
     return res.status(403).json({ error: 'Solo administradores' });
   try {
-    const { descripcion, valor, tipo } = req.body;
+    const { descripcion, valor, costo, stock, tipo } = req.body;
     if (!descripcion || !tipo)
       return res.status(400).json({ error: 'Descripción y tipo son requeridos' });
     const tenantId = req.tenant?.uid_tenant ?? 1;
     const conn = await db.getConnection();
     try {
       const [r] = await conn.execute(
-        `INSERT INTO b2c_concepto_costos (cco_descripcion, cco_valor, cco_tipo, cco_estado, tenant_id)
-         VALUES (?, ?, ?, 'A', ?)`,
-        [descripcion, Number(valor) || 0, tipo, tenantId]
+        `INSERT INTO b2c_concepto_costos (cco_descripcion, cco_valor, cco_costo, cco_stock, cco_tipo, cco_estado, tenant_id)
+         VALUES (?, ?, ?, ?, ?, 'A', ?)`,
+        [descripcion, Number(valor) || 0, Number(costo) || 0, Number(stock) || 0, tipo, tenantId]
       );
       res.json({ success: true, uid_concepto_costo: r.insertId });
     } finally {
@@ -436,10 +436,12 @@ router.patch('/inventario/:id', async (req, res) => {
   if (req.session?.user?.tipo !== 'A')
     return res.status(403).json({ error: 'Solo administradores' });
   try {
-    const { descripcion, valor, estado } = req.body;
+    const { descripcion, valor, costo, stock, estado } = req.body;
     const sets = []; const params = [];
-    if (descripcion)        { sets.push('cco_descripcion = ?'); params.push(descripcion); }
-    if (valor !== undefined){ sets.push('cco_valor = ?');       params.push(Number(valor) || 0); }
+    if (descripcion)         { sets.push('cco_descripcion = ?'); params.push(descripcion); }
+    if (valor !== undefined) { sets.push('cco_valor = ?');       params.push(Number(valor) || 0); }
+    if (costo !== undefined) { sets.push('cco_costo = ?');       params.push(Number(costo) || 0); }
+    if (stock !== undefined) { sets.push('cco_stock = ?');       params.push(Number(stock) || 0); }
     if (estado && ['A','I'].includes(estado)) { sets.push('cco_estado = ?'); params.push(estado); }
     if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
     const tenantId = req.tenant?.uid_tenant ?? 1;

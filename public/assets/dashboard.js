@@ -1654,67 +1654,121 @@ Views.inventario = {
         <h2>Inventario de repuestos</h2>
         ${isAdmin()?`<button class="btn btn-dark" onclick="inv_openCreate()">+ Nuevo repuesto</button>`:''}
       </div>
+      <div style="margin-bottom:12px;">
+        <input type="text" id="invBuscar" placeholder="Buscar por nombre o código..."
+          oninput="inv_filter()"
+          style="width:100%;max-width:380px;padding:8px 12px;border:1px solid #c7d2dd;border-radius:8px;font-size:13px;box-sizing:border-box;">
+      </div>
       <div class="card" style="overflow-x:auto;">
         <table class="inv-table" id="invTable">
-          <thead><tr><th>Descripción</th><th>Tipo</th><th>Precio</th><th>Estado</th>${isAdmin()?'<th>Acciones</th>':''}</tr></thead>
-          <tbody><tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px;">Cargando...</td></tr></tbody>
+          <thead><tr><th>Descripción</th><th>Tipo</th><th>Costo</th><th>Precio</th><th>Margen</th><th>Stock</th><th>Estado</th>${isAdmin()?'<th>Acciones</th>':''}</tr></thead>
+          <tbody><tr><td colspan="8" style="text-align:center;color:#aaa;padding:20px;">Cargando...</td></tr></tbody>
         </table>
       </div>
     </div>`;
   },
   async init() {
     const TIPOS = {R:'Repuesto',S:'Servicio',M:'Mano de obra'};
-    async function inv_reload() {
-      const rows = await fetch(`${API}/inventario`).then(r=>r.json()).catch(()=>[]);
+    let _invAllRows = [];
+    function inv_renderRows(rows) {
       const tb = document.querySelector('#invTable tbody'); if (!tb) return;
-      if (!rows.length) { tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px;">Sin ítems</td></tr>'; return; }
-      tb.innerHTML = rows.map(p=>`
+      if (!rows.length) { tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:#aaa;padding:20px;">Sin resultados</td></tr>'; return; }
+      tb.innerHTML = rows.map(p=>{
+        const precio = Number(p.cco_valor) || 0;
+        const costo  = Number(p.cco_costo) || 0;
+        const margen = precio > 0 ? Math.round((precio - costo) / precio * 100) : 0;
+        const margenColor = margen >= 40 ? '#27ae60' : margen >= 20 ? '#e67e22' : '#e74c3c';
+        const stockColor  = Number(p.cco_stock) <= 2 ? '#e74c3c' : '#333';
+        return `
         <tr>
           <td style="font-weight:500">${esc(p.cco_descripcion||'-')}</td>
           <td style="color:#666">${TIPOS[p.cco_tipo]||p.cco_tipo||'-'}</td>
-          <td class="inv-precio">${money(p.cco_valor)}</td>
+          <td class="inv-precio" style="color:#555">${money(costo)}</td>
+          <td class="inv-precio">${money(precio)}</td>
+          <td style="font-weight:700;color:${margenColor}">${margen}%</td>
+          <td style="font-weight:600;color:${stockColor}">${Number(p.cco_stock)||0}</td>
           <td><span class="estado-pill est-${p.cco_estado}">${p.cco_estado==='A'?'Activo':'Inactivo'}</span></td>
           ${isAdmin()?`<td style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="btn btn-sm btn-mid" onclick="inv_edit(${p.uid_concepto_costo},'${esc(p.cco_descripcion)}',${p.cco_valor},'${p.cco_tipo}')">Editar</button>
+            <button class="btn btn-sm btn-mid" onclick="inv_edit(${p.uid_concepto_costo},'${esc(p.cco_descripcion)}',${precio},${costo},${Number(p.cco_stock)||0},'${p.cco_tipo}')">Editar</button>
             <button class="btn btn-sm btn-grey" onclick="inv_toggle(${p.uid_concepto_costo},'${p.cco_estado==='A'?'I':'A'}')">${p.cco_estado==='A'?'Desactivar':'Activar'}</button>
           </td>`:''}
-        </tr>`).join('');
+        </tr>`;
+      }).join('');
     }
+    async function inv_reload() {
+      _invAllRows = await fetch(`${API}/inventario`).then(r=>r.json()).catch(()=>[]);
+      inv_renderRows(_invAllRows);
+    }
+    window.inv_filter = function() {
+      const q = (document.getElementById('invBuscar')?.value || '').toLowerCase().trim();
+      if (!q) { inv_renderRows(_invAllRows); return; }
+      inv_renderRows(_invAllRows.filter(p =>
+        (p.cco_descripcion || '').toLowerCase().includes(q) ||
+        String(p.uid_concepto_costo).includes(q)
+      ));
+    };
     window.inv_openCreate = () => inv_openModal();
-    window.inv_edit = (id, desc, val, tipo) => inv_openModal(id, desc, val, tipo);
-    function inv_openModal(id=null, desc='', val=0, tipo='R') {
+    window.inv_edit = (id, desc, val, costo, stock, tipo) => inv_openModal(id, desc, val, costo, stock, tipo);
+    function inv_openModal(id=null, desc='', val=0, costo=0, stock=0, tipo='R') {
       document.getElementById('invModal')?.remove();
       const bg = document.createElement('div'); bg.className='modal-bg'; bg.id='invModal';
       bg.innerHTML=`<div class="modal">
         <h3>${id?'Editar repuesto':'Nuevo repuesto'}</h3>
-        <label>Descripción</label><input id="invDesc" type="text" value="${esc(desc)}" placeholder="Ej: Carbones de motor">
-        <label>Precio ($)</label><input id="invVal" type="number" value="${val}" min="0" placeholder="0">
+        <label>Descripción</label>
+        <input id="invDesc" type="text" value="${esc(desc)}" placeholder="Ej: Carbones de motor">
         <label>Tipo</label>
         <select id="invTipo">
           <option value="R"${tipo==='R'?' selected':''}>Repuesto</option>
           <option value="S"${tipo==='S'?' selected':''}>Servicio</option>
           <option value="M"${tipo==='M'?' selected':''}>Mano de obra</option>
         </select>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
+          <div>
+            <label style="margin-top:0">Costo ($)</label>
+            <input id="invCosto" type="number" value="${costo}" min="0" placeholder="0" oninput="inv_calcMargen()">
+          </div>
+          <div>
+            <label style="margin-top:0">Precio ($)</label>
+            <input id="invVal" type="number" value="${val}" min="0" placeholder="0" oninput="inv_calcMargen()">
+          </div>
+        </div>
+        <div id="invMargenPreview" style="font-size:12px;color:#888;margin-top:4px;text-align:right;"></div>
+        <label>Stock (unidades)</label>
+        <input id="invStock" type="number" value="${stock}" min="0" placeholder="0">
         <div class="modal-actions">
           <button class="btn btn-grey" onclick="document.getElementById('invModal').remove()">Cancelar</button>
           <button class="btn btn-dark" onclick="inv_save(${id||'null'})">${id?'Guardar':'Crear'}</button>
         </div>
       </div>`;
       document.body.appendChild(bg);
+      inv_calcMargen();
     }
+    window.inv_calcMargen = () => {
+      const precio = Number(document.getElementById('invVal')?.value) || 0;
+      const costo  = Number(document.getElementById('invCosto')?.value) || 0;
+      const el = document.getElementById('invMargenPreview'); if (!el) return;
+      if (!precio) { el.textContent = ''; return; }
+      const margen = Math.round((precio - costo) / precio * 100);
+      const color = margen >= 40 ? '#27ae60' : margen >= 20 ? '#e67e22' : '#e74c3c';
+      el.innerHTML = `Margen: <strong style="color:${color}">${margen}%</strong>`;
+    };
     window.inv_save = async (id) => {
-      const desc=document.getElementById('invDesc')?.value.trim();
-      const val =document.getElementById('invVal')?.value;
-      const tipo=document.getElementById('invTipo')?.value;
-      if (!desc) { alert('Escribe una descripción'); return; }
+      const desc  = document.getElementById('invDesc')?.value.trim();
+      const val   = document.getElementById('invVal')?.value;
+      const costo = document.getElementById('invCosto')?.value;
+      const stock = document.getElementById('invStock')?.value;
+      const tipo  = document.getElementById('invTipo')?.value;
+      if (!desc) { showToast('⚠️ Escribe una descripción'); return; }
       let r;
       if (id) {
-        r = await fetch(`${API}/inventario/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({descripcion:desc,valor:Number(val)||0})}).then(r=>r.json()).catch(()=>({success:false}));
+        r = await fetch(`${API}/inventario/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({descripcion:desc,valor:Number(val)||0,costo:Number(costo)||0,stock:Number(stock)||0})}).then(r=>r.json()).catch(()=>({success:false}));
       } else {
-        r = await fetch(`${API}/inventario`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({descripcion:desc,valor:Number(val)||0,tipo})}).then(r=>r.json()).catch(()=>({success:false}));
+        r = await fetch(`${API}/inventario`,{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({descripcion:desc,valor:Number(val)||0,costo:Number(costo)||0,stock:Number(stock)||0,tipo})}).then(r=>r.json()).catch(()=>({success:false}));
       }
       if (r.success) { document.getElementById('invModal')?.remove(); showToast('✅ Guardado'); await inv_reload(); }
-      else alert('Error: '+(r.error||''));
+      else showToast('⚠️ Error: '+(r.error||''));
     };
     window.inv_toggle = async (id, estado) => {
       const r = await fetch(`${API}/inventario/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({estado})}).then(r=>r.json()).catch(()=>({success:false}));
@@ -3264,6 +3318,39 @@ Views.ventas = {
                        vi_precio_unitario:0, vi_costo_unitario:0, vi_descuento_pct:0 });
       ven_renderItems();
     };
+    let _venCatalog = [];
+    window.ven_catBuscar = function() {
+      const q  = (document.getElementById('venCatInput')?.value || '').toLowerCase().trim();
+      const dd = document.getElementById('venCatDrop'); if (!dd) return;
+      if (!q) { dd.style.display = 'none'; return; }
+      const hits = _venCatalog.filter(p =>
+        (p.cco_descripcion || '').toLowerCase().includes(q) ||
+        String(p.uid_concepto_costo).includes(q)
+      ).slice(0, 10);
+      if (!hits.length) { dd.style.display = 'none'; return; }
+      dd.style.display = '';
+      dd.innerHTML = hits.map(p => `
+        <div onclick="ven_catSeleccionar(${p.uid_concepto_costo})"
+             style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #f0f4f8;font-size:12px;"
+             onmouseenter="this.style.background='#f0f4f8'" onmouseleave="this.style.background=''">
+          <div style="font-weight:500">${esc(p.cco_descripcion)}</div>
+          <div style="color:#888;font-size:11px;">Cód. ${p.uid_concepto_costo} · ${money(Number(p.cco_valor)||0)}</div>
+        </div>`).join('');
+    };
+    window.ven_catSeleccionar = function(id) {
+      const p = _venCatalog.find(x => x.uid_concepto_costo === id); if (!p) return;
+      _venItems.push({
+        vi_descripcion:     p.cco_descripcion || '',
+        vi_tipo:            p.cco_tipo === 'M' ? 'mano_obra' : 'repuesto',
+        vi_cantidad:        1,
+        vi_precio_unitario: Number(p.cco_valor) || 0,
+        vi_costo_unitario:  p.cco_tipo === 'M' ? 0 : (Number(p.cco_costo) || 0),
+        vi_descuento_pct:   0,
+      });
+      const inp = document.getElementById('venCatInput'); if (inp) inp.value = '';
+      const dd  = document.getElementById('venCatDrop');  if (dd)  dd.style.display = 'none';
+      ven_renderItems();
+    };
     window.ven_removeItem = function(i) { _venItems.splice(i,1); ven_renderItems(); };
     window.ven_onItem = function(i, field, val) {
       if (!_venItems[i]) return;
@@ -3353,7 +3440,15 @@ Views.ventas = {
         <div style="margin-bottom:8px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
             <span style="font-size:12px;font-weight:600;color:#1d3557;">ÍTEMS DEL SERVICIO</span>
-            <button type="button" class="btn btn-sm btn-mid" onclick="ven_addItem()">+ Agregar ítem</button>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <div style="position:relative;">
+                <input type="text" id="venCatInput" placeholder="Buscar en catálogo..." autocomplete="off"
+                  oninput="ven_catBuscar()"
+                  style="font-size:12px;padding:5px 9px;border:1px solid #c7d2dd;border-radius:6px;width:200px;">
+                <div id="venCatDrop" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:1000;max-height:200px;overflow-y:auto;margin-top:2px;min-width:240px;"></div>
+              </div>
+              <button type="button" class="btn btn-sm btn-mid" onclick="ven_addItem()">+ Manual</button>
+            </div>
           </div>
           <div id="venItemsTbl"></div>
           <div id="venTotales"></div>
@@ -3374,6 +3469,9 @@ Views.ventas = {
       document.body.appendChild(bg);
       bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
       ven_renderItems();
+      fetch(`${API}/inventario`).then(r=>r.json()).then(items => {
+        _venCatalog = items.filter(p => p.cco_estado === 'A');
+      }).catch(() => {});
     };
 
     window.ven_guardar = async function() {
