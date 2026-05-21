@@ -62,6 +62,30 @@ function calcularTotalesCabecera(itemsCalc) {
   };
 }
 
+// ─── GET /api/ventas/caja-dia — resumen de hoy ───────────────────────────────
+router.get('/ventas/caja-dia', async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const hoy = new Date().toISOString().slice(0, 10);
+  const conn = await db.getConnection();
+  try {
+    const [rows] = await conn.execute(
+      `SELECT ven_metodo_pago, COUNT(*) AS cantidad, SUM(ven_total) AS total
+       FROM b2c_venta
+       WHERE tenant_id = ? AND ven_fecha = ? AND ven_estado != 'anulada'
+       GROUP BY ven_metodo_pago`,
+      [tenantId, hoy]
+    );
+    const totalDia    = rows.reduce((s, r) => s + Number(r.total), 0);
+    const cantidadDia = rows.reduce((s, r) => s + Number(r.cantidad), 0);
+    res.json({ fecha: hoy, total: Math.round(totalDia * 100) / 100, cantidad: cantidadDia, desglose: rows });
+  } catch (e) {
+    log.error({ err: e }, 'Error caja-dia');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
 // ─── GET /api/ventas — lista con filtros ──────────────────────────────────────
 router.get('/ventas', async (req, res) => {
   const tenantId = req.tenant?.uid_tenant ?? 1;

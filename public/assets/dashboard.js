@@ -3280,6 +3280,10 @@ Views.ventas = {
               </div>
             </div>
           </div>
+          <div id="venCajaDia" style="margin:10px 0 4px;padding:10px 12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:12px;">
+            <div style="font-weight:600;color:#0369a1;margin-bottom:6px;">💰 Caja del día</div>
+            <div style="color:#aaa;font-size:12px;">Cargando...</div>
+          </div>
           <div class="results-list" id="venResults">
             <div class="results-empty">Cargando...</div>
           </div>
@@ -3335,6 +3339,35 @@ Views.ventas = {
     };
 
     await window.ven_reload();
+
+    // ── Caja del día ───────────────────────────────────────────────────────
+    window.ven_loadCajaDia = async function() {
+      const el = document.getElementById('venCajaDia'); if (!el) return;
+      try {
+        const d = await fetch(`${API}/ventas/caja-dia`).then(r => r.json());
+        const METODOS = { efectivo:'Efectivo', transferencia:'Transferencia', tarjeta:'Tarjeta', cheque:'Cheque', otro:'Otro' };
+        const filas = (d.desglose || []).map(r =>
+          `<div style="display:flex;justify-content:space-between;">
+            <span style="color:#374151;">${METODOS[r.ven_metodo_pago] || r.ven_metodo_pago}</span>
+            <span style="font-weight:600;">${money(Number(r.total))}</span>
+          </div>`
+        ).join('');
+        el.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <span style="font-weight:600;color:#0369a1;">💰 Caja del día</span>
+            <span style="font-size:11px;color:#888;">${d.cantidad} venta${d.cantidad !== 1 ? 's' : ''}</span>
+          </div>
+          ${filas || '<div style="color:#aaa;font-size:11px;">Sin ventas hoy</div>'}
+          <div style="border-top:1px solid #bae6fd;margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;">
+            <span style="font-weight:600;color:#0369a1;">Total</span>
+            <span style="font-weight:700;color:#0369a1;font-size:14px;">${money(d.total)}</span>
+          </div>`;
+      } catch (_) {
+        const el2 = document.getElementById('venCajaDia');
+        if (el2) el2.innerHTML = '<div style="color:#aaa;font-size:12px;">No se pudo cargar la caja.</div>';
+      }
+    };
+    await window.ven_loadCajaDia();
 
     // ── Modal nueva venta ──────────────────────────────────────────────────
     let _venItems = [];
@@ -3639,6 +3672,7 @@ Views.ventas = {
         document.getElementById('venCreateModal')?.remove();
         showToast(`✅ Venta #${r.ven_consecutivo} creada`);
         await ven_reload();
+        ven_loadCajaDia();
         ven_verDetalle(r.uid_venta);
       } else {
         errEl.textContent = r.error || 'Error al crear la venta.';
