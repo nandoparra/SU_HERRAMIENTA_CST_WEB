@@ -40,6 +40,12 @@ router.get('/whatsapp/qr', requireInterno, async (req, res) => {
   </body></html>`);
 });
 
+// Estado de conexión WA — usado por el widget del dashboard
+router.get('/whatsapp/status', requireInterno, (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  res.json({ ready: isReady(tenantId) });
+});
+
 // Enviar WhatsApp usando el mensaje guardado de la orden
 router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, waLimiter, async (req, res) => {
   try {

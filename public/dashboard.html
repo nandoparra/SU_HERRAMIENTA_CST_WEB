@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SU HERRAMIENTA CST</title>
   <link rel="stylesheet" href="/assets/dashboard.css">
+  <style>
+    @media(max-width:600px){
+      #cotizarModal > div{width:100%!important;height:100%!important;border-radius:0!important;max-width:unset!important;}
+    }
+  </style>
   <script src="/assets/tenant-init.js"></script>
 </head>
 <body>
@@ -42,6 +47,9 @@
     </div>
     <div class="nav-item admin-only" data-view="finanzas" onclick="navigate('finanzas')" style="display:none;">
       <span class="ni">📊</span><span>Finanzas</span>
+    </div>
+    <div class="nav-item admin-only" data-view="contable" onclick="navigate('contable')" style="display:none;" id="navContable">
+      <span class="ni">📒</span><span>Contable</span>
     </div>
     <div class="nav-item nueva-orden-nav" onclick="navigate('nuevaOrden')">
       <span class="ni">➕</span><span>Nueva Orden</span>

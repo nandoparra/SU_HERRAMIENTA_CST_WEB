@@ -51,16 +51,17 @@ async function tenantMiddleware(req, res, next) {
   const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.local');
   if (isLocal) {
     req.tenant = {
-      uid_tenant:         1,
-      ten_nombre:         'SU HERRAMIENTA CST',
-      ten_slug:           'suherramienta',
-      ten_slug_locked:    1,
-      ten_color_primary:  '#1d3557',
-      ten_color_accent:   '#e63946',
-      ten_logo:           null,
-      ten_wa_number:      process.env.PARTS_WHATSAPP_NUMBER || null,
-      ten_wa_parts_number: process.env.PARTS_WHATSAPP_NUMBER || null,
-      ten_estado:         'activo',
+      uid_tenant:           1,
+      ten_nombre:           'SU HERRAMIENTA CST',
+      ten_slug:             'suherramienta',
+      ten_slug_locked:      1,
+      ten_color_primary:    '#1d3557',
+      ten_color_accent:     '#e63946',
+      ten_logo:             null,
+      ten_wa_number:        process.env.PARTS_WHATSAPP_NUMBER || null,
+      ten_wa_parts_number:  process.env.PARTS_WHATSAPP_NUMBER || null,
+      ten_estado:           'activo',
+      addon_contabilidad:   1,
     };
     return next();
   }

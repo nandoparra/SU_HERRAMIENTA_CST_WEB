@@ -60,4 +60,15 @@ function requireCliente(req, res, next) {
   next();
 }
 
-module.exports = { requireLogin, requireInterno, requireCliente };
+/**
+ * Verifica que el tenant tiene activo el add-on de contabilidad.
+ * Debe usarse después de requireInterno.
+ */
+function requireAddonContabilidad(req, res, next) {
+  if (!req.tenant?.addon_contabilidad) {
+    return res.status(403).json({ error: 'El módulo de contabilidad no está activado para este taller.' });
+  }
+  next();
+}
+
+module.exports = { requireLogin, requireInterno, requireCliente, requireAddonContabilidad };

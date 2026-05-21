@@ -171,7 +171,11 @@ router.get('/me', (req, res) => {
     req.session.destroy(() => {});
     return res.status(401).json({ authenticated: false, redirect: '/login' });
   }
-  res.json({ authenticated: true, user: req.session.user });
+  res.json({
+    authenticated: true,
+    user: req.session.user,
+    addons: { contabilidad: !!(req.tenant?.addon_contabilidad) },
+  });
 });
 
 module.exports = router;
