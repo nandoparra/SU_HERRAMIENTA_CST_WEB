@@ -1706,6 +1706,7 @@ Views.inventario = {
           <td style="font-weight:600;color:${stockColor}">${Number(p.cco_stock)||0}</td>
           <td><span class="estado-pill est-${p.cco_estado}">${p.cco_estado==='A'?'Activo':'Inactivo'}</span></td>
           ${isAdmin()?`<td style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-sm" style="background:#0e7490;color:#fff;" onclick="inv_recibir(${p.uid_concepto_costo},'${esc(p.cco_descripcion)}',${costo},${Number(p.cco_stock)||0},${precio})">📥 Recibir</button>
             <button class="btn btn-sm btn-mid" onclick="inv_edit(${p.uid_concepto_costo},'${esc(p.cco_descripcion)}',${precio},${costo},${Number(p.cco_stock)||0},'${p.cco_tipo}')">Editar</button>
             <button class="btn btn-sm btn-grey" onclick="inv_toggle(${p.uid_concepto_costo},'${p.cco_estado==='A'?'I':'A'}')">${p.cco_estado==='A'?'Desactivar':'Activar'}</button>
           </td>`:''}
@@ -1792,6 +1793,112 @@ Views.inventario = {
       if (r.success) { showToast('✅ Actualizado'); await inv_reload(); }
       else alert('Error: '+(r.error||''));
     };
+
+    window.inv_recibir = async function(id, desc, costoActual, stockActual, precioActual) {
+      document.getElementById('invRecModal')?.remove();
+      const today = new Date().toISOString().slice(0,10);
+      const bg = document.createElement('div'); bg.className='modal-bg'; bg.id='invRecModal';
+      bg.innerHTML=`<div class="modal" style="max-width:460px;">
+        <h3>📥 Recibir compra</h3>
+        <div style="font-size:13px;font-weight:600;color:#1d3557;margin-bottom:14px;">${esc(desc)}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Fecha</label>
+            <input id="irFecha" type="date" value="${today}" style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Unidades recibidas <span style="color:#e53e3e">*</span></label>
+            <input id="irUnids" type="number" min="1" placeholder="Ej: 10" oninput="inv_prevPromedio(${costoActual},${stockActual})"
+              style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+          <div>
+            <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Costo unitario de esta compra ($) <span style="color:#e53e3e">*</span></label>
+            <input id="irCosto" type="number" min="0" placeholder="Ej: 32000" oninput="inv_prevPromedio(${costoActual},${stockActual},${precioActual})"
+              style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Nuevo precio de venta ($) <span style="color:#aaa;font-weight:400;">(opcional)</span></label>
+            <input id="irPrecio" type="number" min="0" placeholder="${precioActual}" oninput="inv_prevPromedio(${costoActual},${stockActual},${precioActual})"
+              style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          </div>
+        </div>
+        <div id="irPreview" style="margin-top:12px;padding:10px 12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:12px;display:none;">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;text-align:center;">
+            <div><div style="color:#888;margin-bottom:2px;">Costo ant.</div><strong style="color:#555;">${money(costoActual)}</strong></div>
+            <div><div style="color:#888;margin-bottom:2px;">Stock ant.</div><strong style="color:#555;">${stockActual} un.</strong></div>
+            <div><div style="color:#888;margin-bottom:2px;">→ Costo prom.</div><strong id="irNuevoCosto" style="color:#0e7490;font-size:14px;"></strong></div>
+            <div><div style="color:#888;margin-bottom:2px;">Margen</div><strong id="irMargen" style="font-size:14px;"></strong></div>
+          </div>
+          <div style="text-align:center;margin-top:6px;color:#555;font-size:11px;">
+            Nuevo stock: <strong id="irNuevoStock" style="color:#1d3557;"></strong> unidades
+          </div>
+        </div>
+        <div id="irHistorial" style="margin-top:14px;"></div>
+        <div class="modal-actions" style="margin-top:14px;">
+          <button class="btn btn-grey" onclick="document.getElementById('invRecModal').remove()">Cancelar</button>
+          <button class="btn btn-dark" onclick="inv_guardarRecepcion(${id})">Registrar recepción</button>
+        </div>
+      </div>`;
+      document.body.appendChild(bg);
+      bg.addEventListener('click', e => { if (e.target===bg) bg.remove(); });
+      fetch(`${API}/inventario/${id}/recepciones`).then(r=>r.json()).then(rows => {
+        const el = document.getElementById('irHistorial'); if (!el || !rows.length) return;
+        el.innerHTML = `<div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;">Últimas recepciones</div>
+          <div style="max-height:140px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;">
+          ${rows.map(r => `
+            <div style="display:grid;grid-template-columns:80px 60px 1fr 1fr;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid #f0f4f8;font-size:11px;">
+              <span style="color:#888;">${String(r.ir_fecha).slice(0,10)}</span>
+              <span style="font-weight:600;">${r.ir_unidades} un.</span>
+              <span style="color:#555;">Costo: ${money(r.ir_costo_unitario)}</span>
+              <span style="color:#0e7490;">→ Prom: ${money(r.ir_costo_resultante)}</span>
+            </div>`).join('')}
+          </div>`;
+      }).catch(()=>{});
+    };
+
+    window.inv_prevPromedio = function(costoAnt, stockAnt, precioAnt) {
+      const unids  = parseInt(document.getElementById('irUnids')?.value) || 0;
+      const costo  = parseFloat(document.getElementById('irCosto')?.value);
+      const precio = parseFloat(document.getElementById('irPrecio')?.value) || precioAnt;
+      const prev   = document.getElementById('irPreview');
+      if (!prev) return;
+      if (!unids || isNaN(costo)) { prev.style.display='none'; return; }
+      const stockNuevo = stockAnt + unids;
+      const costoNuevo = ((stockAnt * costoAnt) + (unids * costo)) / stockNuevo;
+      const margen = precio > 0 ? Math.round((precio - costoNuevo) / precio * 100) : null;
+      const margenColor = margen === null ? '#888' : margen >= 40 ? '#27ae60' : margen >= 20 ? '#e67e22' : '#e74c3c';
+      document.getElementById('irNuevoCosto').textContent = money(Math.round(costoNuevo));
+      document.getElementById('irNuevoStock').textContent = stockNuevo;
+      document.getElementById('irMargen').innerHTML = margen !== null
+        ? `<span style="color:${margenColor}">${margen}%</span>` : '—';
+      prev.style.display = '';
+    };
+
+    window.inv_guardarRecepcion = async function(id) {
+      const unids  = parseInt(document.getElementById('irUnids')?.value);
+      const costo  = parseFloat(document.getElementById('irCosto')?.value);
+      const fecha  = document.getElementById('irFecha')?.value;
+      const precio = document.getElementById('irPrecio')?.value;
+      if (!unids || unids <= 0) { showToast('⚠️ Ingresa las unidades recibidas'); return; }
+      if (isNaN(costo) || costo < 0) { showToast('⚠️ Ingresa el costo unitario'); return; }
+      const body = { unidades: unids, costo_unitario: costo, fecha };
+      if (precio && !isNaN(parseFloat(precio))) body.nuevo_precio = parseFloat(precio);
+      const r = await fetch(`${API}/inventario/${id}/recepcion`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+      }).then(r=>r.json()).catch(()=>({error:'Error de red'}));
+      if (r.success) {
+        document.getElementById('invRecModal')?.remove();
+        const precioMsg = r.cco_valor ? ` · Precio: ${money(r.cco_valor)}` : '';
+        showToast(`✅ Recepción registrada — costo prom: ${money(r.cco_costo)} · Stock: ${r.cco_stock} un.${precioMsg}`);
+        await inv_reload();
+      } else {
+        showToast('⚠️ ' + (r.error || 'Error al registrar'));
+      }
+    };
+
     await inv_reload();
   }
 };

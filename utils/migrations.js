@@ -557,6 +557,32 @@ async function ensureInventarioColumns() {
   }
 }
 
+async function ensureInventarioRecepciones() {
+  const conn = await db.getConnection();
+  try {
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_inventario_recepciones (
+        uid_recepcion   INT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id       INT NOT NULL DEFAULT 1,
+        uid_concepto_costo INT NOT NULL,
+        ir_fecha        DATE NOT NULL,
+        ir_unidades     INT NOT NULL,
+        ir_costo_unitario  DECIMAL(12,2) NOT NULL,
+        ir_costo_anterior  DECIMAL(12,2) NOT NULL DEFAULT 0,
+        ir_stock_anterior  INT NOT NULL DEFAULT 0,
+        ir_costo_resultante DECIMAL(12,2) NOT NULL,
+        ir_stock_resultante INT NOT NULL,
+        ir_creado_por   INT NULL,
+        created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_tenant   (tenant_id),
+        INDEX idx_concepto (uid_concepto_costo)
+      )
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
 async function fixVentaItemTipos() {
   const conn = await db.getConnection();
   try {
@@ -588,6 +614,7 @@ async function runMigrations() {
   await ensureConfigFinanciera();
   await seedConfigFinanciera();
   await ensureInventarioColumns();
+  await ensureInventarioRecepciones();
   await fixVentaItemTipos();
   console.log('Migraciones completadas');
 }

@@ -458,4 +458,100 @@ router.patch('/inventario/:id', async (req, res) => {
   }
 });
 
+// ── Recibir compra — costo promedio ponderado ───────────────────────────────
+router.post('/inventario/:id/recepcion', async (req, res) => {
+  if (req.session?.user?.tipo !== 'A')
+    return res.status(403).json({ error: 'Solo administradores' });
+
+  const { unidades, costo_unitario, fecha, nuevo_precio } = req.body;
+  const unids = parseInt(unidades);
+  const costo = parseFloat(costo_unitario);
+
+  if (!unids || unids <= 0)  return res.status(400).json({ error: 'unidades debe ser mayor a 0' });
+  if (isNaN(costo) || costo < 0) return res.status(400).json({ error: 'costo_unitario inválido' });
+
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const userId   = req.session?.user?.id ?? null;
+  const fechaRec = fecha || new Date().toISOString().slice(0, 10);
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [[item]] = await conn.execute(
+      `SELECT uid_concepto_costo, cco_costo, cco_stock FROM b2c_concepto_costos
+       WHERE uid_concepto_costo = ? AND tenant_id = ? FOR UPDATE`,
+      [req.params.id, tenantId]
+    );
+    if (!item) { await conn.rollback(); return res.status(404).json({ error: 'Ítem no encontrado' }); }
+
+    const stockAnt = Number(item.cco_stock) || 0;
+    const costoAnt = Number(item.cco_costo) || 0;
+
+    // Costo promedio ponderado
+    const stockNuevo = stockAnt + unids;
+    const costoNuevo = stockNuevo > 0
+      ? ((stockAnt * costoAnt) + (unids * costo)) / stockNuevo
+      : costo;
+    const costoNuevoRed = Math.round(costoNuevo * 100) / 100;
+
+    const precioNuevo = nuevo_precio != null && !isNaN(parseFloat(nuevo_precio))
+      ? Math.round(parseFloat(nuevo_precio) * 100) / 100
+      : null;
+
+    if (precioNuevo !== null) {
+      await conn.execute(
+        `UPDATE b2c_concepto_costos SET cco_costo = ?, cco_stock = ?, cco_valor = ? WHERE uid_concepto_costo = ?`,
+        [costoNuevoRed, stockNuevo, precioNuevo, req.params.id]
+      );
+    } else {
+      await conn.execute(
+        `UPDATE b2c_concepto_costos SET cco_costo = ?, cco_stock = ? WHERE uid_concepto_costo = ?`,
+        [costoNuevoRed, stockNuevo, req.params.id]
+      );
+    }
+
+    await conn.execute(
+      `INSERT INTO b2c_inventario_recepciones
+         (tenant_id, uid_concepto_costo, ir_fecha, ir_unidades, ir_costo_unitario,
+          ir_costo_anterior, ir_stock_anterior, ir_costo_resultante, ir_stock_resultante, ir_creado_por)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [tenantId, req.params.id, fechaRec, unids, costo,
+       costoAnt, stockAnt, costoNuevoRed, stockNuevo, userId]
+    );
+
+    await conn.commit();
+    res.json({ success: true, cco_costo: costoNuevoRed, cco_stock: stockNuevo,
+               cco_valor: precioNuevo });
+  } catch (e) {
+    await conn.rollback();
+    log.error({ err: e }, 'Error en recepcion inventario');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
+// ── Historial de recepciones de un ítem ────────────────────────────────────
+router.get('/inventario/:id/recepciones', async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const conn = await db.getConnection();
+  try {
+    const [rows] = await conn.execute(
+      `SELECT r.*, u.usu_nombre AS creado_por_nombre
+       FROM b2c_inventario_recepciones r
+       LEFT JOIN b2c_usuario u ON u.uid_usuario = r.ir_creado_por
+       WHERE r.uid_concepto_costo = ? AND r.tenant_id = ?
+       ORDER BY r.created_at DESC
+       LIMIT 20`,
+      [req.params.id, tenantId]
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
 module.exports = router;
