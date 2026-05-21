@@ -1020,9 +1020,7 @@ window.cot_cargarPendientes = async () => {
   if (!el) return;
   el.innerHTML = '<div class="loading-state">Cargando...</div>';
   try {
-    const mes = new Date().toISOString().slice(0, 7);
-    const data = await fetch(`${API}/dashboard?mes=${mes}`).then(r => r.json());
-    const rsc = data.revisadasSinCotizar || [];
+    const rsc = await fetch(`${API}/cotizaciones/pendientes`).then(r => r.json());
     if (!rsc.length) {
       el.innerHTML = '<div class="empty-state"><div class="es-icon">✅</div><p>No hay máquinas pendientes de cotizar</p></div>';
       return;
