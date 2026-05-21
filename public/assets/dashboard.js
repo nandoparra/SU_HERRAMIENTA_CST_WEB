@@ -3155,9 +3155,6 @@ Views.ventas = {
                 </select>
               </div>
             </div>
-            <input type="text" id="venBuscar" placeholder="Buscar por cliente o # venta/orden..."
-              oninput="ven_filter()"
-              style="width:100%;padding:7px 10px;border:1px solid #c7d2dd;border-radius:6px;font-size:12px;box-sizing:border-box;margin-top:8px;">
           </div>
           <div class="results-list" id="venResults">
             <div class="results-empty">Cargando...</div>
@@ -3183,10 +3180,18 @@ Views.ventas = {
 
     window.ven_back = () => { document.getElementById('venPanel')?.classList.remove('immersive'); };
 
-    let _venAllRows = [];
-    function ven_renderList(rows) {
+    window.ven_reload = async function() {
+      const mes    = document.getElementById('venMes')?.value    || '';
+      const estado = document.getElementById('venEstado')?.value || '';
+      const params = new URLSearchParams();
+      if (mes)    { params.set('fecha_desde', mes + '-01'); params.set('fecha_hasta', mes + '-31'); }
+      if (estado) params.set('estado', estado);
+
       const rl = document.getElementById('venResults'); if (!rl) return;
-      if (!rows.length) { rl.innerHTML = '<div class="results-empty">Sin resultados</div>'; return; }
+      rl.innerHTML = '<div class="results-empty">Cargando...</div>';
+      const rows = await fetch(`${API}/ventas?${params}`).then(r=>r.json()).catch(()=>[]);
+      if (!rows.length) { rl.innerHTML = '<div class="results-empty">Sin ventas en el período</div>'; return; }
+
       rl.innerHTML = rows.map(v => {
         const est   = VEN_ESTADO_COLORS[v.ven_estado] || { bg:'#f3f4f6', color:'#374151' };
         const label = esc(v.cli_razon_social || v.cli_contacto || 'Mostrador');
@@ -3203,29 +3208,6 @@ Views.ventas = {
           </div>
         </div>`;
       }).join('');
-    }
-    window.ven_reload = async function() {
-      const mes    = document.getElementById('venMes')?.value    || '';
-      const estado = document.getElementById('venEstado')?.value || '';
-      const params = new URLSearchParams();
-      if (mes)    { params.set('fecha_desde', mes + '-01'); params.set('fecha_hasta', mes + '-31'); }
-      if (estado) params.set('estado', estado);
-
-      const rl = document.getElementById('venResults'); if (!rl) return;
-      rl.innerHTML = '<div class="results-empty">Cargando...</div>';
-      _venAllRows = await fetch(`${API}/ventas?${params}`).then(r=>r.json()).catch(()=>[]);
-      const q = (document.getElementById('venBuscar')?.value || '').toLowerCase().trim();
-      ven_renderList(q ? _venAllRows.filter(v => ven_matchQ(v, q)) : _venAllRows);
-    };
-    function ven_matchQ(v, q) {
-      return (v.cli_razon_social || '').toLowerCase().includes(q) ||
-             (v.cli_contacto     || '').toLowerCase().includes(q) ||
-             String(v.ven_consecutivo  || '').includes(q) ||
-             String(v.ord_consecutivo  || '').includes(q);
-    }
-    window.ven_filter = function() {
-      const q = (document.getElementById('venBuscar')?.value || '').toLowerCase().trim();
-      ven_renderList(q ? _venAllRows.filter(v => ven_matchQ(v, q)) : _venAllRows);
     };
 
     await window.ven_reload();
