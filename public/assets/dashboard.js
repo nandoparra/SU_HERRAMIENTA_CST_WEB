@@ -4400,6 +4400,9 @@ Views.contable = {
         </div>
 
         <!-- Estado de resultados -->
+        <!-- Alertas de vencimientos -->
+        <div id="conVencimientos" style="margin-bottom:16px;"></div>
+
         <div id="conResumen" style="margin-bottom:20px;">
           <div style="color:#aaa;font-size:13px;padding:20px;text-align:center;">Cargando...</div>
         </div>
@@ -4439,7 +4442,47 @@ const CON_CAT_COLORS = {
 };
 
 window.con_cargar = async function() {
-  await Promise.all([con_cargarResumen(), con_cargarEgresos()]);
+  await Promise.all([con_cargarVencimientos(), con_cargarResumen(), con_cargarEgresos()]);
+};
+
+window.con_cargarVencimientos = async function() {
+  const el = document.getElementById('conVencimientos'); if (!el) return;
+  try {
+    const rows = await fetch(`${API}/contable/vencimientos`).then(r => r.json());
+    if (!rows.length) { el.innerHTML = ''; return; }
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    const items = rows.map(r => {
+      const venc = new Date(r.egr_fecha_vencimiento + 'T00:00:00');
+      const diff = Math.round((venc - hoy) / 86400000);
+      let badge, border;
+      if (diff < 0)      { badge = `🔴 Venció hace ${Math.abs(diff)} día(s)`;  border = '#ef4444'; }
+      else if (diff <= 7){ badge = `⚠️ Vence en ${diff} día(s)`;               border = '#f59e0b'; }
+      else               { badge = `📅 Vence ${venc.toLocaleDateString('es-CO')}`; border = '#3b82f6'; }
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-left:4px solid ${border};background:#fff;margin-bottom:6px;border-radius:0 6px 6px 0;gap:8px;flex-wrap:wrap;">
+        <div>
+          <span style="font-size:13px;font-weight:600;">${esc(r.egr_concepto)}</span>
+          ${r.egr_proveedor ? `<span style="font-size:11px;color:#888;margin-left:6px;">${esc(r.egr_proveedor)}</span>` : ''}
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span style="font-size:11px;color:#555;">${badge}</span>
+          <span style="font-weight:700;font-size:13px;">${money(r.egr_valor)}</span>
+          <button class="btn btn-sm btn-dark" style="font-size:11px;padding:3px 10px;" onclick="con_pagar(${r.uid_egreso},this)">✅ Marcar pagado</button>
+        </div>
+      </div>`;
+    }).join('');
+    el.innerHTML = `<div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:12px 14px;margin-bottom:4px;">
+      <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:10px;">⏰ PAGOS PENDIENTES (${rows.length})</div>
+      ${items}
+    </div>`;
+  } catch (_) { el.innerHTML = ''; }
+};
+
+window.con_pagar = async function(id, btn) {
+  if (!confirm('¿Marcar este egreso como pagado?')) return;
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = '...';
+  const r = await fetch(`${API}/contable/egresos/${id}/pagar`, { method:'PATCH' }).then(r => r.json()).catch(() => ({}));
+  if (r.ok) { showToast('✅ Egreso marcado como pagado'); await con_cargar(); }
+  else { btn.disabled = false; btn.textContent = orig; alert(r.error || 'Error'); }
 };
 
 window.con_cargarResumen = async function() {
@@ -4613,16 +4656,30 @@ window.con_openEgreso = function(prefill = {}) {
           style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
       </div>
       <div>
-        <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Método de pago</label>
-        <select id="conEgrMetodo" style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
-          <option value="efectivo">Efectivo</option>
-          <option value="transferencia">Transferencia</option>
-          <option value="tarjeta">Tarjeta</option>
-          <option value="nequi">Nequi</option>
-          <option value="daviplata">Daviplata</option>
-          <option value="cheque">Cheque</option>
+        <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Forma de pago</label>
+        <select id="conEgrFormaPago" onchange="con_toggleVencimiento()" style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          <option value="contado" ${(prefill.forma_pago||'contado')==='contado'?'selected':''}>Contado</option>
+          <option value="credito" ${(prefill.forma_pago||'')==='credito'?'selected':''}>Crédito</option>
         </select>
       </div>
+    </div>
+
+    <div id="conEgrVencRow" style="margin-bottom:10px;display:${(prefill.forma_pago==='credito')?'block':'none'};">
+      <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Fecha de vencimiento <span style="color:#e53e3e">*</span></label>
+      <input type="date" id="conEgrVence" value="${prefill.fecha_vencimiento||''}"
+        style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+    </div>
+
+    <div style="margin-bottom:10px;">
+      <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Método de pago</label>
+      <select id="conEgrMetodo" style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+        <option value="efectivo">Efectivo</option>
+        <option value="transferencia">Transferencia</option>
+        <option value="tarjeta">Tarjeta</option>
+        <option value="nequi">Nequi</option>
+        <option value="daviplata">Daviplata</option>
+        <option value="cheque">Cheque</option>
+      </select>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
@@ -4669,6 +4726,12 @@ window.con_openEgreso = function(prefill = {}) {
   bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
 };
 
+window.con_toggleVencimiento = function() {
+  const fp = document.getElementById('conEgrFormaPago')?.value;
+  const row = document.getElementById('conEgrVencRow');
+  if (row) row.style.display = fp === 'credito' ? 'block' : 'none';
+};
+
 window.con_extraerIA = async function() {
   const fileEl = document.getElementById('conEgrFile');
   const msgEl  = document.getElementById('conEgrIAMsg');
@@ -4692,6 +4755,14 @@ window.con_extraerIA = async function() {
       const sel = document.getElementById('conEgrCat');
       if (sel) sel.value = e.categoria_sugerida;
     }
+    if (e.forma_pago) {
+      const fpSel = document.getElementById('conEgrFormaPago');
+      if (fpSel) { fpSel.value = e.forma_pago; con_toggleVencimiento(); }
+    }
+    if (e.fecha_vencimiento) {
+      const vEl = document.getElementById('conEgrVence');
+      if (vEl) vEl.value = e.fecha_vencimiento;
+    }
     document.getElementById('conEgrFacturaImagen').value = r.factura_imagen || '';
     document.getElementById('conEgrIAExtraido').value    = '1';
     msgEl.style.color = '#166534';
@@ -4705,21 +4776,25 @@ window.con_extraerIA = async function() {
 
 window.con_guardarEgreso = async function() {
   const errEl = document.getElementById('conEgrErr');
+  const formaPago = document.getElementById('conEgrFormaPago')?.value || 'contado';
   const body = {
-    egr_fecha:         document.getElementById('conEgrFecha')?.value,
-    egr_concepto:      document.getElementById('conEgrConcepto')?.value?.trim(),
-    egr_categoria:     document.getElementById('conEgrCat')?.value,
-    egr_valor:         document.getElementById('conEgrValor')?.value,
-    egr_metodo_pago:   document.getElementById('conEgrMetodo')?.value,
-    egr_proveedor:     document.getElementById('conEgrProv')?.value?.trim() || null,
-    egr_nit_proveedor: document.getElementById('conEgrNit')?.value?.trim() || null,
-    egr_referencia:    document.getElementById('conEgrRef')?.value?.trim() || null,
-    egr_factura_imagen: document.getElementById('conEgrFacturaImagen')?.value || null,
-    egr_ia_extraido:   document.getElementById('conEgrIAExtraido')?.value === '1' ? 1 : 0,
+    egr_fecha:              document.getElementById('conEgrFecha')?.value,
+    egr_concepto:           document.getElementById('conEgrConcepto')?.value?.trim(),
+    egr_categoria:          document.getElementById('conEgrCat')?.value,
+    egr_valor:              document.getElementById('conEgrValor')?.value,
+    egr_metodo_pago:        document.getElementById('conEgrMetodo')?.value,
+    egr_forma_pago:         formaPago,
+    egr_fecha_vencimiento:  formaPago === 'credito' ? (document.getElementById('conEgrVence')?.value || null) : null,
+    egr_proveedor:          document.getElementById('conEgrProv')?.value?.trim() || null,
+    egr_nit_proveedor:      document.getElementById('conEgrNit')?.value?.trim() || null,
+    egr_referencia:         document.getElementById('conEgrRef')?.value?.trim() || null,
+    egr_factura_imagen:     document.getElementById('conEgrFacturaImagen')?.value || null,
+    egr_ia_extraido:        document.getElementById('conEgrIAExtraido')?.value === '1' ? 1 : 0,
   };
   if (!body.egr_fecha)    { errEl.textContent='La fecha es requerida.';  errEl.style.display=''; return; }
   if (!body.egr_concepto) { errEl.textContent='El concepto es requerido.'; errEl.style.display=''; return; }
   if (!body.egr_valor || Number(body.egr_valor) <= 0) { errEl.textContent='El valor debe ser mayor a 0.'; errEl.style.display=''; return; }
+  if (formaPago === 'credito' && !body.egr_fecha_vencimiento) { errEl.textContent='La fecha de vencimiento es requerida para crédito.'; errEl.style.display=''; return; }
   errEl.style.display = 'none';
 
   const r = await fetch(`${API}/contable/egresos`, {
