@@ -4018,41 +4018,60 @@ function fin_renderDesglose(dashboard) {
   const el = document.getElementById('finDesgloseCard');
   if (!el) return;
 
-  const totalMO     = Number(dashboard.ventas_mano_obra_total  || 0);
-  const totalRep    = Number(dashboard.ventas_repuestos_total  || 0);
-  const costoRep    = Number(dashboard.costo_repuestos_total   || 0);
-  const utilidad    = Number(dashboard.utilidad_acumulada      || 0);
-  const totalIngr   = totalMO + totalRep;
-  const margenRep   = totalRep > 0 ? ((totalRep - costoRep) / totalRep * 100).toFixed(1) : '—';
+  const utilMO    = Number(dashboard.utilidad_mano_obra   || 0);
+  const utilRep   = Number(dashboard.utilidad_repuestos   || 0);
+  const utilTotal = Number(dashboard.utilidad_acumulada   || 0);
+  const ingrMO    = Number(dashboard.ventas_mano_obra_total  || 0);
+  const ingrRep   = Number(dashboard.ventas_repuestos_total  || 0);
+  const costoRep  = Number(dashboard.costo_repuestos_total   || 0);
+  const pctMO     = Number(dashboard.pct_mo_sobre_utilidad   || 0);
+  const pctRep    = Number(dashboard.pct_rep_sobre_utilidad  || 0);
+  const margenRep = Number(dashboard.margen_repuestos || 0);
+
+  const pct  = n => (n * 100).toFixed(1) + '%';
+  const bar  = (w, color) =>
+    `<div style="height:6px;border-radius:3px;background:#f0f4f8;margin-top:4px;">
+       <div style="height:6px;border-radius:3px;background:${color};width:${Math.min(100,Math.max(0,w*100)).toFixed(1)}%;transition:width .4s;"></div>
+     </div>`;
+
+  const moColor  = '#1d4ed8';
+  const repColor = '#059669';
+  const negColor = '#dc2626';
 
   el.innerHTML = `
-    <div style="font-size:13px;font-weight:600;color:#1d3557;margin-bottom:10px;">Desglose del mes</div>
-    <table style="width:100%;border-collapse:collapse;font-size:12px;">
-      <tr style="border-bottom:1px solid #f0f4f8;">
-        <td style="padding:5px 0;color:#555;">Ingresos totales</td>
-        <td style="text-align:right;font-weight:600;">${money(totalIngr)}</td>
-      </tr>
-      <tr>
-        <td style="padding:4px 0 4px 14px;color:#777;">↳ Mano de obra</td>
-        <td style="text-align:right;color:#1d4ed8;">${money(totalMO)}</td>
-      </tr>
-      <tr style="border-bottom:1px solid #f0f4f8;">
-        <td style="padding:4px 0 4px 14px;color:#777;">↳ Repuestos</td>
-        <td style="text-align:right;color:#1d4ed8;">${money(totalRep)}</td>
-      </tr>
-      <tr style="border-bottom:1px solid #f0f4f8;">
-        <td style="padding:4px 0;color:#555;">Costo de repuestos</td>
-        <td style="text-align:right;color:#dc2626;">${money(costoRep)}</td>
-      </tr>
-      <tr style="border-bottom:1px solid #f0f4f8;">
-        <td style="padding:4px 0;color:#777;font-size:11px;">Margen en repuestos</td>
-        <td style="text-align:right;font-size:11px;color:#555;">${margenRep}%</td>
-      </tr>
-      <tr>
-        <td style="padding:6px 0;font-weight:700;color:${utilidad>=0?'#166534':'#991b1b'};">Utilidad neta acumulada</td>
-        <td style="text-align:right;font-weight:700;font-size:13px;color:${utilidad>=0?'#166534':'#991b1b'};">${money(utilidad)}</td>
-      </tr>
-    </table>`;
+    <div style="font-size:13px;font-weight:600;color:#1d3557;margin-bottom:12px;">Desglose del mes</div>
+
+    <!-- Mano de obra -->
+    <div style="padding:10px;background:#eff6ff;border-radius:8px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <span style="font-size:12px;font-weight:600;color:${moColor};">🔧 Mano de obra</span>
+        <span style="font-size:15px;font-weight:700;color:${moColor};">${money(utilMO)}</span>
+      </div>
+      <div style="font-size:11px;color:#6b7280;margin-top:2px;">
+        Ingresos: ${money(ingrMO)} · Margen: 100%
+      </div>
+      ${bar(pctMO, moColor)}
+      <div style="font-size:10px;color:#6b7280;margin-top:2px;text-align:right;">${pct(pctMO)} de la utilidad total</div>
+    </div>
+
+    <!-- Repuestos -->
+    <div style="padding:10px;background:#f0fdf4;border-radius:8px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <span style="font-size:12px;font-weight:600;color:${repColor};">📦 Repuestos</span>
+        <span style="font-size:15px;font-weight:700;color:${utilRep>=0?repColor:negColor};">${money(utilRep)}</span>
+      </div>
+      <div style="font-size:11px;color:#6b7280;margin-top:2px;">
+        Ingresos: ${money(ingrRep)} · Costo: ${money(costoRep)} · Margen: ${pct(margenRep)}
+      </div>
+      ${bar(pctRep, repColor)}
+      <div style="font-size:10px;color:#6b7280;margin-top:2px;text-align:right;">${pct(pctRep)} de la utilidad total</div>
+    </div>
+
+    <!-- Total -->
+    <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:2px solid #1d3557;">
+      <span style="font-size:12px;font-weight:700;color:#1d3557;">Utilidad neta acumulada</span>
+      <span style="font-size:16px;font-weight:700;color:${utilTotal>=0?'#166534':negColor};">${money(utilTotal)}</span>
+    </div>`;
 }
 
 // ─── Finanzas — meta diaria inteligente (promedio 30 días) ───────────────────
