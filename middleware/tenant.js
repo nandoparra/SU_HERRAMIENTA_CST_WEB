@@ -20,7 +20,8 @@ async function resolveTenant(hostname) {
     const [rows] = await conn.execute(
       `SELECT uid_tenant, ten_nombre, ten_slug, ten_slug_locked,
               ten_color_primary, ten_color_accent, ten_logo,
-              ten_wa_number, ten_wa_parts_number, ten_estado
+              ten_wa_number, ten_wa_parts_number, ten_estado,
+              addon_contabilidad
        FROM b2c_tenant
        WHERE (ten_slug = ? OR ten_dominio_custom = ?)
          AND ten_estado != 'suspendido'
