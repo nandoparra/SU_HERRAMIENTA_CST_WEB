@@ -459,4 +459,95 @@ router.get('/ventas/:id/pdf', async (req, res) => {
   }
 });
 
+// ─── GET /api/ventas/:id/print — ticket HTML con auto-print ──────────────────
+router.get('/ventas/:id/print', async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const conn = await db.getConnection();
+  try {
+    const [[venta]] = await conn.execute(
+      `SELECT v.*,
+              c.cli_razon_social, c.cli_contacto, c.cli_identificacion,
+              o.ord_consecutivo,
+              u.usu_nombre AS creado_por_nombre
+       FROM b2c_venta v
+       LEFT JOIN b2c_cliente c ON c.uid_cliente = v.uid_cliente
+       LEFT JOIN b2c_orden   o ON o.uid_orden   = v.uid_orden
+       LEFT JOIN b2c_usuario u ON u.uid_usuario = v.ven_creado_por
+       WHERE v.uid_venta = ? AND v.tenant_id = ?`,
+      [req.params.id, tenantId]
+    );
+    if (!venta) return res.status(404).send('Venta no encontrada');
+
+    const [items] = await conn.execute(
+      `SELECT * FROM b2c_venta_item WHERE uid_venta = ? ORDER BY uid_item`,
+      [venta.uid_venta]
+    );
+
+    const money = n => '$' + Math.round(Number(n)).toLocaleString('es-CO');
+    const cliente = venta.cli_razon_social || venta.cli_contacto || 'Mostrador';
+    const metodos = { efectivo:'Efectivo', transferencia:'Transferencia', tarjeta:'Tarjeta', cheque:'Cheque', otro:'Otro' };
+    const itemsHtml = items.map(it => `
+      <tr>
+        <td style="padding:3px 0;font-size:12px;">${it.vi_descripcion || ''}</td>
+        <td style="padding:3px 4px;text-align:center;font-size:12px;">${it.vi_cantidad}</td>
+        <td style="padding:3px 0;text-align:right;font-size:12px;">${money(it.vi_total)}</td>
+      </tr>`).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Ticket #${venta.ven_consecutivo}</title>
+  <style>
+    @media print { body { margin:0; } .no-print { display:none; } }
+    body { font-family: 'Courier New', monospace; max-width:300px; margin:0 auto; padding:12px; color:#111; }
+    h2 { text-align:center; font-size:15px; margin:0 0 2px; }
+    .sub { text-align:center; font-size:11px; color:#555; margin:0 0 10px; }
+    .sep { border:none; border-top:1px dashed #999; margin:8px 0; }
+    table { width:100%; border-collapse:collapse; }
+    th { font-size:11px; text-align:left; border-bottom:1px solid #ccc; padding-bottom:3px; }
+    .total-row td { font-size:14px; font-weight:700; padding-top:6px; }
+    .footer { text-align:center; font-size:10px; color:#888; margin-top:12px; }
+  </style>
+</head>
+<body>
+  <h2>SU HERRAMIENTA CST</h2>
+  <div class="sub">NIT 9862087-1 · Pereira</div>
+  <hr class="sep">
+  <div style="font-size:12px;"><strong>Ticket #${venta.ven_consecutivo}</strong></div>
+  <div style="font-size:11px;color:#555;">${new Date(venta.ven_fecha).toLocaleDateString('es-CO',{timeZone:'America/Bogota'})}</div>
+  <div style="font-size:11px;color:#555;">Cliente: ${cliente}</div>
+  ${venta.ord_consecutivo ? `<div style="font-size:11px;color:#555;">Orden #${venta.ord_consecutivo}</div>` : ''}
+  <div style="font-size:11px;color:#555;">Pago: ${metodos[venta.ven_metodo_pago] || venta.ven_metodo_pago}</div>
+  <hr class="sep">
+  <table>
+    <thead><tr>
+      <th>Descripción</th>
+      <th style="text-align:center;width:30px;">Cant</th>
+      <th style="text-align:right;width:70px;">Total</th>
+    </tr></thead>
+    <tbody>${itemsHtml}</tbody>
+    <tfoot>
+      <tr><td colspan="3"><hr class="sep" style="margin:4px 0;"></td></tr>
+      ${venta.ven_iva > 0 ? `<tr><td>IVA</td><td></td><td style="text-align:right;font-size:12px;">${money(venta.ven_iva)}</td></tr>` : ''}
+      <tr class="total-row"><td>TOTAL</td><td></td><td style="text-align:right;">${money(venta.ven_total)}</td></tr>
+    </tfoot>
+  </table>
+  <div class="footer">¡Gracias por su preferencia!<br>www.suherramienta.com</div>
+  <div class="no-print" style="text-align:center;margin-top:16px;">
+    <button onclick="window.print()" style="padding:8px 20px;font-size:14px;cursor:pointer;">🖨️ Imprimir</button>
+  </div>
+  <script>window.onload = () => window.print();</script>
+</body>
+</html>`;
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (e) {
+    log.error({ err: e }, 'Error generando ticket de venta');
+    res.status(500).send('Error interno del servidor');
+  } finally {
+    conn.release();
+  }
+});
+
 module.exports = router;

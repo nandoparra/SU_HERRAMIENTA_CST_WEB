@@ -3880,6 +3880,7 @@ Views.ventas = {
 
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
               <a href="${API}/ventas/${venta.uid_venta}/pdf" target="_blank" class="btn btn-sm btn-mid">📄 PDF</a>
+              <a href="${API}/ventas/${venta.uid_venta}/print" target="_blank" class="btn btn-sm btn-mid">🖨️ Ticket</a>
               ${esBorr ? `<button class="btn btn-sm btn-dark" onclick="ven_pagar(${venta.uid_venta})">💳 Marcar pagada</button>` : ''}
               ${!esAnul ? `<button class="btn btn-sm btn-grey" onclick="ven_anular(${venta.uid_venta})">🚫 Anular</button>` : ''}
             </div>
