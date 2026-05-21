@@ -84,6 +84,7 @@ router.post('/contable/egresos', async (req, res) => {
     egr_fecha, egr_concepto, egr_categoria = 'otros', egr_valor,
     egr_proveedor, egr_nit_proveedor, egr_metodo_pago = 'efectivo',
     egr_referencia, egr_notas, egr_factura_imagen, egr_ia_extraido = 0,
+    egr_forma_pago = 'contado', egr_fecha_vencimiento,
   } = req.body;
 
   if (!egr_fecha)    return res.status(400).json({ error: 'egr_fecha es requerido' });
@@ -92,6 +93,11 @@ router.post('/contable/egresos', async (req, res) => {
     return res.status(400).json({ error: 'egr_valor debe ser mayor a 0' });
   if (!CATEGORIAS.includes(egr_categoria))
     return res.status(400).json({ error: `egr_categoria inválida. Opciones: ${CATEGORIAS.join(', ')}` });
+  if (egr_forma_pago === 'credito' && !egr_fecha_vencimiento)
+    return res.status(400).json({ error: 'egr_fecha_vencimiento es requerido para pagos a crédito' });
+
+  // Crédito → pendiente de pago; contado → ya está pagado
+  const estadoPago = egr_forma_pago === 'credito' ? 'pendiente' : 'pagado';
 
   const conn = await db.getConnection();
   try {
@@ -99,13 +105,15 @@ router.post('/contable/egresos', async (req, res) => {
       `INSERT INTO b2c_egreso
          (tenant_id, egr_fecha, egr_concepto, egr_categoria, egr_valor,
           egr_proveedor, egr_nit_proveedor, egr_metodo_pago,
-          egr_referencia, egr_notas, egr_factura_imagen, egr_ia_extraido, egr_creado_por)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          egr_referencia, egr_notas, egr_factura_imagen, egr_ia_extraido,
+          egr_forma_pago, egr_fecha_vencimiento, egr_estado_pago, egr_creado_por)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         tenantId, egr_fecha, egr_concepto, egr_categoria, Number(egr_valor),
         egr_proveedor || null, egr_nit_proveedor || null, egr_metodo_pago,
         egr_referencia || null, egr_notas || null,
-        egr_factura_imagen || null, egr_ia_extraido ? 1 : 0, userId,
+        egr_factura_imagen || null, egr_ia_extraido ? 1 : 0,
+        egr_forma_pago, egr_fecha_vencimiento || null, estadoPago, userId,
       ]
     );
     await logAudit(req, 'egreso_creado', 'b2c_egreso', String(result.insertId), {
@@ -128,6 +136,7 @@ router.patch('/contable/egresos/:id', async (req, res) => {
     'egr_fecha','egr_concepto','egr_categoria','egr_valor',
     'egr_proveedor','egr_nit_proveedor','egr_metodo_pago',
     'egr_referencia','egr_notas',
+    'egr_forma_pago','egr_fecha_vencimiento',
   ];
   const fields = Object.keys(req.body).filter(k => allowed.includes(k));
   if (!fields.length) return res.status(400).json({ error: 'Sin campos a actualizar' });
@@ -214,7 +223,9 @@ router.post('/contable/egresos/extraer-factura', uploadFactura.single('factura')
 {
   "proveedor": "<nombre del proveedor o empresa>",
   "nit_proveedor": "<NIT o cédula del proveedor, sin puntos ni guiones, o null>",
-  "fecha": "<fecha de la factura en formato YYYY-MM-DD, o null>",
+  "fecha": "<fecha de emisión de la factura en formato YYYY-MM-DD, o null>",
+  "fecha_vencimiento": "<fecha límite de pago en formato YYYY-MM-DD, o null si no aparece>",
+  "forma_pago": "<'contado' si es de contado o efectivo inmediato, 'credito' si tiene plazo o fecha de vencimiento>",
   "valor_total": <número sin puntos ni comas, solo dígitos y punto decimal, o null>,
   "categoria_sugerida": "<una de: nomina, arriendo, servicios, compras, mantenimiento, impuestos, otros>",
   "concepto": "<descripción breve del concepto o servicio>",
@@ -239,13 +250,15 @@ Si no puedes extraer un campo con certeza, usa null. Responde únicamente con el
       ok: true,
       factura_imagen: path.basename(filePath),
       extraido: {
-        proveedor:         extraido.proveedor         || null,
-        nit_proveedor:     extraido.nit_proveedor     || null,
-        fecha:             extraido.fecha             || null,
-        valor_total:       extraido.valor_total       != null ? Number(extraido.valor_total) : null,
+        proveedor:          extraido.proveedor          || null,
+        nit_proveedor:      extraido.nit_proveedor      || null,
+        fecha:              extraido.fecha              || null,
+        fecha_vencimiento:  extraido.fecha_vencimiento  || null,
+        forma_pago:         extraido.forma_pago === 'credito' ? 'credito' : 'contado',
+        valor_total:        extraido.valor_total        != null ? Number(extraido.valor_total) : null,
         categoria_sugerida: extraido.categoria_sugerida || 'otros',
-        concepto:          extraido.concepto          || null,
-        referencia:        extraido.referencia        || null,
+        concepto:           extraido.concepto           || null,
+        referencia:         extraido.referencia         || null,
       },
     });
   } catch (err) {
@@ -253,6 +266,55 @@ Si no puedes extraer un campo con certeza, usa null. Responde únicamente con el
     try { fs.unlinkSync(filePath); } catch {}
     log.error({ err }, 'Error extrayendo factura con IA');
     res.status(500).json({ error: 'Error al procesar la factura con IA' });
+  }
+});
+
+// ─── PATCH /api/contable/egresos/:id/pagar ───────────────────────────────────
+router.patch('/contable/egresos/:id/pagar', async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const conn = await db.getConnection();
+  try {
+    const [[egr]] = await conn.execute(
+      `SELECT uid_egreso, egr_estado, egr_estado_pago FROM b2c_egreso WHERE uid_egreso = ? AND tenant_id = ?`,
+      [req.params.id, tenantId]
+    );
+    if (!egr)                           return res.status(404).json({ error: 'Egreso no encontrado' });
+    if (egr.egr_estado === 'anulado')   return res.status(409).json({ error: 'El egreso está anulado' });
+    if (egr.egr_estado_pago === 'pagado') return res.status(409).json({ error: 'Ya está marcado como pagado' });
+    await conn.execute(
+      `UPDATE b2c_egreso SET egr_estado_pago = 'pagado' WHERE uid_egreso = ?`, [req.params.id]
+    );
+    await logAudit(req, 'egreso_pagado', 'b2c_egreso', String(req.params.id), {});
+    res.json({ ok: true });
+  } catch (err) {
+    log.error({ err }, 'Error marcando egreso como pagado');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
+// ─── GET /api/contable/vencimientos ──────────────────────────────────────────
+// Egresos a crédito pendientes de pago, ordenados por fecha de vencimiento.
+router.get('/contable/vencimientos', async (req, res) => {
+  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const conn = await db.getConnection();
+  try {
+    const [rows] = await conn.execute(
+      `SELECT uid_egreso, egr_fecha, egr_concepto, egr_categoria,
+              egr_valor, egr_proveedor, egr_fecha_vencimiento, egr_referencia
+       FROM b2c_egreso
+       WHERE tenant_id = ? AND egr_estado = 'activo' AND egr_estado_pago = 'pendiente'
+         AND egr_fecha_vencimiento IS NOT NULL
+       ORDER BY egr_fecha_vencimiento ASC`,
+      [tenantId]
+    );
+    res.json(rows);
+  } catch (err) {
+    log.error({ err }, 'Error listando vencimientos');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
   }
 });
 

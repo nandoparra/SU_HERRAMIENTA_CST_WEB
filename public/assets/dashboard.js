@@ -996,6 +996,23 @@ async function ord_filtrarPorEstado(estado, label, mes) {
       </div>`).join('');
 }
 
+window.ord_generarVenta = async function(uidOrden, btn) {
+  if (!confirm('¿Crear una venta con los ítems de la cotización aprobada de esta orden?')) return;
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Generando...';
+  try {
+    const r = await fetch(`${API}/ventas/desde-orden/${uidOrden}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error al crear la venta');
+    showToast(`✅ Venta #${d.ven_consecutivo} creada`);
+    navigate('ventas');
+  } catch (e) {
+    alert('⚠️ ' + e.message);
+    btn.disabled = false; btn.textContent = orig;
+  }
+};
+
 // ════════════════════════════════════════════════════════════════════════════
 // VISTA: COTIZACIONES
 // ════════════════════════════════════════════════════════════════════════════
@@ -1180,9 +1197,9 @@ window.cot_cargarPendientes = async () => {
             <div class="card-title">⚙️ Repuestos</div>
             <div class="items-container" id="cotItemsContainer"><p style="color:#999;text-align:center;padding:16px;">(Sin repuestos aún)</p></div>
             <div class="add-item-group">
-              <select id="cotPartSel"><option value="">-- Catálogo --</option></select>
+              <input type="text" id="cotPartSearch" list="cotPartDatalist" autocomplete="off" placeholder="🔍 Buscar o escribir repuesto...">
+              <datalist id="cotPartDatalist"></datalist>
               <input type="number" id="cotPartQty" value="1" min="1" placeholder="Cant.">
-              <input type="text" id="cotCustomPart" placeholder="O escribir repuesto">
               <button onclick="cot_addItem()">+ Agregar</button>
             </div>
           </div>
@@ -1250,20 +1267,16 @@ window.cot_cargarPendientes = async () => {
       showToast('Técnico asignado a todas las máquinas');
     };
     window.cot_addItem = () => {
-      const psel = document.getElementById('cotPartSel');
-      const qty  = parseInt(document.getElementById('cotPartQty')?.value||'1',10)||1;
-      const cust = document.getElementById('cotCustomPart')?.value.trim();
-      let name, price;
-      if (psel?.value) {
-        const opt = psel.options[psel.selectedIndex];
-        name=opt.textContent.split(' ($')[0]; price=Number(opt.dataset.price||0);
-      } else if (cust) { name=cust; price=0; }
-      else { alert('Selecciona o escribe un repuesto'); return; }
-      S.items.push({id:Date.now(),name,quantity:qty,price});
+      const searchEl = document.getElementById('cotPartSearch');
+      const qty = parseInt(document.getElementById('cotPartQty')?.value||'1',10)||1;
+      const rawName = searchEl?.value.trim();
+      if (!rawName) { alert('Escribe o selecciona un repuesto'); return; }
+      const price = (window._cotPartsMap && window._cotPartsMap.has(rawName))
+        ? window._cotPartsMap.get(rawName) : 0;
+      S.items.push({id:Date.now(), name:rawName, quantity:qty, price});
       cot_renderItems(); cot_updateSummary();
-      if (psel) psel.value='';
+      if (searchEl) searchEl.value = '';
       const qEl = document.getElementById('cotPartQty'); if (qEl) qEl.value='1';
-      const cEl = document.getElementById('cotCustomPart'); if (cEl) cEl.value='';
     };
     function cot_renderItems() {
       const c = document.getElementById('cotItemsContainer'); if (!c) return;
@@ -1303,9 +1316,13 @@ window.cot_cargarPendientes = async () => {
     }
     async function cot_loadPartsSelect() {
       const parts = await fetch(`${API}/quote/catalog?type=R`).then(r=>r.json()).catch(()=>[]);
-      const sel = document.getElementById('cotPartSel'); if (!sel) return;
-      sel.innerHTML='<option value="">-- Catálogo --</option>'+
-        parts.map(p=>`<option value="${p.uid_concepto_costo}" data-price="${p.cco_valor}">${esc(p.cco_descripcion)} ($${Number(p.cco_valor||0).toLocaleString('es-CO')})</option>`).join('');
+      const dl = document.getElementById('cotPartDatalist'); if (!dl) return;
+      window._cotPartsMap = new Map();
+      dl.innerHTML = parts.map(p => {
+        const label = p.cco_descripcion;
+        window._cotPartsMap.set(label, Number(p.cco_valor || 0));
+        return `<option value="${esc(label)}" data-price="${p.cco_valor}">`;
+      }).join('');
     }
     async function cot_refreshSavedCount() {
       if (!S.orderId) return;
@@ -3796,24 +3813,6 @@ Views.ventas = {
       if (bEl)  bEl.value = cedula ? `${nombre} (${cedula})` : nombre;
       _venClienteId = uid;
       if (msgEl) { msgEl.style.color = '#166534'; msgEl.textContent = `✅ Cliente: ${nombre}`; msgEl.style.display = ''; }
-    };
-
-    // ── Generar venta desde detalle de orden ─────────────────────────────
-    window.ord_generarVenta = async function(uidOrden, btn) {
-      if (!confirm('¿Crear una venta con los ítems de la cotización aprobada de esta orden?')) return;
-      const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Generando...';
-      try {
-        const r = await fetch(`${API}/ventas/desde-orden/${uidOrden}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
-        });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || 'Error al crear la venta');
-        showToast(`✅ Venta #${d.ven_consecutivo} creada`);
-        navigate('ventas');
-      } catch (e) {
-        alert('⚠️ ' + e.message);
-        btn.disabled = false; btn.textContent = orig;
-      }
     };
 
     // ── Detalle venta ──────────────────────────────────────────────────────

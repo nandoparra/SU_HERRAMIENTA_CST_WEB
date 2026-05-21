@@ -92,7 +92,7 @@
     .item-row:last-child{border-bottom:none;}
     .item-row input{padding:6px 8px;}
     .item-row button{padding:5px 9px;font-size:12px;background:#dc3545;color:#fff;border:none;border-radius:4px;cursor:pointer;}
-    .add-item-group{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;}
+    .add-item-group{display:grid;grid-template-columns:2fr 80px auto;gap:8px;}
     .add-item-group input,.add-item-group select{padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:inherit;outline:none;background:#fff;}
     .add-item-group button{padding:7px 12px;background:#27ae60;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:600;}
     .add-item-group button:hover{background:#218838;}
@@ -264,11 +264,9 @@
           <p style="color:#999;text-align:center;padding:16px;">(Sin repuestos aún)</p>
         </div>
         <div class="add-item-group">
-          <select id="partSelect">
-            <option value="">-- Catálogo de Repuestos --</option>
-          </select>
+          <input type="text" id="partSearch" list="partDatalist" autocomplete="off" placeholder="🔍 Buscar o escribir repuesto...">
+          <datalist id="partDatalist"></datalist>
           <input type="number" id="partQuantity" value="1" min="1" placeholder="Cant." />
-          <input type="text" id="customPartName" placeholder="O escribir repuesto" />
           <button onclick="addItem()">+ Agregar</button>
         </div>
       </div>

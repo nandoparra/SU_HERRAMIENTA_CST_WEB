@@ -367,47 +367,36 @@ async function assignTechnicianToAll() {
   }
 }
 
+const _partsMap = new Map();
+
 async function loadPartsSelect() {
   try {
     const r = await fetch(`${API_BASE}/quote/catalog?type=R`);
     if (!r.ok) throw new Error('Error catálogo');
     const parts = await r.json();
-    const sel = document.getElementById('partSelect');
-    sel.innerHTML = '<option value="">-- Catálogo de Repuestos --</option>';
-    parts.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.uid_concepto_costo;
-      opt.textContent = `${p.cco_descripcion} ($${Number(p.cco_valor||0).toLocaleString('es-CO')})`;
-      opt.dataset.price = p.cco_valor;
-      sel.appendChild(opt);
-    });
+    const dl = document.getElementById('partDatalist');
+    if (!dl) return;
+    _partsMap.clear();
+    dl.innerHTML = parts.map(p => {
+      _partsMap.set(p.cco_descripcion, Number(p.cco_valor || 0));
+      return `<option value="${p.cco_descripcion.replace(/"/g,'&quot;')}" data-price="${p.cco_valor}">`;
+    }).join('');
   } catch(e) {
     console.warn(e);
   }
 }
 
 function addItem() {
-  const partSelect = document.getElementById('partSelect');
+  const searchEl = document.getElementById('partSearch');
   const qty = parseInt(document.getElementById('partQuantity').value || '1', 10) || 1;
-  const custom = document.getElementById('customPartName').value.trim();
-  let name, price;
-  if (partSelect.value) {
-    const opt = partSelect.options[partSelect.selectedIndex];
-    name = opt.textContent.split(' ($')[0];
-    price = Number(opt.dataset.price || 0);
-  } else if (custom) {
-    name = custom;
-    price = 0;
-  } else {
-    alert('Selecciona o escribe un repuesto');
-    return;
-  }
-  currentQuoteItems.push({ id: Date.now(), name, quantity: qty, price });
+  const rawName = searchEl ? searchEl.value.trim() : '';
+  if (!rawName) { alert('Escribe o selecciona un repuesto'); return; }
+  const price = _partsMap.has(rawName) ? _partsMap.get(rawName) : 0;
+  currentQuoteItems.push({ id: Date.now(), name: rawName, quantity: qty, price });
   renderItems();
   updateSummary();
-  partSelect.value = '';
+  if (searchEl) searchEl.value = '';
   document.getElementById('partQuantity').value = '1';
-  document.getElementById('customPartName').value = '';
 }
 
 function renderItems() {
@@ -457,9 +446,8 @@ function resetMachineForm() {
   currentQuoteItems = [];
   document.getElementById('laborCost').value = '';
   document.getElementById('workDescription').value = '';
-  document.getElementById('partSelect').value = '';
+  const psEl = document.getElementById('partSearch'); if (psEl) psEl.value = '';
   document.getElementById('partQuantity').value = '1';
-  document.getElementById('customPartName').value = '';
   renderItems();
   updateSummary();
 }
