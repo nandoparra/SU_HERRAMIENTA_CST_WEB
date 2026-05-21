@@ -139,7 +139,7 @@ function closeSidebar() {
 const VIEW_LABELS = {
   inicio:'Inicio', ordenes:'Órdenes', cotizaciones:'Cotizaciones',
   clientes:'Clientes', funcionarios:'Funcionarios', inventario:'Inventario',
-  recibos:'Recibos', ventas:'Ventas', finanzas:'Finanzas',
+  recibos:'Recibos', ventas:'Ventas', finanzas:'Finanzas', contable:'Contable',
   nuevaOrden:'Nueva Orden',
   misOrdenes:'Mis Órdenes', buscarOrden:'Buscar Orden'
 };
@@ -4380,6 +4380,362 @@ async function fin_renderHistorial() {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// Views.contable — Módulo contable
+// ════════════════════════════════════════════════════════════════════════════
+Views.contable = {
+  render() {
+    const now = new Date();
+    const mes = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    return `
+      <div style="padding:20px;max-width:960px;margin:0 auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+          <h2 style="margin:0;color:#1d3557;">📒 Contabilidad</h2>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="month" id="conMes" value="${mes}"
+              style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;"
+              onchange="con_cargar()">
+            <button class="btn btn-dark" onclick="con_openEgreso()">+ Registrar egreso</button>
+          </div>
+        </div>
+
+        <!-- Estado de resultados -->
+        <div id="conResumen" style="margin-bottom:20px;">
+          <div style="color:#aaa;font-size:13px;padding:20px;text-align:center;">Cargando...</div>
+        </div>
+
+        <!-- Lista de egresos -->
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <span style="font-size:13px;font-weight:600;color:#1d3557;">EGRESOS DEL MES</span>
+            <select id="conCatFiltro" style="font-size:12px;padding:4px 8px;border:1px solid #ddd;border-radius:5px;" onchange="con_cargarEgresos()">
+              <option value="">Todas las categorías</option>
+              <option value="nomina">Nómina</option>
+              <option value="arriendo">Arriendo</option>
+              <option value="servicios">Servicios</option>
+              <option value="compras">Compras</option>
+              <option value="mantenimiento">Mantenimiento</option>
+              <option value="impuestos">Impuestos</option>
+              <option value="otros">Otros</option>
+            </select>
+          </div>
+          <div id="conEgresosList"><div style="color:#aaa;font-size:13px;">Cargando...</div></div>
+        </div>
+      </div>`;
+  },
+
+  async init() {
+    await con_cargar();
+  },
+};
+
+const CON_CAT_LABELS = {
+  nomina:'Nómina', arriendo:'Arriendo', servicios:'Servicios',
+  compras:'Compras', mantenimiento:'Mantenimiento', impuestos:'Impuestos', otros:'Otros',
+};
+const CON_CAT_COLORS = {
+  nomina:'#3b82f6', arriendo:'#f59e0b', servicios:'#8b5cf6',
+  compras:'#10b981', mantenimiento:'#ef4444', impuestos:'#6366f1', otros:'#94a3b8',
+};
+
+window.con_cargar = async function() {
+  await Promise.all([con_cargarResumen(), con_cargarEgresos()]);
+};
+
+window.con_cargarResumen = async function() {
+  const el  = document.getElementById('conResumen'); if (!el) return;
+  const mes = document.getElementById('conMes')?.value || new Date().toISOString().slice(0,7);
+  el.innerHTML = '<div style="color:#aaa;font-size:13px;padding:16px;text-align:center;">Cargando estado de resultados...</div>';
+  try {
+    const d = await fetch(`${API}/contable/resumen?mes=${mes}`).then(r => r.json());
+    if (d.error) { el.innerHTML = `<div style="color:#991b1b;padding:12px;">${esc(d.error)}</div>`; return; }
+
+    const pct = (n, total) => total > 0 ? ((n / total) * 100).toFixed(1) + '%' : '—';
+    const row = (label, valor, sub='', color='#374151') =>
+      `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f4f8;">
+        <span style="color:#555;font-size:13px;">${label}${sub?`<span style="font-size:11px;color:#aaa;margin-left:6px;">${sub}</span>`:''}}</span>
+        <span style="font-weight:600;font-size:13px;color:${color};">${money(valor)}</span>
+      </div>`;
+
+    // Barras de egresos por categoría
+    const cats = (d.egresos.por_categoria || []).sort((a,b) => b.total - a.total);
+    const maxCat = cats[0]?.total || 1;
+    const barras = cats.map(c => {
+      const pctBar = Math.round((c.total / maxCat) * 100);
+      const col = CON_CAT_COLORS[c.categoria] || '#94a3b8';
+      return `<div style="margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
+          <span style="color:#374151;">${CON_CAT_LABELS[c.categoria] || c.categoria}</span>
+          <span style="font-weight:600;">${money(c.total)}</span>
+        </div>
+        <div style="background:#f0f4f8;border-radius:4px;height:8px;">
+          <div style="background:${col};width:${pctBar}%;height:8px;border-radius:4px;"></div>
+        </div>
+      </div>`;
+    }).join('');
+
+    const netaColor = d.utilidad_neta >= 0 ? '#166534' : '#991b1b';
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+
+        <!-- Ingresos -->
+        <div class="card" style="border-left:4px solid #10b981;">
+          <div style="font-size:12px;font-weight:700;color:#10b981;margin-bottom:10px;">💵 INGRESOS</div>
+          ${row('Ventas pagadas', d.ingresos.ventas, `${d.ingresos.num_ventas} ventas`)}
+          ${row('Recibos de caja', d.ingresos.recibos, `${d.ingresos.num_recibos} recibos`)}
+          <div style="display:flex;justify-content:space-between;padding:8px 0;margin-top:4px;">
+            <span style="font-weight:700;color:#10b981;">Total ingresos</span>
+            <span style="font-weight:700;font-size:15px;color:#10b981;">${money(d.ingresos.total)}</span>
+          </div>
+        </div>
+
+        <!-- Egresos -->
+        <div class="card" style="border-left:4px solid #ef4444;">
+          <div style="font-size:12px;font-weight:700;color:#ef4444;margin-bottom:10px;">💸 EGRESOS</div>
+          ${row('Costo de ventas', d.costo_ventas)}
+          ${row('Compras inventario', d.egresos.compras_inventario)}
+          ${row('Gastos operativos', d.egresos.operativos)}
+          <div style="display:flex;justify-content:space-between;padding:8px 0;margin-top:4px;">
+            <span style="font-weight:700;color:#ef4444;">Total egresos</span>
+            <span style="font-weight:700;font-size:15px;color:#ef4444;">${money(d.costo_ventas + d.egresos.total)}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Utilidad neta -->
+      <div style="background:${d.utilidad_neta>=0?'#dcfce7':'#fee2e2'};border-radius:10px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+        <div>
+          <div style="font-size:12px;color:${netaColor};font-weight:700;">UTILIDAD NETA DEL MES</div>
+          <div style="font-size:11px;color:${netaColor};opacity:.8;">Ingresos − Costo ventas − Egresos operativos − Compras</div>
+        </div>
+        <div style="font-size:24px;font-weight:800;color:${netaColor};">${money(d.utilidad_neta)}</div>
+      </div>
+
+      <!-- Desglose por categoría -->
+      ${cats.length ? `<div class="card"><div style="font-size:12px;font-weight:700;color:#1d3557;margin-bottom:12px;">DESGLOSE EGRESOS POR CATEGORÍA</div>${barras}</div>` : ''}`;
+  } catch (e) {
+    const el2 = document.getElementById('conResumen');
+    if (el2) el2.innerHTML = `<div style="color:#991b1b;padding:12px;">Error: ${esc(e.message)}</div>`;
+  }
+};
+
+window.con_cargarEgresos = async function() {
+  const el  = document.getElementById('conEgresosList'); if (!el) return;
+  const mes = document.getElementById('conMes')?.value || new Date().toISOString().slice(0,7);
+  const cat = document.getElementById('conCatFiltro')?.value || '';
+  el.innerHTML = '<div style="color:#aaa;font-size:13px;">Cargando...</div>';
+  try {
+    const params = new URLSearchParams({ mes });
+    if (cat) params.set('categoria', cat);
+    const rows = await fetch(`${API}/contable/egresos?${params}`).then(r => r.json());
+    if (!rows.length) {
+      el.innerHTML = '<div style="color:#aaa;font-size:13px;padding:12px 0;">Sin egresos registrados para este período.</div>';
+      return;
+    }
+    el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:#f0f4f8;">
+        <th style="padding:8px 10px;text-align:left;font-weight:600;color:#555;">Fecha</th>
+        <th style="padding:8px 10px;text-align:left;font-weight:600;color:#555;">Concepto</th>
+        <th style="padding:8px 10px;text-align:left;font-weight:600;color:#555;">Categoría</th>
+        <th style="padding:8px 10px;text-align:left;font-weight:600;color:#555;">Proveedor</th>
+        <th style="padding:8px 10px;text-align:right;font-weight:600;color:#555;">Valor</th>
+        <th style="padding:8px 6px;text-align:center;font-weight:600;color:#555;">IA</th>
+        <th style="padding:8px 6px;width:60px;"></th>
+      </tr></thead>
+      <tbody>${rows.map((r,i) => {
+        const col = CON_CAT_COLORS[r.egr_categoria] || '#94a3b8';
+        const lbl = CON_CAT_LABELS[r.egr_categoria] || r.egr_categoria;
+        const anulado = r.egr_estado === 'anulado';
+        return `<tr style="${i%2===1?'background:#fafafa;':''}border-bottom:1px solid #f0f0f0;${anulado?'opacity:.5;':''}" >
+          <td style="padding:8px 10px;white-space:nowrap;color:#666;">${r.egr_fecha?.slice?.(0,10)||''}</td>
+          <td style="padding:8px 10px;">${esc(r.egr_concepto)}</td>
+          <td style="padding:8px 10px;"><span style="background:${col}22;color:${col};font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;">${lbl}</span></td>
+          <td style="padding:8px 10px;color:#666;font-size:12px;">${esc(r.egr_proveedor||'—')}</td>
+          <td style="padding:8px 10px;text-align:right;font-weight:600;">${money(r.egr_valor)}</td>
+          <td style="padding:8px 6px;text-align:center;">${r.egr_ia_extraido?'🤖':'—'}</td>
+          <td style="padding:8px 6px;text-align:center;">
+            ${!anulado?`<button class="btn btn-sm btn-grey" style="font-size:11px;padding:2px 7px;" onclick="con_anular(${r.uid_egreso},this)">Anular</button>`:'<span style="font-size:11px;color:#aaa;">Anulado</span>'}
+          </td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  } catch (e) {
+    const el2 = document.getElementById('conEgresosList');
+    if (el2) el2.innerHTML = `<div style="color:#991b1b;">Error: ${esc(e.message)}</div>`;
+  }
+};
+
+window.con_anular = async function(id, btn) {
+  if (!confirm('¿Anular este egreso? No se puede deshacer.')) return;
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = '...';
+  const r = await fetch(`${API}/contable/egresos/${id}/anular`, { method: 'PATCH' }).then(r => r.json()).catch(() => ({}));
+  if (r.ok) { showToast('Egreso anulado'); await con_cargar(); }
+  else { btn.disabled = false; btn.textContent = orig; alert(r.error || 'Error al anular'); }
+};
+
+// ── Modal nuevo egreso ────────────────────────────────────────────────────────
+window.con_openEgreso = function(prefill = {}) {
+  document.getElementById('conEgresoModal')?.remove();
+  const today = prefill.fecha || new Date().toISOString().slice(0,10);
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg'; bg.id = 'conEgresoModal';
+  bg.innerHTML = `<div class="modal" style="max-width:560px;width:96%;">
+    <h3>${prefill._ia ? '🤖 Confirmar egreso extraído con IA' : 'Nuevo Egreso'}</h3>
+    ${prefill._ia ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:10px 12px;font-size:12px;color:#1e40af;margin-bottom:14px;">
+      IA extrajo estos datos — revisa y corrige antes de guardar.
+    </div>` : ''}
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div>
+        <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Fecha <span style="color:#e53e3e">*</span></label>
+        <input type="date" id="conEgrFecha" value="${today}" style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+      </div>
+      <div>
+        <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Categoría <span style="color:#e53e3e">*</span></label>
+        <select id="conEgrCat" style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          ${['nomina','arriendo','servicios','compras','mantenimiento','impuestos','otros'].map(c =>
+            `<option value="${c}" ${(prefill.categoria_sugerida||'otros')===c?'selected':''}>${CON_CAT_LABELS[c]}</option>`
+          ).join('')}
+        </select>
+      </div>
+    </div>
+
+    <div style="margin-bottom:10px;">
+      <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Concepto <span style="color:#e53e3e">*</span></label>
+      <input type="text" id="conEgrConcepto" value="${esc(prefill.concepto||'')}" placeholder="Ej: Arriendo local mes de mayo"
+        style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;box-sizing:border-box;">
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div>
+        <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Valor <span style="color:#e53e3e">*</span></label>
+        <input type="number" id="conEgrValor" min="0" value="${prefill.valor_total||''}" placeholder="0"
+          style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+      </div>
+      <div>
+        <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Método de pago</label>
+        <select id="conEgrMetodo" style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+          <option value="efectivo">Efectivo</option>
+          <option value="transferencia">Transferencia</option>
+          <option value="tarjeta">Tarjeta</option>
+          <option value="nequi">Nequi</option>
+          <option value="daviplata">Daviplata</option>
+          <option value="cheque">Cheque</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div>
+        <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Proveedor</label>
+        <input type="text" id="conEgrProv" value="${esc(prefill.proveedor||'')}" placeholder="Nombre del proveedor"
+          style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;box-sizing:border-box;">
+      </div>
+      <div>
+        <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">NIT / Cédula proveedor</label>
+        <input type="text" id="conEgrNit" value="${esc(prefill.nit_proveedor||'')}" placeholder="9862087-1"
+          style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;box-sizing:border-box;">
+      </div>
+    </div>
+
+    <div style="margin-bottom:10px;">
+      <label style="font-size:12px;color:#555;display:block;margin-bottom:3px;">Referencia / N° factura</label>
+      <input type="text" id="conEgrRef" value="${esc(prefill.referencia||'')}" placeholder="FV-2026-001"
+        style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;box-sizing:border-box;">
+    </div>
+
+    <!-- Subir factura con IA -->
+    <div style="margin-bottom:14px;padding:12px;background:#f8fafc;border-radius:8px;border:1px dashed #c7d2dd;">
+      <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:8px;">🤖 Subir factura con IA <span style="font-weight:400;color:#888;">(opcional — extrae datos automáticamente)</span></div>
+      <input type="file" id="conEgrFile" accept="image/*,application/pdf"
+        style="font-size:12px;width:100%;margin-bottom:6px;">
+      <button type="button" class="btn btn-sm btn-mid" onclick="con_extraerIA()" id="conEgrIABtn">
+        ✨ Extraer con IA
+      </button>
+      <div id="conEgrIAMsg" style="font-size:12px;margin-top:6px;display:none;"></div>
+    </div>
+
+    <input type="hidden" id="conEgrFacturaImagen" value="${esc(prefill._factura_imagen||'')}">
+    <input type="hidden" id="conEgrIAExtraido" value="${prefill._ia?'1':'0'}">
+
+    <div id="conEgrErr" style="display:none;margin-bottom:8px;padding:8px 10px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:13px;"></div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+      <button class="btn btn-grey" onclick="document.getElementById('conEgresoModal')?.remove()">Cancelar</button>
+      <button class="btn btn-dark" onclick="con_guardarEgreso()">💾 Guardar egreso</button>
+    </div>
+  </div>`;
+  document.body.appendChild(bg);
+  bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
+};
+
+window.con_extraerIA = async function() {
+  const fileEl = document.getElementById('conEgrFile');
+  const msgEl  = document.getElementById('conEgrIAMsg');
+  const btn    = document.getElementById('conEgrIABtn');
+  if (!fileEl?.files?.length) { msgEl.style.display=''; msgEl.style.color='#991b1b'; msgEl.textContent='Selecciona una imagen o PDF primero.'; return; }
+  btn.disabled = true; btn.textContent = '⏳ Procesando...';
+  msgEl.style.display = ''; msgEl.style.color = '#888'; msgEl.textContent = 'Enviando a IA...';
+  try {
+    const form = new FormData();
+    form.append('factura', fileEl.files[0]);
+    const r = await fetch(`${API}/contable/egresos/extraer-factura`, { method:'POST', body: form }).then(r => r.json());
+    if (!r.ok) throw new Error(r.error || 'Error IA');
+    const e = r.extraido;
+    if (e.fecha)          document.getElementById('conEgrFecha').value    = e.fecha;
+    if (e.valor_total)    document.getElementById('conEgrValor').value    = e.valor_total;
+    if (e.concepto)       document.getElementById('conEgrConcepto').value = e.concepto;
+    if (e.proveedor)      document.getElementById('conEgrProv').value     = e.proveedor;
+    if (e.nit_proveedor)  document.getElementById('conEgrNit').value      = e.nit_proveedor;
+    if (e.referencia)     document.getElementById('conEgrRef').value      = e.referencia;
+    if (e.categoria_sugerida) {
+      const sel = document.getElementById('conEgrCat');
+      if (sel) sel.value = e.categoria_sugerida;
+    }
+    document.getElementById('conEgrFacturaImagen').value = r.factura_imagen || '';
+    document.getElementById('conEgrIAExtraido').value    = '1';
+    msgEl.style.color = '#166534';
+    msgEl.textContent = '✅ Datos extraídos — revisa y confirma antes de guardar.';
+  } catch (err) {
+    msgEl.style.color = '#991b1b'; msgEl.textContent = '⚠️ ' + err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = '✨ Extraer con IA';
+  }
+};
+
+window.con_guardarEgreso = async function() {
+  const errEl = document.getElementById('conEgrErr');
+  const body = {
+    egr_fecha:         document.getElementById('conEgrFecha')?.value,
+    egr_concepto:      document.getElementById('conEgrConcepto')?.value?.trim(),
+    egr_categoria:     document.getElementById('conEgrCat')?.value,
+    egr_valor:         document.getElementById('conEgrValor')?.value,
+    egr_metodo_pago:   document.getElementById('conEgrMetodo')?.value,
+    egr_proveedor:     document.getElementById('conEgrProv')?.value?.trim() || null,
+    egr_nit_proveedor: document.getElementById('conEgrNit')?.value?.trim() || null,
+    egr_referencia:    document.getElementById('conEgrRef')?.value?.trim() || null,
+    egr_factura_imagen: document.getElementById('conEgrFacturaImagen')?.value || null,
+    egr_ia_extraido:   document.getElementById('conEgrIAExtraido')?.value === '1' ? 1 : 0,
+  };
+  if (!body.egr_fecha)    { errEl.textContent='La fecha es requerida.';  errEl.style.display=''; return; }
+  if (!body.egr_concepto) { errEl.textContent='El concepto es requerido.'; errEl.style.display=''; return; }
+  if (!body.egr_valor || Number(body.egr_valor) <= 0) { errEl.textContent='El valor debe ser mayor a 0.'; errEl.style.display=''; return; }
+  errEl.style.display = 'none';
+
+  const r = await fetch(`${API}/contable/egresos`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body),
+  }).then(r => r.json()).catch(() => ({ error:'Error de red' }));
+
+  if (r.uid_egreso) {
+    document.getElementById('conEgresoModal')?.remove();
+    showToast('✅ Egreso registrado');
+    await con_cargar();
+  } else {
+    errEl.textContent = r.error || 'Error al guardar.';
+    errEl.style.display = '';
+  }
+};
+
 // ── Session init ──────────────────────────────────────────────────────────────
 (async function() {
   const me = await fetch('/me').then(r=>r.json()).catch(()=>({}));
@@ -4407,6 +4763,11 @@ async function fin_renderHistorial() {
     // Mostrar nav-items solo para admin
     if (isAdmin()) {
       document.querySelectorAll('.nav-item.admin-only').forEach(el => el.style.display = '');
+      // Módulo contable solo si el add-on está activo
+      if (!me.addons?.contabilidad) {
+        const navC = document.getElementById('navContable');
+        if (navC) navC.style.display = 'none';
+      }
     }
   }
 
