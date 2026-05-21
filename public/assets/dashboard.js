@@ -3341,10 +3341,10 @@ Views.ventas = {
       const p = _venCatalog.find(x => x.uid_concepto_costo === id); if (!p) return;
       _venItems.push({
         vi_descripcion:     p.cco_descripcion || '',
-        vi_tipo:            'repuesto',
+        vi_tipo:            p.cco_tipo === 'M' ? 'mano_obra' : 'repuesto',
         vi_cantidad:        1,
         vi_precio_unitario: Number(p.cco_valor) || 0,
-        vi_costo_unitario:  Number(p.cco_costo) || 0,
+        vi_costo_unitario:  p.cco_tipo === 'M' ? 0 : (Number(p.cco_costo) || 0),
         vi_descuento_pct:   0,
       });
       const inp = document.getElementById('venCatInput'); if (inp) inp.value = '';
