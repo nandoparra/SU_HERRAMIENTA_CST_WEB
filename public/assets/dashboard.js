@@ -3340,6 +3340,7 @@ Views.ventas = {
     let _venItems = [];
     let _venShowCosto = false;
     let _venOrdenId = null;
+    let _venClienteId = null;
 
     function ven_calcItem(it) {
       const precio   = Number(it.vi_precio_unitario) || 0;
@@ -3518,6 +3519,7 @@ Views.ventas = {
                      vi_precio_unitario:0, vi_costo_unitario:0, vi_descuento_pct:0 }];
       _venShowCosto = false;
       _venOrdenId = null;
+      _venClienteId = null;
       const today = new Date().toISOString().slice(0,10);
       const bg = document.createElement('div');
       bg.className = 'modal-bg'; bg.id = 'venCreateModal';
@@ -3535,6 +3537,19 @@ Views.ventas = {
             <div id="venOrdResultados" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:1000;max-height:180px;overflow-y:auto;margin-top:2px;"></div>
           </div>
           <div id="venOrdSelMsg" style="font-size:12px;margin-top:6px;display:none;"></div>
+        </div>
+
+        <!-- Cliente (opcional) -->
+        <div style="margin-bottom:14px;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+          <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:8px;">👤 Cliente <span style="font-weight:400;color:#888;">(opcional)</span></div>
+          <div style="position:relative;">
+            <input type="text" id="venCliBuscar" autocomplete="off"
+              placeholder="Cédula, NIT o nombre del cliente..."
+              style="width:100%;padding:7px 9px;border:1px solid #ddd;border-radius:6px;font-size:13px;box-sizing:border-box;"
+              oninput="ven_buscarCliente(this.value)">
+            <div id="venCliResultados" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:1000;max-height:180px;overflow-y:auto;margin-top:2px;"></div>
+          </div>
+          <div id="venCliSelMsg" style="font-size:12px;margin-top:6px;display:none;"></div>
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
@@ -3615,6 +3630,7 @@ Views.ventas = {
         ven_metodo_pago: metodo,
         ven_notas:       notas,
         uid_orden:       _venOrdenId || undefined,
+        uid_cliente:     _venClienteId || undefined,
         items:           _venItems,
       };
       const r = await fetch(`${API}/ventas`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
@@ -3704,6 +3720,50 @@ Views.ventas = {
       } catch (_) {
         if (msgEl) { msgEl.style.color = '#991b1b'; msgEl.textContent = 'Error al cargar la cotización.'; }
       }
+    };
+
+    // ── Buscador de cliente dentro del modal Nueva Venta ─────────────────
+    let _venCliTimer = null;
+    window.ven_buscarCliente = function(q) {
+      clearTimeout(_venCliTimer);
+      const rEl = document.getElementById('venCliResultados');
+      if (!rEl) return;
+      if (!q || q.trim().length < 2) { rEl.style.display = 'none'; return; }
+      _venCliTimer = setTimeout(async () => {
+        rEl.style.display = '';
+        rEl.innerHTML = '<div style="padding:8px 12px;color:#aaa;font-size:13px;">Buscando...</div>';
+        try {
+          const rows = await fetch(`${API}/clientes/search?q=${encodeURIComponent(q.trim())}&limit=8`)
+            .then(r => r.json());
+          const list = Array.isArray(rows) ? rows : [];
+          if (!list.length) {
+            rEl.innerHTML = '<div style="padding:8px 12px;color:#aaa;font-size:13px;">Sin resultados.</div>';
+            return;
+          }
+          rEl.innerHTML = list.map(c => {
+            const nombre = esc(c.cli_razon_social || c.cli_contacto || '—');
+            const id = esc(c.cli_identificacion || '');
+            return `<div style="padding:9px 12px;cursor:pointer;border-bottom:1px solid #f0f4f8;font-size:13px;"
+                         onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''"
+                         onclick="ven_selCliente(${c.uid_cliente},'${nombre.replace(/'/g,"\\'").replace(/"/g,'&quot;')}','${id}')">
+              <strong>${nombre}</strong>
+              <span style="float:right;color:#aaa;font-size:11px;">${id}</span>
+            </div>`;
+          }).join('');
+        } catch (_) {
+          rEl.innerHTML = '<div style="padding:8px 12px;color:#aaa;font-size:13px;">Error buscando clientes.</div>';
+        }
+      }, 300);
+    };
+
+    window.ven_selCliente = function(uid, nombre, cedula) {
+      const rEl  = document.getElementById('venCliResultados');
+      const bEl  = document.getElementById('venCliBuscar');
+      const msgEl = document.getElementById('venCliSelMsg');
+      if (rEl)  rEl.style.display = 'none';
+      if (bEl)  bEl.value = cedula ? `${nombre} (${cedula})` : nombre;
+      _venClienteId = uid;
+      if (msgEl) { msgEl.style.color = '#166534'; msgEl.textContent = `✅ Cliente: ${nombre}`; msgEl.style.display = ''; }
     };
 
     // ── Generar venta desde detalle de orden ─────────────────────────────
