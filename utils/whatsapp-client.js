@@ -108,25 +108,18 @@ function createTenantClient(tenantId) {
   client.on('auth_failure', (msg) => {
     console.log(`❌ [tenant ${tid}] Error de autenticación:`, msg);
     info.ready = false;
-    // Sesión inválida — destruir y reiniciar para que genere QR nuevo
-    setTimeout(() => resetTenantClient(tid), 3000);
   });
 
   client.on('disconnected', (reason) => {
     console.log(`⚠️ WhatsApp Web [tenant ${tid}] desconectado:`, reason);
     info.ready = false;
-    // Reconectar automáticamente salvo que fue un reset intencional (LOGOUT borra la sesión)
-    if (reason === 'LOGOUT') {
-      console.log(`🔄 [tenant ${tid}] LOGOUT detectado — se requiere escanear QR nuevo`);
-      setTimeout(() => resetTenantClient(tid), 3000);
-    } else {
-      setTimeout(() => {
-        console.log(`🔄 [tenant ${tid}] Intentando reconectar...`);
-        client.initialize().catch(e =>
-          console.warn(`⚠️ WA reconexión [tenant ${tid}]:`, e.message)
-        );
-      }, 5000);
-    }
+    // Reintentar con la sesión existente (no borrarla — puede ser caída temporal de red)
+    setTimeout(() => {
+      console.log(`🔄 [tenant ${tid}] Intentando reconectar...`);
+      client.initialize().catch(e =>
+        console.warn(`⚠️ WA reconexión [tenant ${tid}]:`, e.message)
+      );
+    }, 5000);
   });
 
   client.on('message', async (msg) => {
