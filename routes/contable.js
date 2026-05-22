@@ -223,7 +223,8 @@ router.post('/contable/egresos/extraer-factura', uploadFactura.single('factura')
       const originalSize = fs.statSync(filePath).size;
       if (originalSize > 4.5 * 1024 * 1024) {
         try {
-          const img = await Jimp.read(filePath);
+          const imgBuf = fs.readFileSync(filePath);
+          const img = await Jimp.read(imgBuf);
           if (img.bitmap.width > 1568 || img.bitmap.height > 1568) {
             img.scaleToFit(1568, 1568);
           }
@@ -233,6 +234,13 @@ router.post('/contable/egresos/extraer-factura', uploadFactura.single('factura')
           log.info(`[contable] Imagen comprimida: ${originalSize} → ${compressed.length} bytes`);
         } catch (compErr) {
           log.warn({ err: compErr }, '[contable] jimp no pudo comprimir imagen');
+        }
+        // Si tras la compresión (o si jimp falló) el archivo sigue >5MB, rechazar con error claro
+        const finalSize = fs.statSync(filePath).size;
+        if (finalSize > 5 * 1024 * 1024) {
+          send({ status: 'error', error: `La imagen supera el límite de 5MB (${(finalSize / 1024 / 1024).toFixed(1)}MB). Reduce la resolución de la foto antes de subirla.` });
+          res.end();
+          return;
         }
       }
     }
