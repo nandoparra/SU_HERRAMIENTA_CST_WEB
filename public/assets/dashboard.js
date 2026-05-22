@@ -4745,36 +4745,62 @@ window.con_extraerIA = async function() {
   const msgEl  = document.getElementById('conEgrIAMsg');
   const btn    = document.getElementById('conEgrIABtn');
   if (!fileEl?.files?.length) { msgEl.style.display=''; msgEl.style.color='#991b1b'; msgEl.textContent='Selecciona una imagen o PDF primero.'; return; }
-  btn.disabled = true; btn.textContent = '⏳ Procesando...';
-  msgEl.style.display = ''; msgEl.style.color = '#888'; msgEl.textContent = 'Enviando a IA...';
+  btn.disabled = true; btn.textContent = '⏳ Enviando...';
+  msgEl.style.display = ''; msgEl.style.color = '#888'; msgEl.textContent = 'Enviando archivo...';
   try {
     const form = new FormData();
     form.append('factura', fileEl.files[0]);
-    const r = await fetch(`${API}/contable/egresos/extraer-factura`, { method:'POST', body: form }).then(r => r.json());
-    if (!r.ok) throw new Error(r.error || 'Error IA');
-    const e = r.extraido;
-    if (e.fecha)          document.getElementById('conEgrFecha').value    = e.fecha;
-    if (e.valor_total)    document.getElementById('conEgrValor').value    = e.valor_total;
-    if (e.concepto)       document.getElementById('conEgrConcepto').value = e.concepto;
-    if (e.proveedor)      document.getElementById('conEgrProv').value     = e.proveedor;
-    if (e.nit_proveedor)  document.getElementById('conEgrNit').value      = e.nit_proveedor;
-    if (e.referencia)     document.getElementById('conEgrRef').value      = e.referencia;
-    if (e.categoria_sugerida) {
-      const sel = document.getElementById('conEgrCat');
-      if (sel) sel.value = e.categoria_sugerida;
+    const resp = await fetch(`${API}/contable/egresos/extraer-factura`, { method:'POST', body: form });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${resp.status}`);
     }
-    if (e.forma_pago) {
-      const fpSel = document.getElementById('conEgrFormaPago');
-      if (fpSel) { fpSel.value = e.forma_pago; con_toggleVencimiento(); }
+
+    // Leer SSE: el servidor envía {status:'analyzing'} de inmediato y {status:'done',...} al terminar
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop(); // fragmento incompleto al final
+      for (const part of parts) {
+        if (!part.startsWith('data: ')) continue;
+        const data = JSON.parse(part.slice(6));
+        if (data.status === 'analyzing') {
+          btn.textContent = '🤖 Claude analizando...';
+          msgEl.textContent = 'Claude está analizando la factura...';
+        } else if (data.status === 'done') {
+          const e = data.extraido;
+          if (e.fecha)          document.getElementById('conEgrFecha').value    = e.fecha;
+          if (e.valor_total)    document.getElementById('conEgrValor').value    = e.valor_total;
+          if (e.concepto)       document.getElementById('conEgrConcepto').value = e.concepto;
+          if (e.proveedor)      document.getElementById('conEgrProv').value     = e.proveedor;
+          if (e.nit_proveedor)  document.getElementById('conEgrNit').value      = e.nit_proveedor;
+          if (e.referencia)     document.getElementById('conEgrRef').value      = e.referencia;
+          if (e.categoria_sugerida) {
+            const sel = document.getElementById('conEgrCat');
+            if (sel) sel.value = e.categoria_sugerida;
+          }
+          if (e.forma_pago) {
+            const fpSel = document.getElementById('conEgrFormaPago');
+            if (fpSel) { fpSel.value = e.forma_pago; con_toggleVencimiento(); }
+          }
+          if (e.fecha_vencimiento) {
+            const vEl = document.getElementById('conEgrVence');
+            if (vEl) vEl.value = e.fecha_vencimiento;
+          }
+          document.getElementById('conEgrFacturaImagen').value = data.factura_imagen || '';
+          document.getElementById('conEgrIAExtraido').value    = '1';
+          msgEl.style.color = '#166534';
+          msgEl.textContent = '✅ Datos extraídos — revisa y confirma antes de guardar.';
+        } else if (data.status === 'error') {
+          throw new Error(data.error || 'Error IA');
+        }
+      }
     }
-    if (e.fecha_vencimiento) {
-      const vEl = document.getElementById('conEgrVence');
-      if (vEl) vEl.value = e.fecha_vencimiento;
-    }
-    document.getElementById('conEgrFacturaImagen').value = r.factura_imagen || '';
-    document.getElementById('conEgrIAExtraido').value    = '1';
-    msgEl.style.color = '#166534';
-    msgEl.textContent = '✅ Datos extraídos — revisa y confirma antes de guardar.';
   } catch (err) {
     msgEl.style.color = '#991b1b'; msgEl.textContent = '⚠️ ' + err.message;
   } finally {

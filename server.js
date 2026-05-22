@@ -181,8 +181,22 @@ if (process.env.NODE_ENV !== 'production') {
 // Sentry error handler — debe ir antes del handler de Express
 if (process.env.SENTRY_DSN) Sentry.setupExpressErrorHandler(app);
 
-// Error handler
+// Error handler global
 app.use((err, req, res, next) => {
+  // Multer: archivo demasiado grande
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'Archivo demasiado grande' });
+  }
+  // Multer: otros errores de upload
+  if (err.name === 'MulterError') {
+    return res.status(400).json({ error: err.message });
+  }
+  // Errores operacionales con status explícito (ej: services/quote-machine.js lanza err.status=403)
+  const status = err.status || err.statusCode;
+  if (status && status >= 400 && status < 500) {
+    return res.status(status).json({ error: err.message || 'Error en la solicitud' });
+  }
+  // Error inesperado — loggear y ocultar detalles en producción
   log.error({ err }, 'Unhandled error');
   res.status(500).json({
     error: 'Error interno del servidor',
