@@ -1,0 +1,53 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, feature/**]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+        env:
+          NODE_ENV: test
+          # Tests unitarios (dias-habiles, phones, uploads) no requieren BD.
+          # Cuando se agreguen tests de integración (Fase 5), añadir aquí:
+          # DB_HOST: 127.0.0.1
+          # DB_PORT: 3306
+          # DB_USER: root
+          # DB_PASSWORD: test
+          # DB_NAME: cst_test
+          # services: mysql (ver comentario abajo)
+
+      # ── MySQL en Docker para tests de integración (Fase 5) ──────────────
+      # Descomentar cuando existan tests de integración:
+      #
+      # services:
+      #   mysql:
+      #     image: mysql:8.0
+      #     env:
+      #       MYSQL_ROOT_PASSWORD: test
+      #       MYSQL_DATABASE: cst_test
+      #     ports:
+      #       - 3306:3306
+      #     options: >-
+      #       --health-cmd="mysqladmin ping"
+      #       --health-interval=10s
+      #       --health-timeout=5s
+      #       --health-retries=3
