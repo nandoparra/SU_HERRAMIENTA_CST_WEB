@@ -19,4 +19,4 @@ async function generateText(prompt, maxTokens = 450) {
   return response.content[0].text;
 }
 
-module.exports = { generateText };
+module.exports = { generateText, getClient };

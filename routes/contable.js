@@ -5,13 +5,8 @@ const multer   = require('multer');
 const path     = require('path');
 const fs       = require('fs');
 const db       = require('../utils/db');
-const Anthropic = require('@anthropic-ai/sdk');
+const { getClient: getIAClient } = require('../utils/ia');
 const { requireInterno, requireAddonContabilidad } = require('../middleware/auth');
-let _iaClient = null;
-function getIAClient() {
-  if (!_iaClient) _iaClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  return _iaClient;
-}
 const { UPLOADS_DIR, checkMagicBytes } = require('../utils/uploads');
 const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
