@@ -5,6 +5,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const WA_AUTH_BASE = process.env.WA_AUTH_PATH || path.join(__dirname, '..', '.wwebjs_auth');
+console.log(`[WA] Auth path: ${WA_AUTH_BASE}`);
 
 // ── Eliminar lock files de Chromium — evita "profile in use" tras reinicios ─
 function removeChromeLocksRecursive(dir) {
@@ -110,13 +111,17 @@ function createTenantClient(tenantId) {
     info.ready = false;
   });
 
-  client.on('disconnected', (reason) => {
+  client.on('disconnected', async (reason) => {
     console.log(`⚠️ WhatsApp Web [tenant ${tid}] desconectado:`, reason);
     info.ready = false;
-    // Reintentar con la sesión existente (no borrarla — puede ser caída temporal de red)
+    // Destruir el cliente actual (libera Chromium) SIN borrar la sesión del disco.
+    // Crear uno nuevo que retomará la sesión guardada en WA_AUTH_BASE.
+    try { await info.client.destroy(); } catch (_) {}
+    pool.delete(tid);
     setTimeout(() => {
-      console.log(`🔄 [tenant ${tid}] Intentando reconectar...`);
-      client.initialize().catch(e =>
+      console.log(`🔄 [tenant ${tid}] Reconectando con sesión existente...`);
+      const newInfo = createTenantClient(tid);
+      newInfo.client.initialize().catch(e =>
         console.warn(`⚠️ WA reconexión [tenant ${tid}]:`, e.message)
       );
     }, 5000);
@@ -204,4 +209,19 @@ async function resetTenantClient(tenantId = 1) {
   newInfo.client.initialize().catch(e => console.warn(`⚠️ WA reset [tenant ${tid}]:`, e.message));
 }
 
-module.exports = { initTenantClient, isReady, sendWAMessage, getLastQR, resetTenantClient, registerMessageHandler };
+// ── Cierre ordenado — Railway envía SIGTERM antes de matar el proceso ─────────
+// Destruir Chromium limpiamente evita que la sesión quede corrupta en el Volume.
+async function shutdownAllClients() {
+  for (const [, info] of pool.entries()) {
+    try { await info.client.destroy(); } catch (_) {}
+  }
+  pool.clear();
+}
+
+process.on('SIGTERM', async () => {
+  console.log('[WA] SIGTERM — cerrando Chromium antes de salir...');
+  await shutdownAllClients();
+  process.exit(0);
+});
+
+module.exports = { initTenantClient, isReady, sendWAMessage, getLastQR, resetTenantClient, registerMessageHandler, shutdownAllClients };
