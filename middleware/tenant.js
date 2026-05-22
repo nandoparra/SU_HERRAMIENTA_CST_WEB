@@ -77,6 +77,24 @@ async function tenantMiddleware(req, res, next) {
       );
     }
 
+    // Bloquear acceso si la suscripción venció — solo en rutas que no sean login/assets
+    if (tenant.ten_vence) {
+      const vence = new Date(tenant.ten_vence);
+      vence.setHours(23, 59, 59, 999); // permitir hasta el final del día de vencimiento
+      const rutaLibre = req.path === '/login' ||
+        req.path.startsWith('/assets') ||
+        req.path.startsWith('/superadmin') ||
+        req.path === '/health';
+      if (!rutaLibre && new Date() > vence) {
+        if (req.path.startsWith('/api/')) {
+          return res.status(402).json({
+            error: 'Suscripción vencida. Contacte a Su Herramienta CST para renovar.',
+          });
+        }
+        return res.redirect('/login?vencido=1');
+      }
+    }
+
     req.tenant = tenant;
     next();
   } catch (err) {

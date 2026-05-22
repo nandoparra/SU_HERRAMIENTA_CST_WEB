@@ -108,6 +108,9 @@
     <p class="sub">Ingresa tus credenciales para continuar</p>
 
     <div class="error" id="errorMsg"></div>
+    <div id="vencidoMsg" style="display:none;background:#fff3cd;color:#856404;border:1px solid #ffc107;border-radius:6px;padding:10px 12px;font-size:13px;margin-bottom:16px;">
+      ⚠️ La suscripción de este taller ha vencido. Contacte a <strong>Su Herramienta CST</strong> para renovar el acceso.
+    </div>
 
     <form id="loginForm" onsubmit="doLogin(event)">
       <label for="username">Usuario</label>
@@ -121,5 +124,9 @@
   </div>
 
   <script src="/assets/login.js"></script>
+  <script>
+    if (new URLSearchParams(location.search).get('vencido') === '1')
+      document.getElementById('vencidoMsg').style.display = 'block';
+  </script>
 </body>
 </html>
