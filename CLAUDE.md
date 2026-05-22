@@ -27,8 +27,9 @@ middleware/auth.js                 requireLogin / requireInterno / requireClient
 utils/db.js                        Pool MySQL
 utils/schema.js                    Helpers BD + resolveOrder + getTechnicianWhereClause
                                      └─ filtra usu_tipo='T' — solo técnicos en selector cotizaciones
-utils/ia.js                        Wrapper Anthropic SDK
-utils/whatsapp-client.js           Singleton waClient + parche LID + validación getNumberId
+utils/ia.js                        Wrapper Anthropic SDK — generateText(), getClient(), withTimeout(promise, ms)
+                                     └─ timeout configurable: CLAUDE_TIMEOUT_MS (texto, default 30s), CLAUDE_VISION_TIMEOUT_MS (visión, default 60s)
+utils/whatsapp-client.js           Pool multi-tenant + parche LID + SIGTERM graceful shutdown
 utils/wa-handler.js                Listener mensajes entrantes WA — flujo autorización cotizaciones
                                      └─ resuelve LID vía msg.getContact() antes de buscar pendiente
 utils/pdf-generator.js             Generación PDFs (quote, maintenance, orden de servicio)
@@ -79,7 +80,7 @@ routes/contable.js                 Módulo contable con IA (requireInterno + req
                                      └─ GET/POST /contable/egresos, PATCH /contable/egresos/:id
                                      └─ PATCH /contable/egresos/:id/anular, /pagar
                                      └─ GET /contable/vencimientos — egresos crédito pendientes
-                                     └─ POST /contable/egresos/extraer-factura — Claude Vision
+                                     └─ POST /contable/egresos/extraer-factura — Claude Vision con SSE (text/event-stream)
                                      └─ GET /contable/resumen — estado de resultados
 routes/crear-orden.js              POST crear cliente/herramienta/orden + fotos + factura garantía
                                      └─ todos los endpoints con requireInterno
@@ -129,6 +130,9 @@ PARTS_WHATSAPP_NUMBER (número del encargado de repuestos, ej: 3104650437)
 BEHIND_PROXY          (true = activar redirect HTTP→HTTPS vía x-forwarded-proto)
 SUPERADMIN_SECRET     (requerido en producción — clave de acceso al panel superadmin)
 UPLOADS_PATH          (ruta base de uploads — en Railway: /data/uploads apuntando al Volume)
+CLAUDE_TIMEOUT_MS     (timeout llamadas IA texto, default 30000 ms)
+CLAUDE_VISION_TIMEOUT_MS (timeout Claude Vision/PDF, default 60000 ms)
+SENTRY_DSN            (opcional — activa monitoreo de errores en producción)
 ```
 
 ---
@@ -150,7 +154,7 @@ main                           Estado estable (HEAD)
 feature/modulo-recibos         Módulo A — Recibos de caja — MERGEADO 2026-04-26
 feature/pos-mejorado           POS: autocomplete cliente + caja del día + ticket print — MERGEADO 2026-05-20
 feature/semana1-demos          GET /cotizaciones/pendientes dedicado — MERGEADO 2026-05-20
-feature/modulo-contable        Módulo contable IA completo — EN RAMA (pendiente merge confirmación)
+feature/modulo-contable        Módulo contable IA completo — MERGEADO 2026-05-20
 feature/login                  Login + sesiones + roles — MERGEADO
 feature/crear-orden            Módulo crear orden + fotos — MERGEADO
 feature/wa-autorizacion        Flujo autorización WA (1/2/3/4) — MERGEADO
@@ -175,6 +179,8 @@ hotfix/bugs-produccion         PDF TypeError + requireLogin isApi + mount order 
 hotfix/pre-onboarding          keyByUser fix + LOGS_PATH + SEC-015 — MERGEADO 2026-04-20
 hotfix/logs-pii                PII fix wa-handler.js (Ley 1581) — MERGEADO 2026-04-26
 hotfix/pdf-cotizacion          PDF cotización fixes + IVA por tenant — MERGEADO 2026-04-26
+feature/calidad-fase1-fase2    Sentry, GitHub Actions CI, CHANGELOG, getTenantId, ten_vence enforcement — MERGEADO 2026-05-21
+feature/calidad-fase3          Error middleware, timeout Claude, SSE streaming contable — MERGEADO 2026-05-21
 ```
 
 ---
@@ -1219,9 +1225,72 @@ Modal "Nuevo Egreso":
 - `con_toggleVencimiento()` controla visibilidad del campo fecha vencimiento
 - Sección IA: upload factura → "✨ Extraer con IA" → rellena todos los campos incluyendo `forma_pago` y `fecha_vencimiento`
 
-### Estado actual de la rama
-La rama `feature/modulo-contable` tiene 8 commits completos y smoke test 37/37 pasa.
-**Pendiente**: confirmar merge a main con `--no-ff` y push a GitHub.
+### Estado
+La rama `feature/modulo-contable` fue mergeada a main el 2026-05-20.
+
+---
+
+## Plan de calidad post-auditoría (iniciado 2026-05-21)
+
+Fases de mejora de calidad acordadas tras auditoría estricta del codebase.
+
+### Fase 1 + Fase 2 — feature/calidad-fase1-fase2 (MERGEADO 2026-05-21)
+
+**Fase 2 — Observabilidad y CI:**
+- Sentry.io integrado en `server.js` (condicional a `SENTRY_DSN` env)
+- GitHub Actions CI en `.github/workflows/test.yml` — ejecuta `npm test` en push/PR a main
+- `CHANGELOG.md` retroactivo v1.0.0 → Unreleased
+
+**Fase 1 — Fixes urgentes:**
+- `utils/tenant-id.js` — helper `getTenantId(req)` centraliza `req.tenant?.uid_tenant ?? 1` (antes repetido en ~40 lugares)
+- `middleware/tenant.js` — enforcement de `ten_vence`: API devuelve 402, HTML redirige a `/login?vencido=1`
+- `middleware/tenant.js` — SELECT incluye `addon_contabilidad` (antes faltaba)
+- `routes/contable.js` — `AND tenant_id = ?` en UPDATE anular y pagar (fix IDOR)
+- `utils/ia.js` — unificación de `getClient()` (eliminado duplicado en contable.js)
+
+### Fase 3 — feature/calidad-fase3 (MERGEADO 2026-05-21)
+
+**Middleware de error global (`server.js`):**
+- `MulterError.LIMIT_FILE_SIZE` → 413
+- Otros `MulterError` → 400
+- `err.status`/`err.statusCode` 4xx se propaga — permite `next(err)` desde services/
+- Errores inesperados siguen devolviendo 500 sin detalles en producción
+
+**Timeout en llamadas a Claude (`utils/ia.js`):**
+- Constructor Anthropic recibe `timeout: AI_TIMEOUT_MS` (env `CLAUDE_TIMEOUT_MS`, default 30s)
+- `withTimeout(promise, ms, label?)` exportado — usa `Promise.race`, compatible con SDK `@0.13.x`
+- Vision: `CLAUDE_VISION_TIMEOUT_MS` (default 60s) aplicado en `extraer-factura`
+
+**SSE streaming en extraer-factura (`routes/contable.js` + `dashboard.js`):**
+- Responde `text/event-stream` — envía `{status:'analyzing'}` de inmediato al cliente
+- Llama Claude Vision dentro de `withTimeout(60s)`
+- Al terminar envía `{status:'done', extraido:{...}}` o `{status:'error',...}`
+- Frontend (`con_extraerIA`) lee el stream con `fetch` + `ReadableStream`
+- UX: botón cambia a "🤖 Claude analizando..." en lugar de spinner congelado 15-20s
+
+### WhatsApp — fixes sesión persistente (2026-05-21)
+
+**Problema resuelto:** la sesión se borraba en cada redeploy de Railway.
+
+**Causa 1 — `disconnected` handler:** llamaba `client.initialize()` sobre el mismo cliente roto,
+podía levantar dos instancias Chromium sobre el mismo `userDataDir`.
+**Fix:** `client.destroy()` + `pool.delete()` + `createTenantClient()` + `initialize()` sobre instancia nueva.
+
+**Causa 2 — Sin handler SIGTERM:** Railway envía SIGTERM al reiniciar. Sin handler, Node.js
+terminaba de inmediato → Chromium muerto con escrituras pendientes → sesión corrupta →
+WhatsApp Web navega a `post_logout=1` → `LocalAuth.logout()` borra toda la carpeta de sesión.
+**Fix:** `process.on('SIGTERM', ...)` en `whatsapp-client.js` llama `client.destroy()` en todos
+los tenants del pool antes de `process.exit(0)`.
+
+### Fases pendientes del plan de calidad
+
+| Fase | Descripción | Estado |
+|------|-------------|--------|
+| 4A | Split `pdf-generator.js` (archivo muy grande) | Pendiente |
+| 4B | Split rutas del dashboard | Pendiente |
+| 4C | Split `dashboard.js` (mayor riesgo) | Pendiente |
+| 5 | Tests de integración con MySQL Docker en GitHub Actions | Pendiente |
+| 6 | Migraciones robustas | Pendiente |
 
 ---
 
