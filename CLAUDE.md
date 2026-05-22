@@ -332,6 +332,26 @@ estado ENUM('esperando_opcion','esperando_maquinas'), created_at). UNIQUE KEY en
 - C → `/seguimiento.html`
 - Clave por defecto al crear cliente: últimos 4 dígitos de la identificación
 
+### Contrato de req.session.user (routes/auth.js)
+
+```js
+req.session.user = {
+  id:              Number,   // uid_usuario — usar SIEMPRE este campo (no uid_usuario)
+  nombre:          String,   // usu_nombre
+  login:           String,   // usu_login
+  tipo:            String,   // 'A' | 'F' | 'T' | 'C'
+  rol:             String,   // 'admin' | 'funcionario' | 'tecnico' | 'cliente'
+  tenant_id:       Number,   // uid_tenant del tenant en el momento del login
+  pwd_must_change: Boolean,  // forzar cambio de contraseña en próximo login
+}
+```
+
+**Reglas críticas:**
+- Usar `req.session.user.id` (no `uid_usuario` — ese campo no existe en el objeto)
+- Rate limiters y audit log usan `req.session.user.id` como clave de usuario
+- `tenant_id` en sesión puede diferir de `req.tenant.uid_tenant` si el usuario
+  fue creado en otro tenant y la sesión no se renovó — siempre usar `req.tenant` para queries
+
 ---
 
 ## Tablas BD
