@@ -1,4 +1,5 @@
 'use strict';
+const { getTenantId } = require('../utils/tenant-id');
 const express = require('express');
 const router  = express.Router();
 const db      = require('../utils/db');
@@ -71,7 +72,7 @@ router.get('/crear-orden/cliente/buscar', async (req, res) => {
     const q = String(req.query.q || '').trim();
     if (q.length < 2) return res.json([]);
 
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const like = `%${q}%`;
     const conn = await db.getConnection();
     try {
@@ -101,7 +102,7 @@ router.post('/crear-orden/cliente', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Identificación, Razón Social y Teléfono son obligatorios' });
     }
 
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
@@ -163,7 +164,7 @@ router.post('/crear-orden/cliente', async (req, res) => {
 // ── Historial de máquinas del cliente ─────────────────────────────────────────
 router.get('/crear-orden/herramientas/:clienteId', async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [rows] = await conn.execute(
@@ -189,7 +190,7 @@ router.post('/crear-orden/herramienta', async (req, res) => {
     if (!uid_cliente || !her_nombre) {
       return res.status(400).json({ success: false, error: 'Cliente y nombre de herramienta son obligatorios' });
     }
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [r] = await conn.execute(
@@ -231,7 +232,7 @@ router.post('/crear-orden/orden', async (req, res) => {
     const tipo = tieneGarantia ? 'garantia' : 'normal';
     const revisionLimite = tieneGarantia ? toISODate(addDiasHabiles(new Date(), 2)) : null;
 
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
@@ -285,7 +286,7 @@ router.post('/crear-orden/foto/:herramientaOrdenId', upload.single('foto'), asyn
     const { herramientaOrdenId } = req.params;
     if (!req.file) return res.status(400).json({ success: false, error: 'No se recibió ninguna imagen' });
     await checkMagicBytes(req.file.path, ['image/']);
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       await conn.execute(
@@ -308,7 +309,7 @@ router.post('/crear-orden/factura/:uid_orden', uploadFactura.single('factura'), 
     const { uid_orden } = req.params;
     if (!req.file) return res.status(400).json({ success: false, error: 'No se recibió ningún PDF' });
     await checkMagicBytes(req.file.path, ['application/pdf']);
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       await conn.execute(
@@ -331,7 +332,7 @@ router.post('/crear-orden/factura-maquina/:uid_herramienta_orden', uploadFactura
     const { uid_herramienta_orden } = req.params;
     if (!req.file) return res.status(400).json({ success: false, error: 'No se recibió ningún PDF' });
     await checkMagicBytes(req.file.path, ['application/pdf']);
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       // Validar que la herramienta_orden pertenece al tenant

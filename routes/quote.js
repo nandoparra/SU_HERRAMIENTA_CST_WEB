@@ -1,3 +1,4 @@
+const { getTenantId } = require('../utils/tenant-id');
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
@@ -26,7 +27,7 @@ const quoteSaveLimiter = rateLimit({
 router.get('/quote/catalog', async (req, res) => {
   try {
     const type = req.query.type || 'R';
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [rows] = await conn.execute(
@@ -54,7 +55,7 @@ router.get('/quotes/machine', async (req, res) => {
     if (!orderId || !equipmentOrderId)
       return res.status(400).json({ error: 'orderId y equipmentOrderId son requeridos' });
 
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [[machineInOrder]] = await conn.execute(
@@ -98,7 +99,7 @@ router.post('/quotes/machine', quoteSaveLimiter, async (req, res) => {
   if (!Array.isArray(items))
     return res.status(400).json({ success: false, error: 'items debe ser un arreglo' });
 
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const result = await saveMachineQuote(
@@ -119,7 +120,7 @@ router.post('/quotes/machine', quoteSaveLimiter, async (req, res) => {
 router.get('/quotes/order/:orderId', async (req, res) => {
   try {
     const orderId = String(req.params.orderId || '').trim();
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [machines] = await conn.execute(
@@ -157,7 +158,7 @@ router.post('/quotes/order/:orderId/generate-message', async (req, res) => {
   try {
     const orderId = String(req.params.orderId || '').trim();
 
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
     const order = await resolveOrder(conn, orderId, tenantId);

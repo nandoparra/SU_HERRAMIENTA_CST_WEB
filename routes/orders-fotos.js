@@ -1,4 +1,5 @@
 'use strict';
+const { getTenantId } = require('../utils/tenant-id');
 const express = require('express');
 const router = express.Router();
 const db = require('../utils/db');
@@ -161,7 +162,7 @@ router.delete('/orders/fotos-trabajo/:uid_foto', async (req, res) => {
 // ── Subir factura de garantía por máquina ─────────────────────────────────────
 router.post('/orders/:orderId/factura-maquina/:uid_herramienta_orden', uploadFactura.single('factura'), async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     if (!req.file) return res.status(400).json({ error: 'No se recibió ningún PDF' });
     await checkMagicBytes(req.file.path, ['application/pdf']);
     const conn = await db.getConnection();
@@ -192,7 +193,7 @@ router.post('/orders/:orderId/factura-maquina/:uid_herramienta_orden', uploadFac
 // ── Agregar máquina a orden existente ────────────────────────────────────────
 router.post('/orders/:orderId/agregar-maquina', async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const { uid_herramienta, observaciones, es_garantia, garantia_vence } = req.body;
     if (!uid_herramienta) return res.status(400).json({ error: 'uid_herramienta requerido' });
     if (es_garantia && !garantia_vence) return res.status(400).json({ error: 'La fecha de vencimiento es obligatoria para máquinas en garantía' });

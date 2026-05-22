@@ -1,4 +1,5 @@
 'use strict';
+const { getTenantId } = require('../utils/tenant-id');
 const express    = require('express');
 const router     = express.Router();
 const bcrypt     = require('bcrypt');
@@ -33,7 +34,7 @@ router.post('/login', loginLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Usuario y contraseña requeridos' });
     }
 
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     let userResult;
     try {
@@ -120,7 +121,7 @@ router.post('/change-password', async (req, res) => {
     if (String(newPassword).length < 8)
       return res.status(400).json({ success: false, error: 'La nueva contraseña debe tener al menos 8 caracteres' });
 
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [[user]] = await conn.execute(
@@ -166,7 +167,7 @@ router.get('/me', (req, res) => {
   if (!req.session.user) return res.status(401).json({ authenticated: false });
   // Verificar que la sesión pertenece al tenant activo (cross-tenant protection)
   const sessionTenant = req.session.user.tenant_id ?? 1;
-  const reqTenant     = req.tenant?.uid_tenant ?? 1;
+  const reqTenant     = getTenantId(req);
   if (sessionTenant !== reqTenant) {
     req.session.destroy(() => {});
     return res.status(401).json({ authenticated: false, redirect: '/login' });

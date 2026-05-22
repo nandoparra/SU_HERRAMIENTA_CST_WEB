@@ -1,4 +1,5 @@
 'use strict';
+const { getTenantId } = require('../utils/tenant-id');
 const express = require('express');
 const router = express.Router();
 const db = require('../utils/db');
@@ -20,7 +21,7 @@ router.get('/cliente/mis-ordenes', async (req, res) => {
     const user = req.session?.user;
     if (!user || user.tipo !== 'C') return res.status(403).json([]);
 
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [[cli]] = await conn.execute(
@@ -127,7 +128,7 @@ router.get('/cliente/informe/:uid_herramienta_orden', async (req, res) => {
   const user = req.session?.user;
   if (!user || user.tipo !== 'C') return res.status(403).json({ error: 'Acceso denegado' });
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     let row;
     try {
@@ -172,7 +173,7 @@ router.patch('/cliente/maquina/:uid_herramienta_orden/autorizar', async (req, re
   try {
     conn = await db.getConnection();
 
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const [[maq]] = await conn.execute(
       `SELECT ho.uid_herramienta_orden, ho.uid_orden, ho.her_estado
        FROM b2c_herramienta_orden ho

@@ -1,4 +1,5 @@
 'use strict';
+const { getTenantId } = require('../utils/tenant-id');
 const express    = require('express');
 const router     = express.Router();
 const db         = require('../utils/db');
@@ -64,7 +65,7 @@ function calcularTotalesCabecera(itemsCalc) {
 
 // ─── GET /api/ventas/caja-dia — resumen de hoy ───────────────────────────────
 router.get('/ventas/caja-dia', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const hoy = new Date().toISOString().slice(0, 10);
   const conn = await db.getConnection();
   try {
@@ -88,7 +89,7 @@ router.get('/ventas/caja-dia', async (req, res) => {
 
 // ─── GET /api/ventas — lista con filtros ──────────────────────────────────────
 router.get('/ventas', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const { estado, fecha_desde, fecha_hasta, uid_cliente, uid_orden, page = 1 } = req.query;
   const limit  = 50;
   const offset = (Math.max(1, parseInt(page) || 1) - 1) * limit;
@@ -131,7 +132,7 @@ router.get('/ventas', async (req, res) => {
 
 // ─── GET /api/ventas/:id — detalle completo ───────────────────────────────────
 router.get('/ventas/:id', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const isAdmin  = req.session?.user?.tipo === 'A';
   const conn = await db.getConnection();
   try {
@@ -248,7 +249,7 @@ async function crearVentaInterna(conn, { tenantId, userId, ivaResp, body }) {
 
 // ─── POST /api/ventas — crear venta ──────────────────────────────────────────
 router.post('/ventas', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const userId   = req.session?.user?.id ?? null;
   const ivaResp  = !!(req.tenant?.ten_iva_responsable);
   const { ven_fecha, items = [] } = req.body;
@@ -279,7 +280,7 @@ router.post('/ventas', async (req, res) => {
 
 // ─── PATCH /api/ventas/:id/pagar ─────────────────────────────────────────────
 router.patch('/ventas/:id/pagar', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [[row]] = await conn.execute(
@@ -306,7 +307,7 @@ router.patch('/ventas/:id/pagar', async (req, res) => {
 
 // ─── PATCH /api/ventas/:id/anular ────────────────────────────────────────────
 router.patch('/ventas/:id/anular', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [[row]] = await conn.execute(
@@ -333,7 +334,7 @@ router.patch('/ventas/:id/anular', async (req, res) => {
 // ─── POST /api/ventas/desde-orden/:orderId ────────────────────────────────────
 // Pre-carga ítems desde la cotización aprobada y crea la venta en una transacción.
 router.post('/ventas/desde-orden/:orderId', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const userId   = req.session?.user?.id ?? null;
   const ivaResp  = !!(req.tenant?.ten_iva_responsable);
   const conn = await db.getConnection();
@@ -421,7 +422,7 @@ router.post('/ventas/desde-orden/:orderId', async (req, res) => {
 
 // ─── GET /api/ventas/:id/pdf ──────────────────────────────────────────────────
 router.get('/ventas/:id/pdf', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [[venta]] = await conn.execute(
@@ -461,7 +462,7 @@ router.get('/ventas/:id/pdf', async (req, res) => {
 
 // ─── GET /api/ventas/:id/print — ticket HTML con auto-print ──────────────────
 router.get('/ventas/:id/print', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [[venta]] = await conn.execute(

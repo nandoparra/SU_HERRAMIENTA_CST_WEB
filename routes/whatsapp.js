@@ -1,3 +1,4 @@
+const { getTenantId } = require('../utils/tenant-id');
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
@@ -22,13 +23,13 @@ const waLimiter = rateLimit({
 
 // Estado de conexión WA (para banner en dashboard)
 router.get('/whatsapp/status', requireInterno, (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   res.json({ connected: isReady(tenantId) });
 });
 
 // Forzar reset de sesión WA — útil cuando no genera QR por sesión expirada
 router.post('/whatsapp/reset', requireInterno, async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   try {
     await resetTenantClient(tenantId);
     res.send('<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>🔄 Sesión reiniciada</h2><p>Espera 15 segundos y luego ve a <a href="/api/whatsapp/qr">/api/whatsapp/qr</a> para escanear el QR nuevo.</p></body></html>');
@@ -39,7 +40,7 @@ router.post('/whatsapp/reset', requireInterno, async (req, res) => {
 
 // Mostrar QR para escanear desde el navegador (solo internos)
 router.get('/whatsapp/qr', requireInterno, async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   if (isReady(tenantId)) {
     return res.send('<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2 style="color:green">✅ WhatsApp ya está conectado</h2></body></html>');
   }
@@ -68,7 +69,7 @@ router.get('/whatsapp/qr', requireInterno, async (req, res) => {
 // Enviar WhatsApp usando el mensaje guardado de la orden
 router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, waLimiter, async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     if (!isReady(tenantId)) {
       return res.status(503).json({
         success: false,
@@ -128,7 +129,7 @@ router.post('/whatsapp/send', requireInterno, waLimiter, async (req, res) => {
   try {
     const { orderId, message } = req.body;
 
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     if (!isReady(tenantId)) {
       return res.status(503).json({
         success: false,

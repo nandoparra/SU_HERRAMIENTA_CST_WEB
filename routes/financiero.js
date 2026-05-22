@@ -1,4 +1,5 @@
 'use strict';
+const { getTenantId } = require('../utils/tenant-id');
 const express  = require('express');
 const router   = express.Router();
 const db       = require('../utils/db');
@@ -24,7 +25,7 @@ async function getConfigActiva(conn, tenantId) {
 
 // ─── 1. GET /api/financiero/config ─────────────────────────────────────────
 router.get('/financiero/config', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const cfg = await getConfigActiva(conn, tenantId);
@@ -42,7 +43,7 @@ router.get('/financiero/config', async (req, res) => {
 // Crea nueva versión cerrando la anterior. Solo admin.
 router.put('/financiero/config', async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo administradores' });
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const {
     cf_utilidad_objetivo_min, cf_utilidad_objetivo_opt,
     cf_margen_objetivo_rep, cf_meta_total_mes,
@@ -113,7 +114,7 @@ router.put('/financiero/config', async (req, res) => {
 // Solo admin.
 router.get('/financiero/config/historial', async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo administradores' });
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [rows] = await conn.execute(
@@ -133,7 +134,7 @@ router.get('/financiero/config/historial', async (req, res) => {
 
 // ─── 4. GET /api/financiero/dashboard?mes=YYYY-MM ──────────────────────────
 router.get('/financiero/dashboard', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const mes = req.query.mes || new Date().toISOString().slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(mes) || Number(mes.slice(5)) < 1 || Number(mes.slice(5)) > 12)
     return res.status(400).json({ error: 'mes debe tener formato YYYY-MM' });
@@ -154,7 +155,7 @@ router.get('/financiero/dashboard', async (req, res) => {
 // Lista ventas del mes con indicadores de rentabilidad. Solo admin.
 router.get('/financiero/ventas', async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo administradores' });
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const mes      = req.query.mes || new Date().toISOString().slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(mes) || Number(mes.slice(5)) < 1 || Number(mes.slice(5)) > 12)
     return res.status(400).json({ error: 'mes debe tener formato YYYY-MM' });
@@ -207,7 +208,7 @@ router.get('/financiero/ventas', async (req, res) => {
 // Sugerencias de precio para ventas no rentables. Solo admin.
 router.get('/financiero/ventas/:id/sugerencias', async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Solo administradores' });
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [[venta]] = await conn.execute(

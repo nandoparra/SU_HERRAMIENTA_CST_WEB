@@ -1,4 +1,5 @@
 'use strict';
+const { getTenantId } = require('../utils/tenant-id');
 const express  = require('express');
 const router   = express.Router();
 const multer   = require('multer');
@@ -39,7 +40,7 @@ const CATEGORIAS = ['nomina','arriendo','servicios','compras','mantenimiento','i
 
 // ─── GET /api/contable/egresos ────────────────────────────────────────────────
 router.get('/contable/egresos', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const { mes, categoria, estado = 'activo' } = req.query;
   let where = 'WHERE e.tenant_id = ?';
   const params = [tenantId];
@@ -73,7 +74,7 @@ router.get('/contable/egresos', async (req, res) => {
 
 // ─── POST /api/contable/egresos ───────────────────────────────────────────────
 router.post('/contable/egresos', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const userId   = req.session?.user?.id ?? null;
   const {
     egr_fecha, egr_concepto, egr_categoria = 'otros', egr_valor,
@@ -125,7 +126,7 @@ router.post('/contable/egresos', async (req, res) => {
 
 // ─── PATCH /api/contable/egresos/:id ─────────────────────────────────────────
 router.patch('/contable/egresos/:id', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const { id } = req.params;
   const allowed = [
     'egr_fecha','egr_concepto','egr_categoria','egr_valor',
@@ -162,7 +163,7 @@ router.patch('/contable/egresos/:id', async (req, res) => {
 
 // ─── PATCH /api/contable/egresos/:id/anular ──────────────────────────────────
 router.patch('/contable/egresos/:id/anular', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [[egr]] = await conn.execute(
@@ -267,7 +268,7 @@ Si no puedes extraer un campo con certeza, usa null. Responde únicamente con el
 
 // ─── PATCH /api/contable/egresos/:id/pagar ───────────────────────────────────
 router.patch('/contable/egresos/:id/pagar', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [[egr]] = await conn.execute(
@@ -294,7 +295,7 @@ router.patch('/contable/egresos/:id/pagar', async (req, res) => {
 // ─── GET /api/contable/vencimientos ──────────────────────────────────────────
 // Egresos a crédito pendientes de pago, ordenados por fecha de vencimiento.
 router.get('/contable/vencimientos', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [rows] = await conn.execute(
@@ -318,7 +319,7 @@ router.get('/contable/vencimientos', async (req, res) => {
 // ─── GET /api/contable/resumen ────────────────────────────────────────────────
 // Estado de resultados del mes: ingresos, costos, egresos, utilidad neta.
 router.get('/contable/resumen', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const mes = req.query.mes || new Date().toISOString().slice(0, 7);
   const fechaInicio = `${mes}-01`;
 

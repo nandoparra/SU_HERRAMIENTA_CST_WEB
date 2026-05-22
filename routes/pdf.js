@@ -1,4 +1,5 @@
 'use strict';
+const { getTenantId } = require('../utils/tenant-id');
 const express      = require('express');
 const router       = express.Router();
 const db           = require('../utils/db');
@@ -141,7 +142,7 @@ function getPhone(order) {
 // ─── DESCARGAR cotización PDF ─────────────────────────────────────────────────
 router.get('/orders/:orderId/pdf/quote', requireInterno, async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const order = await resolveOrder(conn, req.params.orderId, tenantId);
@@ -165,7 +166,7 @@ router.get('/orders/:orderId/pdf/quote', requireInterno, async (req, res) => {
 // ─── DESCARGAR informe de mantenimiento PDF ───────────────────────────────────
 router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireInterno, async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const order = await resolveOrder(conn, req.params.orderId, tenantId);
@@ -202,7 +203,7 @@ router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireInterno,
 // ─── ENVIAR cotización PDF por WhatsApp ──────────────────────────────────────
 router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     if (!isReady(tenantId)) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
 
     const conn = await db.getConnection();
@@ -231,7 +232,7 @@ router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) 
 // ─── ENVIAR informe de mantenimiento PDF por WhatsApp ────────────────────────
 router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireInterno, async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     if (!isReady(tenantId)) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
 
     const conn = await db.getConnection();
@@ -346,7 +347,7 @@ function printHtml(pdfUrl) {
 // ─── DESCARGAR / IMPRIMIR orden completa (todas las máquinas) ─────────────────
 router.get('/orders/:orderId/pdf/orden', requireInterno, async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const order = await resolveOrder(conn, req.params.orderId, tenantId);
@@ -376,7 +377,7 @@ router.get('/orders/:orderId/pdf/orden', requireInterno, async (req, res) => {
 
 router.get('/orders/:orderId/print/orden', requireInterno, async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const order = await resolveOrder(conn, req.params.orderId, tenantId);
@@ -394,7 +395,7 @@ router.get('/orders/:orderId/print/orden', requireInterno, async (req, res) => {
 // ─── ENVIAR orden completa PDF por WhatsApp ───────────────────────────────────
 router.post('/orders/:orderId/send-pdf/orden', requireInterno, async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     if (!isReady(tenantId)) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
     const conn = await db.getConnection();
     try {
