@@ -4740,16 +4740,43 @@ window.con_toggleVencimiento = function() {
   if (row) row.style.display = fp === 'credito' ? 'block' : 'none';
 };
 
+// Comprime una imagen en el navegador usando Canvas si supera maxBytes.
+// PDFs y archivos ya pequeños se devuelven sin cambios.
+async function _comprimirImagen(file, maxBytes = 4.5 * 1024 * 1024) {
+  if (!file.type.startsWith('image/') || file.size <= maxBytes) return file;
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 1568;
+      let { naturalWidth: w, naturalHeight: h } = img;
+      if (w > MAX || h > MAX) {
+        const r = Math.min(MAX / w, MAX / h);
+        w = Math.round(w * r); h = Math.round(h * r);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => resolve(new File([blob], file.name, { type: 'image/jpeg' })), 'image/jpeg', 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
 window.con_extraerIA = async function() {
   const fileEl = document.getElementById('conEgrFile');
   const msgEl  = document.getElementById('conEgrIAMsg');
   const btn    = document.getElementById('conEgrIABtn');
   if (!fileEl?.files?.length) { msgEl.style.display=''; msgEl.style.color='#991b1b'; msgEl.textContent='Selecciona una imagen o PDF primero.'; return; }
   btn.disabled = true; btn.textContent = '⏳ Enviando...';
-  msgEl.style.display = ''; msgEl.style.color = '#888'; msgEl.textContent = 'Enviando archivo...';
+  msgEl.style.display = ''; msgEl.style.color = '#888'; msgEl.textContent = 'Preparando imagen...';
   try {
+    const archivo = await _comprimirImagen(fileEl.files[0]);
+    msgEl.textContent = 'Enviando archivo...';
     const form = new FormData();
-    form.append('factura', fileEl.files[0]);
+    form.append('factura', archivo);
     const resp = await fetch(`${API}/contable/egresos/extraer-factura`, { method:'POST', body: form });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
