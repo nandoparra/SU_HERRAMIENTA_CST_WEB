@@ -177,7 +177,8 @@ router.patch('/contable/egresos/:id/anular', async (req, res) => {
     if (!egr) return res.status(404).json({ error: 'Egreso no encontrado' });
     if (egr.egr_estado === 'anulado') return res.status(409).json({ error: 'Ya está anulado' });
     await conn.execute(
-      `UPDATE b2c_egreso SET egr_estado = 'anulado' WHERE uid_egreso = ?`, [req.params.id]
+      `UPDATE b2c_egreso SET egr_estado = 'anulado' WHERE uid_egreso = ? AND tenant_id = ?`,
+      [req.params.id, tenantId]
     );
     await logAudit(req, 'egreso_anulado', 'b2c_egreso', String(req.params.id), {});
     res.json({ ok: true });
@@ -282,7 +283,8 @@ router.patch('/contable/egresos/:id/pagar', async (req, res) => {
     if (egr.egr_estado === 'anulado')   return res.status(409).json({ error: 'El egreso está anulado' });
     if (egr.egr_estado_pago === 'pagado') return res.status(409).json({ error: 'Ya está marcado como pagado' });
     await conn.execute(
-      `UPDATE b2c_egreso SET egr_estado_pago = 'pagado' WHERE uid_egreso = ?`, [req.params.id]
+      `UPDATE b2c_egreso SET egr_estado_pago = 'pagado' WHERE uid_egreso = ? AND tenant_id = ?`,
+      [req.params.id, tenantId]
     );
     await logAudit(req, 'egreso_pagado', 'b2c_egreso', String(req.params.id), {});
     res.json({ ok: true });
