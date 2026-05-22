@@ -7,6 +7,7 @@ const path     = require('path');
 const fs       = require('fs');
 const db       = require('../utils/db');
 const { getClient: getIAClient, withTimeout } = require('../utils/ia');
+const Jimp = require('jimp');
 const { requireInterno, requireAddonContabilidad } = require('../middleware/auth');
 const { UPLOADS_DIR, checkMagicBytes } = require('../utils/uploads');
 const { logAudit } = require('../utils/audit');
@@ -214,7 +215,27 @@ router.post('/contable/egresos/extraer-factura', uploadFactura.single('factura')
   const VISION_TIMEOUT_MS = Number(process.env.CLAUDE_VISION_TIMEOUT_MS) || 60_000;
 
   try {
-    const isPdf = mime === 'application/pdf';
+    let isPdf = mime === 'application/pdf';
+    let imageMime = mime;
+
+    // Comprimir imagen server-side si supera 4.5 MB (límite Anthropic = 5 MB)
+    if (!isPdf) {
+      const originalSize = fs.statSync(filePath).size;
+      if (originalSize > 4.5 * 1024 * 1024) {
+        try {
+          const img = await Jimp.read(filePath);
+          if (img.bitmap.width > 1568 || img.bitmap.height > 1568) {
+            img.scaleToFit(1568, 1568);
+          }
+          const compressed = await img.quality(85).getBufferAsync(Jimp.MIME_JPEG);
+          fs.writeFileSync(filePath, compressed);
+          imageMime = 'image/jpeg';
+          log.info(`[contable] Imagen comprimida: ${originalSize} → ${compressed.length} bytes`);
+        } catch (compErr) {
+          log.warn({ err: compErr }, '[contable] jimp no pudo comprimir imagen');
+        }
+      }
+    }
 
     const fileData = fs.readFileSync(filePath);
     const b64      = fileData.toString('base64');
@@ -222,7 +243,7 @@ router.post('/contable/egresos/extraer-factura', uploadFactura.single('factura')
     const contentBlocks = [
       isPdf
         ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
-        : { type: 'image',    source: { type: 'base64', media_type: mime,               data: b64 } },
+        : { type: 'image',    source: { type: 'base64', media_type: imageMime,          data: b64 } },
       {
         type: 'text',
         text: `Analiza esta factura o comprobante de pago y extrae los siguientes datos en formato JSON estricto, sin texto adicional:

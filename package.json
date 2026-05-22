@@ -19,6 +19,7 @@
     "express-session": "^1.19.0",
     "file-type": "^16.5.4",
     "helmet": "^8.1.0",
+    "jimp": "^0.22.12",
     "multer": "^2.0.2",
     "mysql2": "^3.6.0",
     "pdfkit": "^0.17.2",
