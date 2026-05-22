@@ -1,3 +1,4 @@
+const { getTenantId } = require('../utils/tenant-id');
 const express = require('express');
 const router = express.Router();
 const db = require('../utils/db');
@@ -52,7 +53,7 @@ const ESTADOS_VALIDOS = [
 router.get('/orders', ordersLimiter, async (req, res) => {
   try {
     const limit = Math.max(1, Math.min(50, parseInt(req.query.limit || '10', 10)));
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [rows] = await conn.execute(
@@ -84,7 +85,7 @@ router.get('/orders/search', searchLimiter, async (req, res) => {
     const digits = qRaw.replace(/\D/g, '');
     const isOnlyDigits = digits.length > 0 && digits === qRaw;
 
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       if (isOnlyDigits && digits.length <= 8) {
@@ -162,7 +163,7 @@ router.get('/orders/by-estado', async (req, res) => {
     const estado = String(req.query.estado || '');
     const mes    = String(req.query.mes    || '');
 
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const params = [tenantId];
     let estadoClause = '';
     if (estado === 'pendiente_revision') {
@@ -238,7 +239,7 @@ router.get('/orders/mis-ordenes-tecnico', async (req, res) => {
         }
       }
 
-      const tenantId = req.tenant?.uid_tenant ?? 1;
+      const tenantId = getTenantId(req);
       const [rows] = await conn.execute(
         `SELECT DISTINCT o.uid_orden, o.ord_consecutivo, o.ord_estado, o.ord_fecha,
                 o.ord_tipo, o.ord_factura, o.ord_garantia_vence, o.ord_revision_limite,
@@ -270,7 +271,7 @@ router.get('/orders/mis-ordenes-tecnico', async (req, res) => {
 // Orden completa + máquinas + técnicos
 router.get('/orders/:orderId', async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const order = await resolveOrder(conn, req.params.orderId, tenantId);
@@ -460,7 +461,7 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
   try {
     const { status } = req.body;
     const equipmentOrderId = String(req.params.equipmentOrderId);
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
 
     if (!status || !ESTADOS_VALIDOS.includes(status)) {
       return res.status(400).json({ success: false, error: `Estado inválido. Valores permitidos: ${ESTADOS_VALIDOS.join(', ')}` });
@@ -541,7 +542,7 @@ router.patch('/equipment-order/:equipmentOrderId/observaciones', async (req, res
 // Vista de detalle para la página de consulta de órdenes
 router.get('/orders/:orderId/detalle', ordersLimiter, async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const order = await resolveOrder(conn, req.params.orderId, tenantId);

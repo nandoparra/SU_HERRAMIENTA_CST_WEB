@@ -1,4 +1,5 @@
 'use strict';
+const { getTenantId } = require('../utils/tenant-id');
 const express = require('express');
 const router  = express.Router();
 const db      = require('../utils/db');
@@ -11,7 +12,7 @@ router.use(requireInterno);
 // ─── GET /api/recibos/cotizacion-orden/:uidOrden — datos de cotización para modal ──
 // Debe ir ANTES de /recibos/:id para que Express no confunda la ruta
 router.get('/recibos/cotizacion-orden/:uidOrden', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [machines] = await conn.execute(
@@ -44,7 +45,7 @@ router.get('/recibos/cotizacion-orden/:uidOrden', async (req, res) => {
 
 // ─── GET /api/recibos — lista con filtros opcionales ─────────────────────────
 router.get('/recibos', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const { estado, fecha_desde, fecha_hasta, uid_cliente, uid_orden } = req.query;
 
   let where = 'WHERE r.tenant_id = ?';
@@ -83,7 +84,7 @@ router.get('/recibos', async (req, res) => {
 
 // ─── POST /api/recibos — crear recibo ────────────────────────────────────────
 router.post('/recibos', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const userId   = req.session?.user?.id ?? null;
   const {
     uid_orden, uid_cliente, rc_nombre_paga, rc_cliente_cedula,
@@ -135,7 +136,7 @@ router.post('/recibos', async (req, res) => {
 
 // ─── GET /api/recibos/:id — detalle ──────────────────────────────────────────
 router.get('/recibos/:id', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [[row]] = await conn.execute(
@@ -162,7 +163,7 @@ router.get('/recibos/:id', async (req, res) => {
 
 // ─── PATCH /api/recibos/:id/anular ───────────────────────────────────────────
 router.patch('/recibos/:id/anular', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [[row]] = await conn.execute(
@@ -187,7 +188,7 @@ router.patch('/recibos/:id/anular', async (req, res) => {
 
 // ─── GET /api/recibos/:id/pdf ─────────────────────────────────────────────────
 router.get('/recibos/:id/pdf', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [[recibo]] = await conn.execute(

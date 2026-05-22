@@ -1,4 +1,15 @@
 require('dotenv').config();
+
+// Sentry — inicializar ANTES que cualquier otro require para capturar errores de módulos
+const Sentry = require('@sentry/node');
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 0.1,
+  });
+}
+
 const express = require('express');
 const helmet  = require('helmet');
 const cors    = require('cors');
@@ -166,6 +177,9 @@ if (process.env.NODE_ENV !== 'production') {
     }
   });
 }
+
+// Sentry error handler — debe ir antes del handler de Express
+if (process.env.SENTRY_DSN) Sentry.setupExpressErrorHandler(app);
 
 // Error handler
 app.use((err, req, res, next) => {

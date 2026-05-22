@@ -1,3 +1,4 @@
+const { getTenantId } = require('../utils/tenant-id');
 const express   = require('express');
 const router    = express.Router();
 const rateLimit = require('express-rate-limit');
@@ -60,7 +61,7 @@ router.get('/dashboard', dashLimiter, async (req, res) => {
     const month = raw.slice(5, 7)  || String(now.getMonth() + 1).padStart(2, '0');
     const prefix = `${year}${month}`;
 
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [[totalRow]] = await conn.execute(
@@ -188,7 +189,7 @@ router.get('/clientes/search', searchLimiter, async (req, res) => {
     if (!q) return res.json([]);
     const like   = `%${q}%`;
     const digits = q.replace(/\D/g, '');
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     // digits: busca también contra identificacion normalizada (sin puntos/guiones/espacios)
     const params = digits
       ? [tenantId, like, like, `%${digits}%`, like, `%${digits}%`]
@@ -223,7 +224,7 @@ router.get('/clientes/search', searchLimiter, async (req, res) => {
 
 router.get('/clientes/:id', async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [[cliente]] = await conn.execute(
@@ -251,7 +252,7 @@ router.get('/clientes/:id', async (req, res) => {
 
 router.patch('/clientes/:id', async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const { cli_razon_social, cli_telefono, cli_contacto, cli_tel_contacto, cli_direccion } = req.body;
     if (!cli_razon_social || !cli_telefono) {
       return res.status(400).json({ error: 'Razón social y teléfono son obligatorios' });
@@ -281,7 +282,7 @@ router.post('/clientes/:id/crear-acceso', async (req, res) => {
     const { login, clave } = req.body;
     if (!login || !clave)
       return res.status(400).json({ error: 'Login y clave son requeridos' });
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [[c]] = await conn.execute(
@@ -314,7 +315,7 @@ router.post('/clientes/:id/crear-acceso', async (req, res) => {
 // ── Funcionarios ───────────────────────────────────────────────────────────────
 router.get('/funcionarios', async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [rows] = await conn.execute(
@@ -340,7 +341,7 @@ router.post('/funcionarios', async (req, res) => {
     const { nombre, login, clave, tipo } = req.body;
     if (!nombre || !login || !clave || !['A','F','T'].includes(tipo))
       return res.status(400).json({ error: 'Datos incompletos o tipo inválido' });
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const hash = await bcrypt.hash(String(clave), 10);
     const conn = await db.getConnection();
     try {
@@ -372,7 +373,7 @@ router.patch('/funcionarios/:id', async (req, res) => {
     if (estado && ['A','I'].includes(estado))     { sets.push('usu_estado = ?'); params.push(estado); }
     if (clave)  { const h = await bcrypt.hash(String(clave), 10); sets.push('usu_clave = ?'); params.push(h); }
     if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     params.push(req.params.id, tenantId);
     const conn = await db.getConnection();
     try {
@@ -389,7 +390,7 @@ router.patch('/funcionarios/:id', async (req, res) => {
 // ── Inventario ─────────────────────────────────────────────────────────────────
 router.get('/inventario', async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [rows] = await conn.execute(
@@ -415,7 +416,7 @@ router.post('/inventario', async (req, res) => {
     const { descripcion, valor, costo, stock, tipo } = req.body;
     if (!descripcion || !tipo)
       return res.status(400).json({ error: 'Descripción y tipo son requeridos' });
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [r] = await conn.execute(
@@ -444,7 +445,7 @@ router.patch('/inventario/:id', async (req, res) => {
     if (stock !== undefined) { sets.push('cco_stock = ?');       params.push(Number(stock) || 0); }
     if (estado && ['A','I'].includes(estado)) { sets.push('cco_estado = ?'); params.push(estado); }
     if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     params.push(req.params.id, tenantId);
     const conn = await db.getConnection();
     try {
@@ -470,7 +471,7 @@ router.post('/inventario/:id/recepcion', async (req, res) => {
   if (!unids || unids <= 0)  return res.status(400).json({ error: 'unidades debe ser mayor a 0' });
   if (isNaN(costo) || costo < 0) return res.status(400).json({ error: 'costo_unitario inválido' });
 
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const userId   = req.session?.user?.id ?? null;
   const fechaRec = fecha || new Date().toISOString().slice(0, 10);
 
@@ -534,7 +535,7 @@ router.post('/inventario/:id/recepcion', async (req, res) => {
 
 // ── Historial de recepciones de un ítem ────────────────────────────────────
 router.get('/inventario/:id/recepciones', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [rows] = await conn.execute(
@@ -557,7 +558,7 @@ router.get('/inventario/:id/recepciones', async (req, res) => {
 // ─── GET /api/cotizaciones/pendientes — máquinas revisadas sin cotización ─────
 // Sin filtro de fecha: devuelve TODO el historial, no solo el mes actual.
 router.get('/cotizaciones/pendientes', dashLimiter, async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [rows] = await conn.execute(

@@ -1,17 +1,13 @@
 'use strict';
+const { getTenantId } = require('../utils/tenant-id');
 const express  = require('express');
 const router   = express.Router();
 const multer   = require('multer');
 const path     = require('path');
 const fs       = require('fs');
 const db       = require('../utils/db');
-const Anthropic = require('@anthropic-ai/sdk');
+const { getClient: getIAClient } = require('../utils/ia');
 const { requireInterno, requireAddonContabilidad } = require('../middleware/auth');
-let _iaClient = null;
-function getIAClient() {
-  if (!_iaClient) _iaClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  return _iaClient;
-}
 const { UPLOADS_DIR, checkMagicBytes } = require('../utils/uploads');
 const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
@@ -44,7 +40,7 @@ const CATEGORIAS = ['nomina','arriendo','servicios','compras','mantenimiento','i
 
 // ─── GET /api/contable/egresos ────────────────────────────────────────────────
 router.get('/contable/egresos', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const { mes, categoria, estado = 'activo' } = req.query;
   let where = 'WHERE e.tenant_id = ?';
   const params = [tenantId];
@@ -78,7 +74,7 @@ router.get('/contable/egresos', async (req, res) => {
 
 // ─── POST /api/contable/egresos ───────────────────────────────────────────────
 router.post('/contable/egresos', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const userId   = req.session?.user?.id ?? null;
   const {
     egr_fecha, egr_concepto, egr_categoria = 'otros', egr_valor,
@@ -130,7 +126,7 @@ router.post('/contable/egresos', async (req, res) => {
 
 // ─── PATCH /api/contable/egresos/:id ─────────────────────────────────────────
 router.patch('/contable/egresos/:id', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const { id } = req.params;
   const allowed = [
     'egr_fecha','egr_concepto','egr_categoria','egr_valor',
@@ -167,7 +163,7 @@ router.patch('/contable/egresos/:id', async (req, res) => {
 
 // ─── PATCH /api/contable/egresos/:id/anular ──────────────────────────────────
 router.patch('/contable/egresos/:id/anular', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [[egr]] = await conn.execute(
@@ -177,7 +173,8 @@ router.patch('/contable/egresos/:id/anular', async (req, res) => {
     if (!egr) return res.status(404).json({ error: 'Egreso no encontrado' });
     if (egr.egr_estado === 'anulado') return res.status(409).json({ error: 'Ya está anulado' });
     await conn.execute(
-      `UPDATE b2c_egreso SET egr_estado = 'anulado' WHERE uid_egreso = ?`, [req.params.id]
+      `UPDATE b2c_egreso SET egr_estado = 'anulado' WHERE uid_egreso = ? AND tenant_id = ?`,
+      [req.params.id, tenantId]
     );
     await logAudit(req, 'egreso_anulado', 'b2c_egreso', String(req.params.id), {});
     res.json({ ok: true });
@@ -271,7 +268,7 @@ Si no puedes extraer un campo con certeza, usa null. Responde únicamente con el
 
 // ─── PATCH /api/contable/egresos/:id/pagar ───────────────────────────────────
 router.patch('/contable/egresos/:id/pagar', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [[egr]] = await conn.execute(
@@ -282,7 +279,8 @@ router.patch('/contable/egresos/:id/pagar', async (req, res) => {
     if (egr.egr_estado === 'anulado')   return res.status(409).json({ error: 'El egreso está anulado' });
     if (egr.egr_estado_pago === 'pagado') return res.status(409).json({ error: 'Ya está marcado como pagado' });
     await conn.execute(
-      `UPDATE b2c_egreso SET egr_estado_pago = 'pagado' WHERE uid_egreso = ?`, [req.params.id]
+      `UPDATE b2c_egreso SET egr_estado_pago = 'pagado' WHERE uid_egreso = ? AND tenant_id = ?`,
+      [req.params.id, tenantId]
     );
     await logAudit(req, 'egreso_pagado', 'b2c_egreso', String(req.params.id), {});
     res.json({ ok: true });
@@ -297,7 +295,7 @@ router.patch('/contable/egresos/:id/pagar', async (req, res) => {
 // ─── GET /api/contable/vencimientos ──────────────────────────────────────────
 // Egresos a crédito pendientes de pago, ordenados por fecha de vencimiento.
 router.get('/contable/vencimientos', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
     const [rows] = await conn.execute(
@@ -321,7 +319,7 @@ router.get('/contable/vencimientos', async (req, res) => {
 // ─── GET /api/contable/resumen ────────────────────────────────────────────────
 // Estado de resultados del mes: ingresos, costos, egresos, utilidad neta.
 router.get('/contable/resumen', async (req, res) => {
-  const tenantId = req.tenant?.uid_tenant ?? 1;
+  const tenantId = getTenantId(req);
   const mes = req.query.mes || new Date().toISOString().slice(0, 7);
   const fechaInicio = `${mes}-01`;
 

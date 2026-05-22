@@ -1,4 +1,5 @@
 'use strict';
+const { getTenantId } = require('../utils/tenant-id');
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
@@ -26,7 +27,7 @@ const notifyLimiter = rateLimit({
 // Enviar lista consolidada de repuestos (máquinas autorizadas) al encargado
 router.post('/orders/:orderId/notify-parts', notifyLimiter, async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const order = await resolveOrder(conn, req.params.orderId, tenantId);
@@ -47,7 +48,7 @@ router.post('/orders/:orderId/notify-parts', notifyLimiter, async (req, res) => 
 // Notificar al cliente que sus máquinas están reparadas
 router.post('/orders/:orderId/notify-ready', notifyLimiter, async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const order = await resolveOrder(conn, req.params.orderId, tenantId);
@@ -92,7 +93,7 @@ router.post('/orders/:orderId/notify-ready', notifyLimiter, async (req, res) => 
 // Confirmar entrega al cliente
 router.post('/orders/:orderId/notify-delivered', notifyLimiter, async (req, res) => {
   try {
-    const tenantId = req.tenant?.uid_tenant ?? 1;
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const order = await resolveOrder(conn, req.params.orderId, tenantId);
