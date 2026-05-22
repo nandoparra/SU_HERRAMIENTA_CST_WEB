@@ -200,10 +200,41 @@ router.post('/contable/egresos/extraer-factura', uploadFactura.single('factura')
   try {
     await checkMagicBytes(filePath, ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']);
   } catch {
+    try { fs.unlinkSync(filePath); } catch (_) {}
     return res.status(422).json({ error: 'Archivo inválido o corrupto' });
   }
 
-  // Iniciar SSE — el cliente ve feedback inmediato mientras Claude procesa
+  const isPdf = mime === 'application/pdf';
+  let imageMime = mime;
+
+  // ── Comprimir y validar tamaño ANTES de iniciar SSE ──────────────────────────
+  // (si se hace dentro del SSE, el return no funciona de forma confiable)
+  if (!isPdf) {
+    const originalSize = fs.statSync(filePath).size;
+    if (originalSize > 4 * 1024 * 1024) {
+      try {
+        log.info(`[contable] Comprimiendo imagen: ${(originalSize / 1024 / 1024).toFixed(2)}MB`);
+        const imgBuf = fs.readFileSync(filePath);
+        const img = await Jimp.read(imgBuf);
+        img.scaleToFit(1568, 1568);
+        const compressed = await img.quality(80).getBufferAsync(Jimp.MIME_JPEG);
+        fs.writeFileSync(filePath, compressed);
+        imageMime = 'image/jpeg';
+        log.info(`[contable] Imagen comprimida → ${(compressed.length / 1024 / 1024).toFixed(2)}MB`);
+      } catch (compErr) {
+        log.warn({ err: compErr }, '[contable] jimp no pudo comprimir imagen');
+      }
+    }
+    const finalSize = fs.statSync(filePath).size;
+    if (finalSize > 4.5 * 1024 * 1024) {
+      try { fs.unlinkSync(filePath); } catch (_) {}
+      return res.status(413).json({
+        error: `La imagen es demasiado grande (${(finalSize / 1024 / 1024).toFixed(1)}MB). Toma la foto con menor resolución (máx. 4.5MB).`,
+      });
+    }
+  }
+
+  // ── Iniciar SSE — tamaño ya validado ─────────────────────────────────────────
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -215,39 +246,8 @@ router.post('/contable/egresos/extraer-factura', uploadFactura.single('factura')
   const VISION_TIMEOUT_MS = Number(process.env.CLAUDE_VISION_TIMEOUT_MS) || 60_000;
 
   try {
-    let isPdf = mime === 'application/pdf';
-    let imageMime = mime;
-
-    // Comprimir imagen server-side si supera 4 MB (límite Anthropic = 5 MB)
-    if (!isPdf) {
-      const originalSize = fs.statSync(filePath).size;
-      if (originalSize > 4 * 1024 * 1024) {
-        try {
-          log.info(`[contable] Comprimiendo imagen: ${(originalSize / 1024 / 1024).toFixed(2)}MB`);
-          const imgBuf = fs.readFileSync(filePath);
-          const img = await Jimp.read(imgBuf);
-          if (img.bitmap.width > 1568 || img.bitmap.height > 1568) {
-            img.scaleToFit(1568, 1568);
-          }
-          const compressed = await img.quality(80).getBufferAsync(Jimp.MIME_JPEG);
-          fs.writeFileSync(filePath, compressed);
-          imageMime = 'image/jpeg';
-          log.info(`[contable] Imagen comprimida: ${(originalSize / 1024 / 1024).toFixed(2)}MB → ${(compressed.length / 1024 / 1024).toFixed(2)}MB`);
-        } catch (compErr) {
-          log.warn({ err: compErr }, '[contable] jimp no pudo comprimir imagen');
-        }
-      }
-    }
-
     const fileData = fs.readFileSync(filePath);
     const b64      = fileData.toString('base64');
-
-    // Límite definitivo: si el buffer real supera 4.5MB rechazar antes de llamar a Anthropic
-    if (!isPdf && fileData.length > 4.5 * 1024 * 1024) {
-      send({ status: 'error', error: `La imagen es demasiado grande (${(fileData.length / 1024 / 1024).toFixed(1)}MB). Toma la foto con menor resolución o comprime la imagen antes de subirla.` });
-      res.end();
-      return;
-    }
     log.info(`[contable] Enviando a Anthropic: ${(fileData.length / 1024 / 1024).toFixed(2)}MB`);
 
     const contentBlocks = [
