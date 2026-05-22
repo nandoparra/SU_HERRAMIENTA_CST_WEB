@@ -114,8 +114,11 @@ function createTenantClient(tenantId) {
   client.on('disconnected', async (reason) => {
     console.log(`⚠️ WhatsApp Web [tenant ${tid}] desconectado:`, reason);
     info.ready = false;
-    // Destruir el cliente actual (libera Chromium) SIN borrar la sesión del disco.
-    // Crear uno nuevo que retomará la sesión guardada en WA_AUTH_BASE.
+    // LOGOUT = WhatsApp navigó a post_logout=1 (servidor invalidó sesión).
+    // La librería ya llamó LocalAuth.logout() (borró sesión) + beforeBrowserInitialized()
+    // + afterBrowserInitialized() internamente — emitirá 'qr' sola. No interferir.
+    if (reason === 'LOGOUT') return;
+    // Cualquier otro disconnect (red, error): destruir y reconectar con sesión existente.
     try { await info.client.destroy(); } catch (_) {}
     pool.delete(tid);
     setTimeout(() => {

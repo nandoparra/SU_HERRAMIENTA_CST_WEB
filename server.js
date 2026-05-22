@@ -208,5 +208,12 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {
   log.info({ port: PORT }, '✅ Servidor corriendo');
   await runMigrations();
+  // Delay configurable para que el contenedor anterior (Railway) termine su Chromium
+  // antes de que el nuevo lo arranque en el mismo directorio del Volume.
+  const waDelay = Number(process.env.WA_INIT_DELAY_MS ?? 20_000);
+  if (waDelay > 0) {
+    log.info(`[WA] Esperando ${waDelay / 1000}s antes de inicializar (grace period contenedor anterior)…`);
+    await new Promise(r => setTimeout(r, waDelay));
+  }
   initTenantClient(1);
 });
