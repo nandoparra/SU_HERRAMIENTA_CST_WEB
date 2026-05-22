@@ -6,7 +6,7 @@ const multer   = require('multer');
 const path     = require('path');
 const fs       = require('fs');
 const db       = require('../utils/db');
-const { getClient: getIAClient } = require('../utils/ia');
+const { getClient: getIAClient, withTimeout } = require('../utils/ia');
 const { requireInterno, requireAddonContabilidad } = require('../middleware/auth');
 const { UPLOADS_DIR, checkMagicBytes } = require('../utils/uploads');
 const { logAudit } = require('../utils/audit');
@@ -187,8 +187,9 @@ router.patch('/contable/egresos/:id/anular', async (req, res) => {
 });
 
 // ─── POST /api/contable/egresos/extraer-factura ───────────────────────────────
-// Recibe imagen o PDF, llama a Claude Vision y devuelve los campos extraídos.
-// El usuario revisa y confirma antes de guardar (POST /contable/egresos separado).
+// Recibe imagen o PDF, llama a Claude Vision y transmite progreso vía SSE.
+// El cliente escucha: {"status":"analyzing"} primero, luego {"status":"done",...}
+// o {"status":"error",...}. El usuario revisa y confirma antes de guardar.
 router.post('/contable/egresos/extraer-factura', uploadFactura.single('factura'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Se requiere el archivo de factura' });
 
@@ -201,19 +202,26 @@ router.post('/contable/egresos/extraer-factura', uploadFactura.single('factura')
     return res.status(422).json({ error: 'Archivo inválido o corrupto' });
   }
 
-  try {
-    const fileData  = fs.readFileSync(filePath);
-    const b64       = fileData.toString('base64');
+  // Iniciar SSE — el cliente ve feedback inmediato mientras Claude procesa
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
 
-    // Para PDF enviamos como documento; para imágenes como image
-    const isPdf     = mime === 'application/pdf';
-    const mediaType = isPdf ? 'application/pdf' : mime;
-    const sourceType = isPdf ? 'base64' : 'base64';
+  const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+  send({ status: 'analyzing' });
+
+  const VISION_TIMEOUT_MS = Number(process.env.CLAUDE_VISION_TIMEOUT_MS) || 60_000;
+
+  try {
+    const fileData = fs.readFileSync(filePath);
+    const b64      = fileData.toString('base64');
+    const isPdf    = mime === 'application/pdf';
 
     const contentBlocks = [
       isPdf
         ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
-        : { type: 'image',    source: { type: 'base64', media_type: mediaType,          data: b64 } },
+        : { type: 'image',    source: { type: 'base64', media_type: mime,               data: b64 } },
       {
         type: 'text',
         text: `Analiza esta factura o comprobante de pago y extrae los siguientes datos en formato JSON estricto, sin texto adicional:
@@ -232,18 +240,23 @@ Si no puedes extraer un campo con certeza, usa null. Responde únicamente con el
       },
     ];
 
-    const response = await getIAClient().beta.messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-opus-4-6',
-      max_tokens: 512,
-      messages: [{ role: 'user', content: contentBlocks }],
-    });
+    const response = await withTimeout(
+      getIAClient().beta.messages.create({
+        model: process.env.CLAUDE_MODEL || 'claude-opus-4-6',
+        max_tokens: 512,
+        messages: [{ role: 'user', content: contentBlocks }],
+      }),
+      VISION_TIMEOUT_MS,
+      'Extracción IA'
+    );
 
     const raw  = response.content[0]?.text?.trim() || '{}';
     const json = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
     let extraido;
     try { extraido = JSON.parse(json); } catch { extraido = {}; }
 
-    res.json({
+    send({
+      status: 'done',
       ok: true,
       factura_imagen: path.basename(filePath),
       extraido: {
@@ -258,11 +271,12 @@ Si no puedes extraer un campo con certeza, usa null. Responde únicamente con el
         referencia:         extraido.referencia         || null,
       },
     });
+    res.end();
   } catch (err) {
-    // Borrar archivo si hubo error en la llamada IA para no dejar huérfanos
-    try { fs.unlinkSync(filePath); } catch {}
+    try { fs.unlinkSync(filePath); } catch {} // no dejar huérfanos
     log.error({ err }, 'Error extrayendo factura con IA');
-    res.status(500).json({ error: 'Error al procesar la factura con IA' });
+    send({ status: 'error', error: 'Error al procesar la factura con IA' });
+    res.end();
   }
 });
 
