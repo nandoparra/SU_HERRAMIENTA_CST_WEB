@@ -218,35 +218,37 @@ router.post('/contable/egresos/extraer-factura', uploadFactura.single('factura')
     let isPdf = mime === 'application/pdf';
     let imageMime = mime;
 
-    // Comprimir imagen server-side si supera 4.5 MB (límite Anthropic = 5 MB)
+    // Comprimir imagen server-side si supera 4 MB (límite Anthropic = 5 MB)
     if (!isPdf) {
       const originalSize = fs.statSync(filePath).size;
-      if (originalSize > 4.5 * 1024 * 1024) {
+      if (originalSize > 4 * 1024 * 1024) {
         try {
+          log.info(`[contable] Comprimiendo imagen: ${(originalSize / 1024 / 1024).toFixed(2)}MB`);
           const imgBuf = fs.readFileSync(filePath);
           const img = await Jimp.read(imgBuf);
           if (img.bitmap.width > 1568 || img.bitmap.height > 1568) {
             img.scaleToFit(1568, 1568);
           }
-          const compressed = await img.quality(85).getBufferAsync(Jimp.MIME_JPEG);
+          const compressed = await img.quality(80).getBufferAsync(Jimp.MIME_JPEG);
           fs.writeFileSync(filePath, compressed);
           imageMime = 'image/jpeg';
-          log.info(`[contable] Imagen comprimida: ${originalSize} → ${compressed.length} bytes`);
+          log.info(`[contable] Imagen comprimida: ${(originalSize / 1024 / 1024).toFixed(2)}MB → ${(compressed.length / 1024 / 1024).toFixed(2)}MB`);
         } catch (compErr) {
           log.warn({ err: compErr }, '[contable] jimp no pudo comprimir imagen');
-        }
-        // Si tras la compresión (o si jimp falló) el archivo sigue >5MB, rechazar con error claro
-        const finalSize = fs.statSync(filePath).size;
-        if (finalSize > 5 * 1024 * 1024) {
-          send({ status: 'error', error: `La imagen supera el límite de 5MB (${(finalSize / 1024 / 1024).toFixed(1)}MB). Reduce la resolución de la foto antes de subirla.` });
-          res.end();
-          return;
         }
       }
     }
 
     const fileData = fs.readFileSync(filePath);
     const b64      = fileData.toString('base64');
+
+    // Límite definitivo: si el buffer real supera 4.5MB rechazar antes de llamar a Anthropic
+    if (!isPdf && fileData.length > 4.5 * 1024 * 1024) {
+      send({ status: 'error', error: `La imagen es demasiado grande (${(fileData.length / 1024 / 1024).toFixed(1)}MB). Toma la foto con menor resolución o comprime la imagen antes de subirla.` });
+      res.end();
+      return;
+    }
+    log.info(`[contable] Enviando a Anthropic: ${(fileData.length / 1024 / 1024).toFixed(2)}MB`);
 
     const contentBlocks = [
       isPdf
