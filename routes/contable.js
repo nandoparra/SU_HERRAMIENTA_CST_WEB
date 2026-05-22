@@ -5,6 +5,7 @@ const router   = express.Router();
 const multer   = require('multer');
 const path     = require('path');
 const fs       = require('fs');
+const sharp    = require('sharp');
 const db       = require('../utils/db');
 const { getClient: getIAClient, withTimeout } = require('../utils/ia');
 const { requireInterno, requireAddonContabilidad } = require('../middleware/auth');
@@ -214,14 +215,24 @@ router.post('/contable/egresos/extraer-factura', uploadFactura.single('factura')
   const VISION_TIMEOUT_MS = Number(process.env.CLAUDE_VISION_TIMEOUT_MS) || 60_000;
 
   try {
-    const fileData = fs.readFileSync(filePath);
-    const b64      = fileData.toString('base64');
-    const isPdf    = mime === 'application/pdf';
+    const isPdf = mime === 'application/pdf';
+
+    // Comprimir imágenes > 4.5 MB antes de enviar a Claude (límite API: 5 MB base64)
+    let fileData  = fs.readFileSync(filePath);
+    let imageMime = mime;
+    if (!isPdf && fileData.length > 4.5 * 1024 * 1024) {
+      fileData  = await sharp(fileData)
+        .resize({ width: 1568, height: 1568, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 85 })
+        .toBuffer();
+      imageMime = 'image/jpeg';
+    }
+    const b64 = fileData.toString('base64');
 
     const contentBlocks = [
       isPdf
         ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
-        : { type: 'image',    source: { type: 'base64', media_type: mime,               data: b64 } },
+        : { type: 'image',    source: { type: 'base64', media_type: imageMime,          data: b64 } },
       {
         type: 'text',
         text: `Analiza esta factura o comprobante de pago y extrae los siguientes datos en formato JSON estricto, sin texto adicional:
