@@ -4743,22 +4743,33 @@ window.con_toggleVencimiento = function() {
 // Comprime una imagen en el navegador usando Canvas si supera maxBytes.
 // PDFs y archivos ya pequeños se devuelven sin cambios.
 async function _comprimirImagen(file, maxBytes = 4.5 * 1024 * 1024) {
-  if (!file.type.startsWith('image/') || file.size <= maxBytes) return file;
+  if (file.size <= maxBytes) return file;
+  // Fix: algunos móviles reportan file.type='' — detectar también por extensión
+  const isImage = (file.type || '').startsWith('image/')
+    || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name || '');
+  if (!isImage) return file;
   return new Promise((resolve) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
-      URL.revokeObjectURL(url);
-      const MAX = 1568;
-      let { naturalWidth: w, naturalHeight: h } = img;
-      if (w > MAX || h > MAX) {
-        const r = Math.min(MAX / w, MAX / h);
-        w = Math.round(w * r); h = Math.round(h * r);
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      canvas.toBlob(blob => resolve(new File([blob], file.name, { type: 'image/jpeg' })), 'image/jpeg', 0.85);
+      try {
+        URL.revokeObjectURL(url);
+        const MAX = 1568;
+        let { naturalWidth: w, naturalHeight: h } = img;
+        if (w > MAX || h > MAX) {
+          const r = Math.min(MAX / w, MAX / h);
+          w = Math.round(w * r); h = Math.round(h * r);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { resolve(file); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(
+          blob => resolve(blob ? new File([blob], file.name, { type: 'image/jpeg' }) : file),
+          'image/jpeg', 0.85
+        );
+      } catch (_) { resolve(file); }
     };
     img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
     img.src = url;
