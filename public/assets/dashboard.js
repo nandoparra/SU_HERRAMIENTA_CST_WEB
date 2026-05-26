@@ -4744,18 +4744,45 @@ window.con_toggleVencimiento = function() {
 // PDFs y archivos ya pequeños se devuelven sin cambios.
 async function _comprimirImagen(file, maxBytes = 4.5 * 1024 * 1024) {
   if (file.size <= maxBytes) return file;
-  // Fix: algunos móviles reportan file.type='' — detectar también por extensión
   const isImage = (file.type || '').startsWith('image/')
     || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name || '');
   if (!isImage) return file;
+
+  const MAX = 1568;
+  const quality = 0.80;
+  const outName = file.name.replace(/\.[^.]+$/, '.jpg');
+
+  // Intento 1: createImageBitmap — más eficiente en memoria, mejor soporte móvil
+  if (typeof createImageBitmap !== 'undefined') {
+    try {
+      const bitmap = await createImageBitmap(file);
+      let w = bitmap.width, h = bitmap.height;
+      if (w > MAX || h > MAX) {
+        const r = Math.min(MAX / w, MAX / h);
+        w = Math.round(w * r); h = Math.round(h * r);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(bitmap, 0, 0, w, h);
+        bitmap.close();
+        const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', quality));
+        if (blob && blob.size < file.size) return new File([blob], outName, { type: 'image/jpeg' });
+      } else {
+        bitmap.close();
+      }
+    } catch (_) {}
+  }
+
+  // Intento 2: Image + object URL (fallback para navegadores sin createImageBitmap)
   return new Promise((resolve) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
       try {
         URL.revokeObjectURL(url);
-        const MAX = 1568;
-        let { naturalWidth: w, naturalHeight: h } = img;
+        let w = img.naturalWidth, h = img.naturalHeight;
         if (w > MAX || h > MAX) {
           const r = Math.min(MAX / w, MAX / h);
           w = Math.round(w * r); h = Math.round(h * r);
@@ -4766,8 +4793,8 @@ async function _comprimirImagen(file, maxBytes = 4.5 * 1024 * 1024) {
         if (!ctx) { resolve(file); return; }
         ctx.drawImage(img, 0, 0, w, h);
         canvas.toBlob(
-          blob => resolve(blob ? new File([blob], file.name, { type: 'image/jpeg' }) : file),
-          'image/jpeg', 0.85
+          blob => resolve(blob && blob.size < file.size ? new File([blob], outName, { type: 'image/jpeg' }) : file),
+          'image/jpeg', quality
         );
       } catch (_) { resolve(file); }
     };
