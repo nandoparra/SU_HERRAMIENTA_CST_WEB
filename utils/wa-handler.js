@@ -14,39 +14,29 @@ function formatCOP(amount) {
   return `$${Number(amount || 0).toLocaleString('es-CO')}`;
 }
 
-/** "573104650437@c.us" → "573104650437" */
-function normalizePhone(raw) {
-  return String(raw).replace(/@[a-z.]+$/, '');
+/** Extrae el número de teléfono del JID de Baileys: "573104650437@s.whatsapp.net" → "573104650437" */
+function phoneFromJid(jid) {
+  return String(jid || '').split('@')[0];
+}
+
+/** Extrae el texto plano de un mensaje de Baileys */
+function getMsgText(msg) {
+  const m = msg.message;
+  if (!m) return '';
+  return m.conversation
+    || m.extendedTextMessage?.text
+    || m.ephemeralMessage?.message?.extendedTextMessage?.text
+    || '';
 }
 
 console.log('✅ wa-handler: listener de mensajes entrantes registrado');
 
 registerMessageHandler(async (tenantId, msg) => {
-  // Solo chats individuales con texto
-  if (msg.from.endsWith('@g.us')) return;
-  const text = String(msg.body || '').trim();
+  // Solo chats individuales (no grupos)
+  if (!msg.key.remoteJid || msg.key.remoteJid.endsWith('@g.us')) return;
 
-  let senderPhone = normalizePhone(msg.from);
-
-  // Si no es un número colombiano estándar (57 + 10 dígitos), es un LID —
-  // resolverlo al número real via getContact()
-  if (!/^57\d{10}$/.test(senderPhone)) {
-    try {
-      const contact = await msg.getContact();
-      let resolved = String(contact.number || '').replace(/[^0-9]/g, '');
-      if (resolved.length === 10 && resolved.startsWith('3')) resolved = '57' + resolved;
-      if (/^57\d{10}$/.test(resolved)) {
-        log.debug(`📨 wa-handler: LID ****${senderPhone.slice(-4)} → resuelto`);
-        senderPhone = resolved;
-      } else {
-        log.debug(`📨 wa-handler: no se pudo resolver LID ****${senderPhone.slice(-4)} a número colombiano`);
-        return;
-      }
-    } catch (e) {
-      log.warn({ err: e.message }, '⚠️ wa-handler: error resolviendo LID:');
-      return;
-    }
-  }
+  const senderPhone = phoneFromJid(msg.key.remoteJid);
+  const text = getMsgText(msg).trim();
 
   log.debug(`📨 wa-handler: mensaje de ****${senderPhone.slice(-4)} — [contenido omitido]`);
 
@@ -234,7 +224,7 @@ async function handleSeleccionMaquinas(conn, pendiente, text, senderPhone, tenan
   const validos = numerosRaw.filter(n => n >= 1 && n <= maquinas.length);
 
   if (!validos.length) {
-    await sendWAMessage(senderPhone,
+    await sendWAMessage(tenantId, senderPhone,
       `No entendí su selección. Por favor envíe los números separados por coma (ej: 1,3). Los números deben estar entre 1 y ${maquinas.length}.`
     );
     return; // Mantiene el pendiente activo para reintentar

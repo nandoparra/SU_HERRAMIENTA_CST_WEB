@@ -1,31 +1,26 @@
 'use strict';
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const {
+  default: makeWASocket,
+  useMultiFileAuthState,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+} = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
-const fs   = require('fs');
-const path = require('path');
+const fs     = require('fs');
+const path   = require('path');
+const pino   = require('pino');
 
 const WA_AUTH_BASE = process.env.WA_AUTH_PATH || path.join(__dirname, '..', '.wwebjs_auth');
 console.log(`[WA] Auth path: ${WA_AUTH_BASE}`);
 
-// ── Eliminar lock files de Chromium — evita "profile in use" tras reinicios ─
-function removeChromeLocksRecursive(dir) {
-  try {
-    if (!fs.existsSync(dir)) return;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        removeChromeLocksRecursive(full);
-      } else if (['SingletonLock', 'SingletonCookie', 'SingletonSocket'].includes(entry.name)) {
-        try { fs.unlinkSync(full); console.log('🔓 Lock Chromium eliminado:', full); } catch {}
-      }
-    }
-  } catch {}
-}
-// Limpiar en el directorio base cubre a todos los tenants (recursivo)
-removeChromeLocksRecursive(WA_AUTH_BASE);
+// Logger silencioso para Baileys (suprime su output interno)
+const baileysLogger = pino({ level: 'silent' });
 
-// ── Pool: tenantId (number) → { client, ready, lastQR } ─────────────────────
+// Pool: tenantId (number) → { sock, ready, lastQR }
 const pool = new Map();
+
+// Flag para evitar reconexión durante apagado ordenado
+let _shuttingDown = false;
 
 // Callback global registrado por wa-handler.js
 let _messageHandler = null;
@@ -35,103 +30,89 @@ function registerMessageHandler(fn) {
   _messageHandler = fn;
 }
 
-// ── Parche LID ────────────────────────────────────────────────────────────────
-async function applyLidPatch(client, tenantId) {
-  try {
-    await client.pupPage.evaluate(() => {
-      const originalGetChat = window.WWebJS.getChat;
-      window.WWebJS.getChat = async (chatId, opts = {}) => {
-        try { return await originalGetChat(chatId, opts); } catch (e) {
-          if (!String(e.message).includes('LID')) throw e;
-        }
-        const phoneNum = String(chatId).replace(/@[a-z.]+$/, '');
-        try {
-          const result = await window.WWebJS.enforceLidAndPnRetrieval(String(chatId));
-          if (result?.lid) {
-            const lidId = result.lid._serialized || String(result.lid);
-            return await originalGetChat(lidId, opts);
-          }
-        } catch (_) {}
-        try {
-          const chats = window.Store.Chat.getModelsArray();
-          const found = chats.find(c => {
-            const jid = String(c.id?._serialized || '');
-            return jid.startsWith(phoneNum + '@') || jid.includes(phoneNum);
-          });
-          if (found) {
-            if (opts.getAsModel === false) return found;
-            return await window.WWebJS.getChatModel(found);
-          }
-        } catch (_) {}
-        throw new Error('No LID for user - no se pudo resolver: ' + chatId);
-      };
-    });
-    console.log(`✅ Parche LID aplicado [tenant ${tenantId}]`);
-  } catch (e) {
-    console.warn(`⚠️ No se pudo aplicar parche LID [tenant ${tenantId}]:`, e.message);
-  }
+/** Directorio de sesión por tenant */
+function sessionDir(tenantId) {
+  return tenantId === 1
+    ? path.join(WA_AUTH_BASE, 'baileys_session')
+    : path.join(WA_AUTH_BASE, `baileys_session_${tenantId}`);
 }
 
-// ── Crear cliente para un tenant ──────────────────────────────────────────────
-function createTenantClient(tenantId) {
+// ── Crear y conectar cliente Baileys para un tenant ──────────────────────────
+async function createTenantClient(tenantId) {
   const tid = Number(tenantId);
+  const dir = sessionDir(tid);
+  fs.mkdirSync(dir, { recursive: true });
 
-  // Tenant 1: usa WA_AUTH_BASE directamente — mantiene sesión existente en Railway.
-  // Otros tenants: clientId distinto → LocalAuth crea session-tenant_N/ dentro del mismo base.
-  const authOpts = tid === 1
-    ? { dataPath: WA_AUTH_BASE }
-    : { dataPath: WA_AUTH_BASE, clientId: `tenant_${tid}` };
+  const { state, saveCreds } = await useMultiFileAuthState(dir);
 
-  const client = new Client({
-    authStrategy: new LocalAuth(authOpts),
-    puppeteer: {
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-    },
+  let version;
+  try {
+    ({ version } = await fetchLatestBaileysVersion());
+  } catch (_) {
+    version = [2, 3000, 1023166576]; // fallback si no hay internet al arrancar
+  }
+
+  const sock = makeWASocket({
+    version,
+    auth: state,
+    printQRInTerminal: false,
+    logger: baileysLogger,
+    browser: ['Su Herramienta CST', 'Chrome', '120.0.0.0'],
+    markOnlineOnConnect: false,
   });
 
-  const info = { client, ready: false, lastQR: null };
+  const info = { sock, ready: false, lastQR: null };
   pool.set(tid, info);
 
-  client.on('qr', (qr) => {
-    info.lastQR = qr;
-    console.log(`📱 [tenant ${tid}] ESCANEA ESTE CÓDIGO QR (o visita /api/whatsapp/qr):`);
-    qrcode.generate(qr, { small: true });
+  // Persistir credenciales cada vez que cambian
+  sock.ev.on('creds.update', saveCreds);
+
+  // ── Estado de conexión ─────────────────────────────────────────────────────
+  sock.ev.on('connection.update', async (update) => {
+    const { connection, lastDisconnect, qr } = update;
+
+    if (qr) {
+      info.lastQR = qr;
+      console.log(`📱 [tenant ${tid}] ESCANEA ESTE CÓDIGO QR (o visita /api/whatsapp/qr):`);
+      qrcode.generate(qr, { small: true });
+    }
+
+    if (connection === 'open') {
+      console.log(`✅ WhatsApp [tenant ${tid}] CONECTADO y listo`);
+      info.ready  = true;
+      info.lastQR = null;
+    }
+
+    if (connection === 'close') {
+      info.ready = false;
+      if (_shuttingDown) return; // no reconectar durante SIGTERM
+
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+
+      if (statusCode === DisconnectReason.loggedOut) {
+        // WhatsApp invalidó la sesión (se cerró sesión desde el teléfono)
+        console.log(`🚪 [tenant ${tid}] Sesión cerrada — borrando sesión local y generando QR nuevo...`);
+        pool.delete(tid);
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+        setTimeout(() => createTenantClient(tid), 2000);
+      } else {
+        // Error de red u otro — reconectar con sesión existente
+        console.log(`🔄 [tenant ${tid}] Desconectado (código: ${statusCode}) — reconectando...`);
+        pool.delete(tid);
+        setTimeout(() => createTenantClient(tid), 5000);
+      }
+    }
   });
 
-  client.on('ready', async () => {
-    console.log(`✅ WhatsApp Web [tenant ${tid}] CONECTADO y listo`);
-    info.ready = true;
-    info.lastQR = null;
-    await applyLidPatch(client, tid);
-  });
-
-  client.on('auth_failure', (msg) => {
-    console.log(`❌ [tenant ${tid}] Error de autenticación:`, msg);
-    info.ready = false;
-  });
-
-  client.on('disconnected', async (reason) => {
-    console.log(`⚠️ WhatsApp Web [tenant ${tid}] desconectado:`, reason);
-    info.ready = false;
-    // LOGOUT = WhatsApp navigó a post_logout=1 (servidor invalidó sesión).
-    // La librería ya llamó LocalAuth.logout() (borró sesión) + beforeBrowserInitialized()
-    // + afterBrowserInitialized() internamente — emitirá 'qr' sola. No interferir.
-    if (reason === 'LOGOUT') return;
-    // Cualquier otro disconnect (red, error): destruir y reconectar con sesión existente.
-    try { await info.client.destroy(); } catch (_) {}
-    pool.delete(tid);
-    setTimeout(() => {
-      console.log(`🔄 [tenant ${tid}] Reconectando con sesión existente...`);
-      const newInfo = createTenantClient(tid);
-      newInfo.client.initialize().catch(e =>
-        console.warn(`⚠️ WA reconexión [tenant ${tid}]:`, e.message)
-      );
-    }, 5000);
-  });
-
-  client.on('message', async (msg) => {
-    if (_messageHandler) _messageHandler(tid, msg);
+  // ── Mensajes entrantes ─────────────────────────────────────────────────────
+  sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    if (type !== 'notify') return;
+    for (const msg of messages) {
+      if (msg.key.fromMe) continue;
+      if (_messageHandler) {
+        try { await _messageHandler(tid, msg); } catch (_) {}
+      }
+    }
   });
 
   return info;
@@ -139,15 +120,15 @@ function createTenantClient(tenantId) {
 
 /**
  * Inicializa el cliente WA para el tenant dado.
- * Crea la entrada en el pool si no existe y llama client.initialize().
- * Llamar en server.js al arrancar para el tenant por defecto (1).
+ * Firma síncrona compatible con la llamada actual en server.js.
  */
 function initTenantClient(tenantId = 1) {
   const tid = Number(tenantId);
-  if (!pool.has(tid)) createTenantClient(tid);
-  pool.get(tid).client.initialize().catch(e => {
-    console.warn(`⚠️ WhatsApp [tenant ${tid}] no disponible:`, e.message);
-  });
+  if (!pool.has(tid)) {
+    createTenantClient(tid).catch(e =>
+      console.warn(`⚠️ WhatsApp [tenant ${tid}] no disponible:`, e.message)
+    );
+  }
 }
 
 /** true si el cliente del tenant está conectado y listo */
@@ -156,29 +137,23 @@ function isReady(tenantId = 1) {
 }
 
 /**
- * Envía un mensaje WA usando el cliente del tenant indicado.
+ * Envía un mensaje de texto WA usando el cliente del tenant indicado.
  * @param {number} tenantId
- * @param {string} phoneOrChatId  "573104650437" o "573104650437@c.us"
- * @param {string|import('whatsapp-web.js').MessageMedia} content
+ * @param {string} phoneOrChatId  "573104650437", "573104650437@c.us" o "573104650437@s.whatsapp.net"
+ * @param {string} content
  */
 async function sendWAMessage(tenantId, phoneOrChatId, content) {
   const tid = Number(tenantId);
   const info = pool.get(tid);
   if (!info?.ready) throw new Error('WhatsApp no está listo para este taller');
 
-  const phone = String(phoneOrChatId).replace(/@[a-z.]+$/, '');
+  // Normalizar a número puro, luego construir JID Baileys
+  const phone = String(phoneOrChatId)
+    .replace(/@[a-z.]+$/, '')   // quitar @c.us / @s.whatsapp.net
+    .replace(/^\+/, '');        // quitar + inicial
+  const jid = `${phone}@s.whatsapp.net`;
 
-  let resolvedId;
-  try {
-    const numberId = await info.client.getNumberId(phone);
-    if (!numberId) throw new Error(`El número ${phone} no tiene WhatsApp registrado.`);
-    resolvedId = numberId._serialized;
-  } catch (e) {
-    if (String(e.message).includes('no tiene WhatsApp')) throw e;
-    resolvedId = `${phone}@c.us`;
-  }
-
-  return await info.client.sendMessage(resolvedId, content);
+  await info.sock.sendMessage(jid, { text: String(content) });
 }
 
 /** Retorna el último QR raw del tenant (null si ya conectado o aún no generado) */
@@ -187,44 +162,55 @@ function getLastQR(tenantId = 1) {
 }
 
 /**
- * Destruye el cliente actual, borra la sesión guardada en disco y crea uno nuevo.
- * Úsalo cuando el cliente no genera QR por tener sesión corrupta/expirada.
+ * Borra la sesión guardada en disco y crea un cliente nuevo (emite QR).
  */
 async function resetTenantClient(tenantId = 1) {
   const tid = Number(tenantId);
   const info = pool.get(tid);
   if (info) {
-    try { await info.client.destroy(); } catch (_) {}
+    try {
+      info.sock.ev.removeAllListeners();
+      info.sock.ws?.close?.();
+    } catch (_) {}
     pool.delete(tid);
   }
-  // Borrar carpeta de sesión del disco
-  const sessionDir = tid === 1
-    ? path.join(WA_AUTH_BASE, 'session')
-    : path.join(WA_AUTH_BASE, `session-tenant_${tid}`);
+
+  const dir = sessionDir(tid);
   try {
-    if (fs.existsSync(sessionDir)) fs.rmSync(sessionDir, { recursive: true, force: true });
-    console.log(`🗑️  Sesión WA [tenant ${tid}] eliminada:`, sessionDir);
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+    console.log(`🗑️  Sesión WA [tenant ${tid}] eliminada:`, dir);
   } catch (e) {
     console.warn('No se pudo borrar sesión:', e.message);
   }
-  // Inicializar cliente limpio → emite 'qr'
-  const newInfo = createTenantClient(tid);
-  newInfo.client.initialize().catch(e => console.warn(`⚠️ WA reset [tenant ${tid}]:`, e.message));
+
+  await createTenantClient(tid);
 }
 
 // ── Cierre ordenado — Railway envía SIGTERM antes de matar el proceso ─────────
-// Destruir Chromium limpiamente evita que la sesión quede corrupta en el Volume.
+// Con Baileys no hay Chromium — el WebSocket cierra en milisegundos.
 async function shutdownAllClients() {
+  _shuttingDown = true;
   for (const [, info] of pool.entries()) {
-    try { await info.client.destroy(); } catch (_) {}
+    try {
+      info.sock.ev.removeAllListeners();
+      info.sock.ws?.close?.();
+    } catch (_) {}
   }
   pool.clear();
 }
 
 process.on('SIGTERM', async () => {
-  console.log('[WA] SIGTERM — cerrando Chromium antes de salir...');
+  console.log('[WA] SIGTERM — cerrando conexiones Baileys...');
   await shutdownAllClients();
   process.exit(0);
 });
 
-module.exports = { initTenantClient, isReady, sendWAMessage, getLastQR, resetTenantClient, registerMessageHandler, shutdownAllClients };
+module.exports = {
+  initTenantClient,
+  isReady,
+  sendWAMessage,
+  getLastQR,
+  resetTenantClient,
+  registerMessageHandler,
+  shutdownAllClients,
+};
