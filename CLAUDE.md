@@ -1294,6 +1294,82 @@ los tenants del pool antes de `process.exit(0)`.
 
 ---
 
+## Versiones — Hitos del proyecto
+
+| Tag | Commit | Fecha | Descripción |
+|-----|--------|-------|-------------|
+| `v1.0.0` | `e5fdae2c` | 2026-04-26 | Sistema base: multi-tenant, órdenes, cotizaciones, WA autorización, dashboard SPA, seguridad |
+| `v1.1.0` | `d6961e8f` | 2026-05-20 | POS + módulo financiero + inventario + recibos de caja |
+| `v1.2.0` | `80c0e3dc` | 2026-05-26 | Módulo contable con IA (Claude Vision, egresos, P&G, alertas vencimientos) |
+
+---
+
+## Visión a largo plazo — Sistema Multi-Agente IA
+
+Objetivo: convertir SU HERRAMIENTA CST en el primer sistema de gestión de talleres con IA nativa en Latinoamérica.
+
+### El pitch comercial
+
+*"No es un software que tu equipo usa — es un equipo de IA que trabaja para tu taller 24/7. Contesta clientes, controla el inventario, lleva la contabilidad y te dice exactamente cuánto debes vender cada día para ser rentable."*
+
+> **Nota**: el "24/7" aplica completamente una vez que Baileys (`feature/baileys-migration`) esté mergeado y verificado en producción. Antes de ese merge, la disponibilidad del canal WA depende de que Chromium no se corrompa en Railway.
+
+### Los 5 agentes planificados
+
+| Agente | Qué hace | Módulo base |
+|--------|----------|-------------|
+| **Agente Contable** | Facturas, gastos, P&G, paquete para contador | Módulo contable (ya existe — v1.2.0) |
+| **Agente WhatsApp** | Contesta clientes, da estados de órdenes, cobra, agenda | WhatsApp ya integrado + órdenes |
+| **Agente Inventario** | Monitorea stock, sugiere pedidos, alerta mínimos, predice consumo | Inventario (ya existe — v1.1.0) |
+| **Agente Financiero** | Analiza rentabilidad, proyecta meta, alerta desviaciones | Dashboard financiero (ya existe — v1.1.0) |
+| **Agente Comercial** | Seguimiento prospectos, recordatorios, cotizaciones automáticas | CRM básico (pendiente — Etapa 6A) |
+
+### Hoja de ruta
+
+```
+Etapa 1 — Calidad y estabilidad (EN CURSO)
+Etapa 2 — Facturación electrónica DIAN
+Etapa 3 — Asistente Contable IA (Sprint 3B = chat financiero con IA)
+Etapa 4 — Agente WhatsApp inteligente  ⚠️ requiere router de intenciones (ver nota abajo)
+Etapa 5 — Agente Inventario predictivo
+Etapa 6A — CRM básico (prerequisito obligatorio de Etapa 6B)
+Etapa 6B — Agente Comercial (sobre datos del CRM de 6A)
+Etapa 7 — Orquestador: todos los agentes trabajando juntos
+```
+
+### Notas técnicas transversales (Etapas 3–7)
+
+**Prompt caching de Claude (control de costos):**
+En todos los agentes donde el contexto del sistema (datos del tenant, reglas del negocio, resúmenes financieros) se repite entre llamadas, usar `cache_control: { type: 'ephemeral' }` en el bloque de system del SDK Anthropic. Reduce costos hasta 90% en el prefijo compartido. Aplicar desde Sprint 3B en `buildContextoFinanciero` y en cada agente que construya contexto recurrente.
+
+**Pricing diferenciado por etapa:**
+- Etapas 1–3 (Asistente Contable add-on): $60.000 COP/mes
+- Etapas 4–7 (agentes adicionales): definir tier superior antes de lanzar Etapa 4 — los costos de API escalan con el volumen de consultas
+- Agregar límite diario de consultas por tenant antes de Etapa 4 para controlar costos de API en el MVP multiagente
+
+### Nota Etapa 4 — prerequisito obligatorio: router de intenciones WA
+
+El `wa-handler.js` actual maneja exclusivamente respuestas de autorización (1/2/3/4). Si el Agente WhatsApp en Etapa 4 comienza a atender consultas libres ("¿cómo va mi máquina?"), los dos flujos colisionan: un mensaje de consulta puede bloquear una conversación de autorización activa.
+
+**Tarea obligatoria al inicio de Etapa 4 — antes de cualquier otra tarea del agente:**
+- Si el mensaje es un dígito (1–4) Y hay un registro activo en `b2c_wa_autorizacion_pendiente` → flujo de autorización actual (wa-handler.js sin cambios)
+- Si no → flujo de consulta libre → Agente WhatsApp
+- Sin este router, Etapa 4 rompe el flujo de autorización en producción
+
+### Nota Etapa 6 — CRM básico como prerequisito del Agente Comercial
+
+La estructura actual tiene clientes con órdenes pero no prospectos ni pipeline comercial. El Agente Comercial no tiene datos con qué trabajar sin el CRM.
+
+**Etapa 6A — CRM básico (construir antes de 6B):**
+- Tabla `b2c_prospecto`: nombre, empresa, teléfono, canal de origen, estado pipeline, notas, fecha próximo contacto
+- Vista "Prospectos" en dashboard (solo admin)
+- Registro manual de contactos y seguimiento
+- Historial de interacciones por prospecto
+
+**Etapa 6B — Agente Comercial:** construir sobre los datos de 6A. Sin 6A el agente no tiene contexto.
+
+---
+
 ## Notas de entorno (Windows / Git Bash)
 
 - Python no disponible (Windows Store shim)
