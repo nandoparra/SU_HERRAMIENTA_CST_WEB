@@ -383,12 +383,6 @@ let _solMaquinas = [];   // equipos existentes del cliente
 let _solFotosFiles = [];
 let _solMaqCounter = 0;  // contador monotónico para IDs de formulario
 
-function _solMaqOpts() {
-  return _solMaquinas.map(m =>
-    `<option value="${m.uid_herramienta}">${esc(m.her_nombre)}${m.her_marca ? ' — ' + esc(m.her_marca) : ''}</option>`
-  ).join('');
-}
-
 function seg_renderMaquinaItem(idx) {
   return `<div class="sol-maq-item" id="smi-${idx}">
     <div class="sol-maq-item-hdr">
@@ -396,10 +390,14 @@ function seg_renderMaquinaItem(idx) {
       <button type="button" class="sol-maq-remove-btn" onclick="seg_removeMaquina(${idx})" title="Eliminar">✕</button>
     </div>
     <div class="fgroup">
-      <select id="smi-sel-${idx}" onchange="seg_onMaqSelect(${idx})">
-        <option value="">Seleccionar equipo existente...</option>
-        ${_solMaqOpts()}
-      </select>
+      <label>Buscar equipo <span style="color:#9ca3af;font-weight:400;font-size:11px;">— nombre, marca o serial</span></label>
+      <div class="sol-search-wrap">
+        <input type="text" id="smi-search-${idx}" placeholder="Ej: guadaña, taladro, S/N..." autocomplete="off"
+               oninput="seg_searchMaq(${idx})" onfocus="seg_searchMaq(${idx})">
+        <button type="button" class="sol-search-clr" id="smi-clr-${idx}" style="display:none" onclick="seg_clearMaqSel(${idx})">✕</button>
+        <div id="smi-results-${idx}" class="sol-search-results" style="display:none;"></div>
+      </div>
+      <input type="hidden" id="smi-uid-${idx}" value="">
     </div>
     <button type="button" id="smi-newtgl-${idx}" class="btn-nuevo-equipo" onclick="seg_toggleNuevo(${idx})">
       ➕ Registrar equipo nuevo
@@ -435,14 +433,67 @@ function seg_renderMaquinaItem(idx) {
   </div>`;
 }
 
+function seg_searchMaq(idx) {
+  const q = (document.getElementById(`smi-search-${idx}`)?.value || '').toLowerCase().trim();
+  const resultsEl = document.getElementById(`smi-results-${idx}`);
+  if (!resultsEl) return;
+  if (!q || !_solMaquinas.length) { resultsEl.style.display = 'none'; return; }
+  const matches = _solMaquinas.filter(m =>
+    (m.her_nombre || '').toLowerCase().includes(q) ||
+    (m.her_marca  || '').toLowerCase().includes(q) ||
+    (m.her_serial || '').toLowerCase().includes(q)
+  ).slice(0, 8);
+  if (!matches.length) {
+    resultsEl.innerHTML = `<div class="sol-sr-empty">Sin resultados — usa "Registrar equipo nuevo"</div>`;
+    resultsEl.style.display = 'block';
+    return;
+  }
+  resultsEl.innerHTML = matches.map(m => {
+    const detalle = [m.her_marca ? 'Marca: ' + esc(m.her_marca) : '', m.her_serial ? 'S/N: ' + esc(m.her_serial) : ''].filter(Boolean).join(' · ');
+    return `<div class="sol-sr-item" onclick="seg_selectMaq(${idx}, ${m.uid_herramienta}, '${esc(m.her_nombre).replace(/'/g,"\\'")}')">
+      <div style="font-weight:600;font-size:13px;">${esc(m.her_nombre)}</div>
+      ${detalle ? `<div style="font-size:11px;color:#6b7280;">${detalle}</div>` : ''}
+    </div>`;
+  }).join('');
+  resultsEl.style.display = 'block';
+}
+
+function seg_selectMaq(idx, uid, label) {
+  const uidInput   = document.getElementById(`smi-uid-${idx}`);
+  const searchInput = document.getElementById(`smi-search-${idx}`);
+  const resultsEl  = document.getElementById(`smi-results-${idx}`);
+  const clrBtn     = document.getElementById(`smi-clr-${idx}`);
+  if (uidInput)    uidInput.value   = uid;
+  if (searchInput) searchInput.value = label;
+  if (resultsEl)   resultsEl.style.display = 'none';
+  if (clrBtn)      clrBtn.style.display = '';
+  // Close nuevo panel if open
+  const nuevoDiv = document.getElementById(`smi-nuevo-${idx}`);
+  const tglBtn   = document.getElementById(`smi-newtgl-${idx}`);
+  if (nuevoDiv && nuevoDiv.style.display !== 'none') {
+    nuevoDiv.style.display = 'none';
+    if (tglBtn) { tglBtn.classList.remove('active'); tglBtn.textContent = '➕ Registrar equipo nuevo'; }
+  }
+}
+
+function seg_clearMaqSel(idx) {
+  const uidInput    = document.getElementById(`smi-uid-${idx}`);
+  const searchInput = document.getElementById(`smi-search-${idx}`);
+  const resultsEl   = document.getElementById(`smi-results-${idx}`);
+  const clrBtn      = document.getElementById(`smi-clr-${idx}`);
+  if (uidInput)    uidInput.value    = '';
+  if (searchInput) { searchInput.value = ''; searchInput.focus(); }
+  if (resultsEl)   resultsEl.style.display = 'none';
+  if (clrBtn)      clrBtn.style.display = 'none';
+}
+
 function seg_toggleNuevo(idx) {
   const div = document.getElementById(`smi-nuevo-${idx}`);
-  const sel = document.getElementById(`smi-sel-${idx}`);
   const btn = document.getElementById(`smi-newtgl-${idx}`);
   if (!div) return;
   const opening = div.style.display === 'none';
   div.style.display = opening ? 'block' : 'none';
-  if (opening && sel) sel.value = '';
+  if (opening) seg_clearMaqSel(idx);  // clear any search selection
   if (btn) {
     btn.classList.toggle('active', opening);
     btn.textContent = opening ? '✕ Cancelar equipo nuevo' : '➕ Registrar equipo nuevo';
@@ -474,16 +525,6 @@ function _seg_updateRemoveBtns() {
   });
 }
 
-function seg_onMaqSelect(idx) {
-  const val = document.getElementById(`smi-sel-${idx}`)?.value;
-  const nuevoDiv = document.getElementById(`smi-nuevo-${idx}`);
-  const btn = document.getElementById(`smi-newtgl-${idx}`);
-  if (val && nuevoDiv) { nuevoDiv.style.display = 'none'; }
-  if (val && btn) {
-    btn.classList.remove('active');
-    btn.textContent = '➕ Registrar equipo nuevo';
-  }
-}
 
 function renderSolicitud(vc) {
   vc.innerHTML = '<div class="loading">Cargando...</div>';
@@ -542,6 +583,17 @@ function renderSolicitud(vc) {
 
       seg_addMaquina();
       seg_loadSolicitudes();
+
+      // Close any open autocomplete dropdown on outside click
+      document.addEventListener('click', function _outsideClick(e) {
+        if (!document.getElementById('solMaquinasContainer')) {
+          document.removeEventListener('click', _outsideClick);
+          return;
+        }
+        if (!e.target.closest('.sol-search-wrap')) {
+          document.querySelectorAll('.sol-search-results').forEach(el => { el.style.display = 'none'; });
+        }
+      });
     })
     .catch(() => {
       vc.innerHTML = '<div class="empty">No se pudo cargar el formulario.</div>';
@@ -571,11 +623,11 @@ async function seg_submitSolicitud() {
   const maquinas = [];
   for (const item of document.querySelectorAll('#solMaquinasContainer .sol-maq-item')) {
     const idx    = item.id.replace('smi-', '');
-    const selVal = document.getElementById(`smi-sel-${idx}`)?.value;
+    const uidVal = document.getElementById(`smi-uid-${idx}`)?.value;
     const tipo   = document.getElementById(`smi-tipo-${idx}`)?.value || 'reparacion';
     const desc   = document.getElementById(`smi-desc-${idx}`)?.value?.trim() || null;
-    if (selVal) {
-      maquinas.push({ uid_herramienta: Number(selVal), tipo_servicio: tipo, descripcion: desc });
+    if (uidVal) {
+      maquinas.push({ uid_herramienta: Number(uidVal), tipo_servicio: tipo, descripcion: desc });
     } else {
       const nombre = document.getElementById(`smi-nom-${idx}`)?.value?.trim();
       if (!nombre) { msgEl.innerHTML = '<div class="alert-err">Escribe el nombre de cada máquina nueva.</div>'; return; }
