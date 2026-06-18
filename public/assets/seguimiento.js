@@ -379,9 +379,9 @@ function renderMaquinas(vc) {
 
 // ── View: Nueva Solicitud de Recogida ─────────────────────────────────────────
 
-let _solMaquinas = [];   // equipos existentes del cliente
-let _solFotosFiles = [];
-let _solMaqCounter = 0;  // contador monotónico para IDs de formulario
+let _solMaquinas = [];    // equipos existentes del cliente
+let _solFotosPorIdx = {}; // fotos por índice de máquina { idx: File[] }
+let _solMaqCounter = 0;   // contador monotónico para IDs de formulario
 
 function seg_renderMaquinaItem(idx) {
   return `<div class="sol-maq-item" id="smi-${idx}">
@@ -429,6 +429,14 @@ function seg_renderMaquinaItem(idx) {
     <div class="fgroup">
       <label>Descripción del problema</label>
       <textarea id="smi-desc-${idx}" rows="2" placeholder="Cuéntenos qué le pasa al equipo..."></textarea>
+    </div>
+    <div class="fgroup">
+      <label>📷 Fotos del equipo <span style="color:#9ca3af;font-weight:400;font-size:11px;">— hasta 3 imágenes, opcional</span></label>
+      <label class="foto-upload-label" style="font-size:12px;padding:6px 12px;">
+        Seleccionar fotos
+        <input type="file" id="smi-fotos-${idx}" accept="image/*" multiple style="display:none" onchange="seg_onItemFotosChange(${idx}, this)">
+      </label>
+      <div id="smi-fotos-prev-${idx}" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;"></div>
     </div>
   </div>`;
 }
@@ -520,6 +528,7 @@ function seg_addMaquina() {
 
 function seg_removeMaquina(idx) {
   document.getElementById(`smi-${idx}`)?.remove();
+  delete _solFotosPorIdx[idx];
   _seg_updateRemoveBtns();
 }
 
@@ -540,7 +549,7 @@ function renderSolicitud(vc) {
     .then(r => r.json())
     .then(maquinas => {
       _solMaquinas = maquinas;
-      _solFotosFiles = [];
+      _solFotosPorIdx = {};
       _solMaqCounter = 0;
       const hoy = new Date().toISOString().split('T')[0];
 
@@ -574,15 +583,6 @@ function renderSolicitud(vc) {
               <div class="form-hint">El taller confirmará la fecha y hora exactas por WhatsApp.</div>
             </div>
 
-            <div class="fgroup">
-              <label>Fotos generales <span style="color:#9ca3af;font-size:11px;">— hasta 5 imágenes, opcional</span></label>
-              <label class="foto-upload-label">
-                📷 Seleccionar fotos
-                <input type="file" id="solFotosInput" accept="image/*" multiple style="display:none" onchange="seg_onFotosChange(this)">
-              </label>
-              <div id="fotoPreview"></div>
-            </div>
-
             <button class="btn-primary" id="solBtnEnviar" onclick="seg_submitSolicitud()">
               🚗 Enviar solicitud de recogida
             </button>
@@ -608,13 +608,15 @@ function renderSolicitud(vc) {
     });
 }
 
-function seg_onFotosChange(input) {
-  _solFotosFiles = Array.from(input.files).slice(0, 5);
-  const preview = document.getElementById('fotoPreview');
+function seg_onItemFotosChange(idx, input) {
+  _solFotosPorIdx[idx] = Array.from(input.files).slice(0, 3);
+  const preview = document.getElementById(`smi-fotos-prev-${idx}`);
+  if (!preview) return;
   preview.innerHTML = '';
-  _solFotosFiles.forEach(f => {
+  _solFotosPorIdx[idx].forEach(f => {
     const img = document.createElement('img');
     img.src = URL.createObjectURL(f);
+    img.style.cssText = 'width:60px;height:60px;object-fit:cover;border-radius:4px;border:1px solid #d1d5db;';
     preview.appendChild(img);
   });
 }
@@ -662,10 +664,20 @@ async function seg_submitSolicitud() {
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Error al crear solicitud');
 
-    if (_solFotosFiles.length) {
-      const fd = new FormData();
-      _solFotosFiles.forEach(f => fd.append('fotos', f));
-      await fetch(`${API}/cliente/solicitudes/${data.uid_solicitud}/fotos`, { method: 'POST', body: fd });
+    // Upload per-machine photos using the item_ids returned by the server
+    if (data.item_ids && data.item_ids.length) {
+      const idxList = Array.from(document.querySelectorAll('#solMaquinasContainer .sol-maq-item'))
+        .map(el => el.id.replace('smi-', ''));
+      for (let i = 0; i < idxList.length; i++) {
+        const idx = idxList[i];
+        const fotos = _solFotosPorIdx[idx];
+        if (!fotos || !fotos.length) continue;
+        const fd = new FormData();
+        fotos.forEach(f => fd.append('fotos', f));
+        await fetch(`${API}/cliente/solicitudes/${data.uid_solicitud}/items/${data.item_ids[i]}/fotos`, {
+          method: 'POST', body: fd,
+        });
+      }
     }
 
     msgEl.innerHTML = '<div class="alert-ok">✅ Solicitud enviada. El taller confirmará la fecha por WhatsApp.</div>';
@@ -674,8 +686,7 @@ async function seg_submitSolicitud() {
     if (container) { container.innerHTML = ''; _solMaqCounter = 0; seg_addMaquina(); }
     document.getElementById('solDireccion').value = '';
     document.getElementById('solFecha').value = '';
-    document.getElementById('fotoPreview').innerHTML = '';
-    _solFotosFiles = [];
+    _solFotosPorIdx = {};
     seg_loadSolicitudes();
   } catch (e) {
     msgEl.innerHTML = `<div class="alert-err">Error: ${esc(e.message)}</div>`;

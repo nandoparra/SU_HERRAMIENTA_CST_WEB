@@ -35,6 +35,7 @@ router.use((req, res, next) => {
     || req.path === '/cliente/solicitudes'
     || req.path.startsWith('/cliente/solicitudes/')
     || req.path.startsWith('/cliente/informe/')
+    || req.path.match(/^\/cliente\/solicitudes\/\d+\/items\/\d+\/fotos$/)
     || req.path.match(/^\/cliente\/maquina\/\d+\/autorizar$/)) return next('router');
   return requireInterno(req, res, next);
 });

@@ -728,6 +728,12 @@ async function ensureSolicitudRecogidaItem() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
     console.log('✅ b2c_solicitud_recogida_item lista');
+    // Agregar columna fotos si no existe (upgrade path)
+    try {
+      await conn.execute(`ALTER TABLE b2c_solicitud_recogida_item ADD COLUMN fotos TEXT NULL`);
+    } catch (e) {
+      if (e.code !== 'ER_DUP_FIELDNAME') console.warn('⚠️ fotos item:', String(e?.message || e));
+    }
   } catch (e) {
     console.warn('⚠️ No pude crear b2c_solicitud_recogida_item:', String(e?.message || e));
   } finally {

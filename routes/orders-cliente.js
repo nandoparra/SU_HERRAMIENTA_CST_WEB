@@ -364,6 +364,7 @@ router.post('/cliente/solicitudes', async (req, res) => {
         const [[ins]] = await conn.execute('SELECT LAST_INSERT_ID() AS id');
         const uid_solicitud = ins.id;
 
+        const item_ids = [];
         for (const m of maquinas) {
           let nombre = (m.her_nombre || '').trim();
           let marca  = (m.her_marca  || null);
@@ -378,16 +379,17 @@ router.post('/cliente/solicitudes', async (req, res) => {
             if (h) { nombre = h.her_nombre; marca = h.her_marca; serial = h.her_serial; }
           }
 
-          await conn.execute(
+          const [ins] = await conn.execute(
             `INSERT INTO b2c_solicitud_recogida_item
                (uid_solicitud, tenant_id, uid_herramienta, her_nombre, her_marca, her_serial, tipo_servicio, descripcion)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [uid_solicitud, tenantId, m.uid_herramienta || null, nombre, marca || null, serial || null,
              m.tipo_servicio || 'reparacion', m.descripcion?.trim() || null]
           );
+          item_ids.push(ins.insertId);
         }
         await conn.commit();
-        res.json({ success: true, uid_solicitud });
+        res.json({ success: true, uid_solicitud, item_ids });
       } catch (e) {
         await conn.rollback();
         throw e;
@@ -446,6 +448,52 @@ router.post('/cliente/solicitudes/:id/fotos', uploadSolicitudFoto.array('fotos',
   }
 });
 
+// ── Subir fotos a un ítem (máquina) de solicitud ──────────────────────────────
+router.post('/cliente/solicitudes/:id/items/:uid_item/fotos', uploadSolicitudFoto.array('fotos', 3), async (req, res) => {
+  const user = req.session?.user;
+  if (!user || user.tipo !== 'C') return res.status(403).json({ error: 'Acceso denegado' });
+  if (!req.files?.length) return res.status(400).json({ error: 'No se recibieron imágenes' });
+
+  try {
+    const tenantId = getTenantId(req);
+    const conn = await db.getConnection();
+    try {
+      // Verificar propiedad: ítem → solicitud → cliente del usuario
+      const [[item]] = await conn.execute(
+        `SELECT i.uid_item, i.fotos
+         FROM b2c_solicitud_recogida_item i
+         JOIN b2c_solicitud_recogida s ON s.uid_solicitud = i.uid_solicitud
+         JOIN b2c_cliente c ON c.uid_cliente = s.uid_cliente
+         WHERE i.uid_item = ? AND i.uid_solicitud = ? AND c.uid_usuario = ? AND i.tenant_id = ?`,
+        [req.params.uid_item, req.params.id, user.id, tenantId]
+      );
+      if (!item) {
+        for (const f of req.files) { try { fs.unlinkSync(f.path); } catch {} }
+        return res.status(404).json({ error: 'Ítem no encontrado' });
+      }
+
+      for (const f of req.files) {
+        await checkMagicBytes(f.path, ['image/']);
+      }
+
+      const fotos = JSON.parse(item.fotos || '[]');
+      for (const f of req.files) {
+        fotos.push({ filename: f.filename, url: `/uploads/solicitudes-recogida/${f.filename}` });
+      }
+      await conn.execute(
+        `UPDATE b2c_solicitud_recogida_item SET fotos = ? WHERE uid_item = ?`,
+        [JSON.stringify(fotos), item.uid_item]
+      );
+      res.json({ success: true, fotos });
+    } finally {
+      conn.release();
+    }
+  } catch (e) {
+    log.error({ err: e }, 'Error subiendo fotos item solicitud:');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 // ── Listar solicitudes del cliente (con ítems por solicitud) ──────────────────
 router.get('/cliente/solicitudes', async (req, res) => {
   const user = req.session?.user;
@@ -473,7 +521,7 @@ router.get('/cliente/solicitudes', async (req, res) => {
       const ids = rows.map(r => r.uid_solicitud);
       const ph  = ids.map(() => '?').join(',');
       const [items] = await conn.execute(
-        `SELECT uid_item, uid_solicitud, uid_herramienta, her_nombre, her_marca, her_serial, tipo_servicio, descripcion
+        `SELECT uid_item, uid_solicitud, uid_herramienta, her_nombre, her_marca, her_serial, tipo_servicio, descripcion, fotos
          FROM b2c_solicitud_recogida_item
          WHERE uid_solicitud IN (${ph}) AND tenant_id = ?
          ORDER BY uid_item`,
