@@ -450,11 +450,19 @@ function seg_searchMaq(idx) {
   }
   resultsEl.innerHTML = matches.map(m => {
     const detalle = [m.her_marca ? 'Marca: ' + esc(m.her_marca) : '', m.her_serial ? 'S/N: ' + esc(m.her_serial) : ''].filter(Boolean).join(' · ');
-    return `<div class="sol-sr-item" onclick="seg_selectMaq(${idx}, ${m.uid_herramienta}, '${esc(m.her_nombre).replace(/'/g,"\\'")}')">
+    return `<div class="sol-sr-item" data-uid="${m.uid_herramienta}" data-nombre="${esc(m.her_nombre).replace(/"/g,'&quot;')}">
       <div style="font-weight:600;font-size:13px;">${esc(m.her_nombre)}</div>
       ${detalle ? `<div style="font-size:11px;color:#6b7280;">${detalle}</div>` : ''}
     </div>`;
   }).join('');
+  // Event delegation: más robusto que onclick inline — evita problemas de escaping
+  resultsEl.onmousedown = (e) => e.preventDefault(); // preserva foco en el input de búsqueda
+  resultsEl.onclick = (e) => {
+    const item = e.target.closest('[data-uid]');
+    if (!item) return;
+    seg_selectMaq(idx, Number(item.dataset.uid), item.dataset.nombre);
+    e.stopPropagation();
+  };
   resultsEl.style.display = 'block';
 }
 
@@ -623,14 +631,17 @@ async function seg_submitSolicitud() {
   const maquinas = [];
   for (const item of document.querySelectorAll('#solMaquinasContainer .sol-maq-item')) {
     const idx    = item.id.replace('smi-', '');
-    const uidVal = document.getElementById(`smi-uid-${idx}`)?.value;
+    const uidVal = document.getElementById(`smi-uid-${idx}`)?.value?.trim();
     const tipo   = document.getElementById(`smi-tipo-${idx}`)?.value || 'reparacion';
     const desc   = document.getElementById(`smi-desc-${idx}`)?.value?.trim() || null;
+    const nombre = document.getElementById(`smi-nom-${idx}`)?.value?.trim();
+    if (!uidVal && !nombre) {
+      msgEl.innerHTML = '<div class="alert-err">Indica el equipo: selecciónalo de la lista o usa "Registrar equipo nuevo".</div>';
+      return;
+    }
     if (uidVal) {
       maquinas.push({ uid_herramienta: Number(uidVal), tipo_servicio: tipo, descripcion: desc });
     } else {
-      const nombre = document.getElementById(`smi-nom-${idx}`)?.value?.trim();
-      if (!nombre) { msgEl.innerHTML = '<div class="alert-err">Escribe el nombre de cada máquina nueva.</div>'; return; }
       maquinas.push({
         her_nombre: nombre,
         her_marca:  document.getElementById(`smi-mar-${idx}`)?.value?.trim() || null,
