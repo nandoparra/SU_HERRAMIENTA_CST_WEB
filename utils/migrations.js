@@ -675,6 +675,40 @@ async function ensureContabilidadAddon() {
   }
 }
 
+async function ensureSolicitudRecogida() {
+  const conn = await db.getConnection();
+  try {
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_solicitud_recogida (
+        uid_solicitud     INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        tenant_id         INT NOT NULL DEFAULT 1,
+        uid_cliente       INT NOT NULL,
+        uid_herramienta   INT NULL,
+        her_nombre        VARCHAR(100) NULL,
+        her_marca         VARCHAR(80)  NULL,
+        her_serial        VARCHAR(80)  NULL,
+        tipo_servicio     ENUM('reparacion','mantenimiento','revision') NOT NULL DEFAULT 'reparacion',
+        descripcion       TEXT NULL,
+        direccion         VARCHAR(255) NOT NULL,
+        fecha_sugerida    DATE NULL,
+        fecha_confirmada  DATETIME NULL,
+        nota_confirmacion VARCHAR(255) NULL,
+        fotos             JSON NULL,
+        estado            ENUM('pendiente','confirmada','completada','cancelada') NOT NULL DEFAULT 'pendiente',
+        created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_sol_cliente (uid_cliente),
+        INDEX idx_sol_tenant  (tenant_id),
+        INDEX idx_sol_estado  (estado)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log('✅ b2c_solicitud_recogida lista');
+  } catch (e) {
+    console.warn('⚠️ No pude crear b2c_solicitud_recogida:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -697,6 +731,7 @@ async function runMigrations() {
   await ensureEgresoTable();
   await ensureContabilidadAddon();
   await ensureEgresoVencimiento();
+  await ensureSolicitudRecogida();
   console.log('Migraciones completadas');
 }
 
