@@ -140,6 +140,7 @@ const VIEW_LABELS = {
   inicio:'Inicio', ordenes:'Órdenes', cotizaciones:'Cotizaciones',
   clientes:'Clientes', funcionarios:'Funcionarios', inventario:'Inventario',
   recibos:'Recibos', ventas:'Ventas', finanzas:'Finanzas', contable:'Contable',
+  solicitudesTaller:'Recogidas',
   nuevaOrden:'Nueva Orden',
   misOrdenes:'Mis Órdenes', buscarOrden:'Buscar Orden'
 };
@@ -214,6 +215,14 @@ Views.inicio = {
             <h3>📝 Equipos revisados pendientes de cotizar</h3>
           </div>
           <div id="revSinCotList"></div>
+        </div>
+        <div id="solPendSection" style="display:none">
+          <div class="alertas-section" style="cursor:pointer" onclick="navigate('solicitudesTaller')">
+            <div class="alertas-header">
+              <h3>🚗 Solicitudes de recogida pendientes</h3>
+            </div>
+            <div id="solPendList"></div>
+          </div>
         </div>
       </div>`;
   },
@@ -303,6 +312,45 @@ Views.inicio = {
             </div>`).join('');
         }
       }
+
+      // Solicitudes de recogida pendientes — KPI card + sección detalle
+      fetch('/api/taller/solicitudes-recogida?estado=pendiente').then(r => r.json()).then(solRows => {
+        const count = Array.isArray(solRows) ? solRows.length : 0;
+        // KPI card (solo aparece si hay pendientes)
+        const grid = document.getElementById('kpiGrid');
+        const existCard = document.getElementById('solKpiCard');
+        if (existCard) existCard.remove();
+        if (count > 0 && grid) {
+          grid.insertAdjacentHTML('beforeend',
+            `<div id="solKpiCard" class="kpi-card kc-orange" onclick="navigate('solicitudesTaller')" style="cursor:pointer">
+               <div class="kpi-icon">🚗</div>
+               <div class="kpi-val">${count}</div>
+               <div class="kpi-lbl">Recogida${count !== 1 ? 's' : ''} pendiente${count !== 1 ? 's' : ''}</div>
+             </div>`
+          );
+        }
+        // Sección detalle
+        const solSec = document.getElementById('solPendSection');
+        const solLst = document.getElementById('solPendList');
+        if (!solSec || !solLst || !count) { if (solSec) solSec.style.display = 'none'; return; }
+        solSec.style.display = 'block';
+        solLst.innerHTML = solRows.slice(0, 5).map(s => {
+          const cliente = esc(s.cli_razon_social || s.cli_contacto || 'Cliente');
+          const equipos = (s.maquinas || []).map(m => esc(m.her_nombre)).join(', ') || '—';
+          const fecha   = s.fecha_sugerida ? s.fecha_sugerida.split('T')[0].split('-').reverse().join('/') : '';
+          return `<div class="alerta-row alerta-amarillo">
+            <div class="alerta-info">
+              <div class="alerta-maq">${equipos}</div>
+              <div class="alerta-cli">${cliente}</div>
+              ${fecha ? `<div class="alerta-orden">Fecha sugerida: ${fecha}</div>` : ''}
+            </div>
+            <div class="dias-badge dias-amarillo">Pendiente</div>
+          </div>`;
+        }).join('');
+        if (solRows.length > 5) {
+          solLst.innerHTML += `<div class="alertas-empty">… y ${solRows.length - 5} más — ver todas en Recogidas</div>`;
+        }
+      }).catch(() => {});
 
       // Garantías activas
       const garantias = data.garantiasActivas || [];
@@ -4910,6 +4958,183 @@ window.con_guardarEgreso = async function() {
   }
 };
 
+// ════════════════════════════════════════════════════════════════════════════
+// Views.solicitudesTaller — Gestión de solicitudes de recogida
+// ════════════════════════════════════════════════════════════════════════════
+Views.solicitudesTaller = {
+  render() {
+    return `
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <select id="stFiltroEstado" onchange="sol_cargar()" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+            <option value="">Todos los estados</option>
+            <option value="pendiente" selected>Pendientes</option>
+            <option value="confirmada">Confirmadas</option>
+            <option value="completada">Completadas</option>
+            <option value="cancelada">Canceladas</option>
+          </select>
+        </div>
+      </div>
+      <div id="stLista"><div style="text-align:center;padding:40px;color:#888">Cargando...</div></div>
+      <!-- Modal confirmar -->
+      <div id="stConfirmarModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;"></div>
+    `;
+  },
+  async init() {
+    await sol_cargar();
+  }
+};
+
+async function sol_checkPending() {
+  try {
+    const rows = await fetch('/api/taller/solicitudes-recogida?estado=pendiente').then(r => r.json());
+    const count = Array.isArray(rows) ? rows.length : 0;
+    const badge = document.getElementById('solPendBadge');
+    if (!badge) return;
+    if (count > 0) { badge.textContent = count; badge.style.display = ''; }
+    else { badge.style.display = 'none'; }
+  } catch (_) {}
+}
+
+async function sol_cargar() {
+  const estado = document.getElementById('stFiltroEstado')?.value || '';
+  const url = `/api/taller/solicitudes-recogida${estado ? '?estado=' + estado : ''}`;
+  const rows = await fetch(url).then(r => r.json()).catch(() => []);
+  const el = document.getElementById('stLista');
+  if (!el) return;
+  if (!rows.length) {
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:#9ca3af;font-size:14px;">No hay solicitudes en este estado.</div>';
+    return;
+  }
+  const estadoLabel = { pendiente:'Pendiente', confirmada:'Confirmada', completada:'Completada', cancelada:'Cancelada' };
+  const estadoColor = { pendiente:'#fef3c7;color:#92400e', confirmada:'#d1fae5;color:#065f46', completada:'#dbeafe;color:#1e40af', cancelada:'#fee2e2;color:#991b1b' };
+  const tipoLabel   = { reparacion:'Reparación', mantenimiento:'Mantenimiento', revision:'Revisión' };
+
+  el.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px;">` + rows.map(s => {
+    const badge    = `<span style="background:${estadoColor[s.estado]||'#e5e7eb;color:#374151'};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;">${estadoLabel[s.estado]||s.estado}</span>`;
+    const cliente  = s.cli_razon_social || s.cli_contacto || 'Cliente desconocido';
+    const maquinas = s.maquinas || [];
+    const maqsTitulo = maquinas.map(m => esc(m.her_nombre)).join(', ') || 'Sin equipos';
+    const fechaCon = s.fecha_confirmada ? new Date(s.fecha_confirmada).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : null;
+
+    const maqsDetalleHtml = maquinas.map(m =>
+      `<div style="font-size:12px;padding:2px 0;">
+        <b>${esc(m.her_nombre)}</b>${m.her_marca?` — ${esc(m.her_marca)}`:''}${m.her_serial?` (S/N: ${esc(m.her_serial)})`:''} · <span style="color:#6b7280">${tipoLabel[m.tipo_servicio]||m.tipo_servicio}</span>
+        ${m.descripcion?`<br><span style="color:#9ca3af">${esc(m.descripcion)}</span>`:''}
+      </div>`
+    ).join('');
+
+    const safeDir  = (s.direccion||'').replace(/'/g,"\\'");
+    const safeEqs  = maqsTitulo.replace(/'/g,"\\'");
+    const accionesHtml = s.estado === 'pendiente'
+      ? `<button onclick="sol_abrirConfirmar(${s.uid_solicitud}, '${safeEqs}', '${safeDir}');" style="background:#1d3557;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;margin-right:6px;">📅 Confirmar fecha</button>
+         <button onclick="sol_cambiarEstado(${s.uid_solicitud},'cancelada')" style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;">Cancelar</button>`
+      : s.estado === 'confirmada' && !s.uid_orden_creada
+      ? `<button onclick="sol_crearOrden(${s.uid_solicitud})" style="background:#065f46;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;margin-right:6px;">📦 Recibida → Crear orden</button>
+         <button onclick="sol_cambiarEstado(${s.uid_solicitud},'cancelada')" style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;">Cancelar</button>`
+      : s.uid_orden_creada
+      ? `<span style="font-size:12px;font-weight:600;color:#065f46;">✅ Orden #${s.ord_consecutivo || s.uid_orden_creada} creada</span>
+         <button onclick="navigate('ordenes')" style="margin-left:10px;background:none;border:1px solid #d1d5db;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;">Ver órdenes →</button>`
+      : '';
+    const confirmBox = fechaCon
+      ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:8px 12px;margin-top:8px;font-size:13px;font-weight:600;color:#065f46;">📅 ${fechaCon}${s.nota_confirmacion ? ' — ' + esc(s.nota_confirmacion) : ''}</div>` : '';
+
+    return `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">
+        <div>
+          <div style="font-weight:700;font-size:14px;">${maqsTitulo}</div>
+          <div style="font-size:12px;color:#6b7280;">${cliente}${s.cli_identificacion?' · CC '+s.cli_identificacion:''}</div>
+        </div>
+        ${badge}
+      </div>
+      ${maqsDetalleHtml ? `<div style="margin:6px 0 8px;">${maqsDetalleHtml}</div>` : ''}
+      <div style="font-size:12px;color:#374151;line-height:1.7;">
+        <b>📍</b> ${esc(s.direccion)}
+        ${s.fecha_sugerida?` &nbsp; <b>Fecha sugerida:</b> ${s.fecha_sugerida.split('T')[0].split('-').reverse().join('/')}` : ''}
+        ${s.cli_telefono?`<br><b>Tel:</b> ${esc(s.cli_telefono)}`:''}
+        <br><b>Recibida:</b> ${new Date(s.created_at).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}
+      </div>
+      ${confirmBox}
+      ${accionesHtml ? `<div style="margin-top:10px;">${accionesHtml}</div>` : ''}
+    </div>`;
+  }).join('') + '</div>';
+}
+
+function sol_abrirConfirmar(uid, equipos, direccion) {
+  const hoy = new Date().toISOString().slice(0,16);
+  const modal = document.getElementById('stConfirmarModal');
+  modal.innerHTML = `
+    <div style="background:#fff;width:94%;max-width:440px;border-radius:12px;padding:20px;">
+      <div style="font-weight:700;font-size:15px;margin-bottom:14px;">📅 Confirmar recogida</div>
+      <div style="font-size:13px;color:#6b7280;margin-bottom:14px;">
+        <b>Equipos:</b> ${esc(equipos)}<br><b>Dirección:</b> ${esc(direccion)}
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:5px;">Fecha y hora de recogida <span style="color:#dc2626">*</span></label>
+        <input type="datetime-local" id="stFechaConf" value="${hoy}" min="${hoy}" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:5px;">Nota para el cliente <span style="font-size:11px;font-weight:400;color:#9ca3af;">— opcional, se envía por WA</span></label>
+        <input type="text" id="stNota" placeholder="Ej: Llegamos entre 9am y 10am" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+      </div>
+      <div id="stConfErr" style="display:none;background:#fef2f2;color:#991b1b;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:12px;"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button onclick="document.getElementById('stConfirmarModal').style.display='none'" style="background:#f1f5f9;border:1px solid #d1d5db;padding:8px 16px;border-radius:6px;font-size:13px;cursor:pointer;">Cancelar</button>
+        <button onclick="sol_confirmar(${uid})" style="background:#1d3557;color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;" id="stBtnConf">📅 Confirmar y notificar</button>
+      </div>
+    </div>`;
+  modal.style.display = 'flex';
+}
+
+async function sol_confirmar(uid) {
+  const fecha = document.getElementById('stFechaConf')?.value;
+  const nota  = document.getElementById('stNota')?.value?.trim() || null;
+  const errEl = document.getElementById('stConfErr');
+  if (!fecha) { errEl.textContent = 'La fecha es requerida.'; errEl.style.display=''; return; }
+  document.getElementById('stBtnConf').disabled = true;
+  const r = await fetch(`/api/taller/solicitudes-recogida/${uid}/confirmar`, {
+    method: 'PATCH',
+    headers: { 'Content-Type':'application/json' },
+    body: JSON.stringify({ fecha_confirmada: fecha, nota_confirmacion: nota }),
+  }).then(x => x.json()).catch(() => ({ error:'Error de red' }));
+  if (r.success) {
+    document.getElementById('stConfirmarModal').style.display = 'none';
+    showToast('✅ Recogida confirmada — cliente notificado por WA');
+    await sol_cargar();
+    sol_checkPending();
+  } else {
+    errEl.textContent = r.error || 'Error al confirmar';
+    errEl.style.display = '';
+    document.getElementById('stBtnConf').disabled = false;
+  }
+}
+
+async function sol_crearOrden(uid) {
+  if (!confirm('¿Las máquinas ya están en el taller?\nEsto creará una orden de servicio y marcará la solicitud como completada.')) return;
+  const btn = document.querySelector(`[onclick="sol_crearOrden(${uid})"]`);
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Creando orden...'; }
+  const r = await fetch(`/api/taller/solicitudes-recogida/${uid}/crear-orden`, { method: 'POST' })
+    .then(x => x.json()).catch(() => ({ error: 'Error de red' }));
+  if (r.success) {
+    showToast(`✅ Orden #${r.consecutivo} creada exitosamente`);
+    await sol_cargar();
+    sol_checkPending();
+  } else {
+    if (btn) { btn.disabled = false; btn.textContent = '📦 Recibida → Crear orden'; }
+    alert('Error: ' + (r.error || 'No se pudo crear la orden'));
+  }
+}
+
+async function sol_cambiarEstado(uid, estado) {
+  const label = { completada:'marcar como completada', cancelada:'cancelar' }[estado];
+  if (!confirm(`¿Confirma ${label} esta solicitud?`)) return;
+  const r = await fetch(`/api/taller/solicitudes-recogida/${uid}/estado`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ estado }),
+  }).then(x => x.json()).catch(() => ({ error:'Error de red' }));
+  if (r.success) { showToast('✅ Estado actualizado'); await sol_cargar(); sol_checkPending(); }
+  else alert('Error: ' + (r.error || 'No se pudo actualizar'));
+}
+
 // ── Session init ──────────────────────────────────────────────────────────────
 (async function() {
   const me = await fetch('/me').then(r=>r.json()).catch(()=>({}));
@@ -4950,4 +5175,7 @@ window.con_guardarEgreso = async function() {
   const defaultView = isTecnico() ? 'misOrdenes' : 'inicio';
   const allowedHash = isTecnico() ? (TEC_VIEWS.includes(hash) ? hash : null) : hash;
   navigate(Views[allowedHash] ? allowedHash : defaultView);
+
+  // Badge solicitudes pendientes (solo personal interno)
+  if (!isTecnico()) sol_checkPending();
 })();

@@ -30,7 +30,12 @@ const searchLimiter = rateLimit({
 
 router.use((req, res, next) => {
   if (req.path === '/cliente/mis-ordenes'
+    || req.path === '/cliente/kpis'
+    || req.path === '/cliente/mis-maquinas'
+    || req.path === '/cliente/solicitudes'
+    || req.path.startsWith('/cliente/solicitudes/')
     || req.path.startsWith('/cliente/informe/')
+    || req.path.match(/^\/cliente\/solicitudes\/\d+\/items\/\d+\/fotos$/)
     || req.path.match(/^\/cliente\/maquina\/\d+\/autorizar$/)) return next('router');
   return requireInterno(req, res, next);
 });

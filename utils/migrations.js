@@ -675,6 +675,78 @@ async function ensureContabilidadAddon() {
   }
 }
 
+async function ensureSolicitudRecogida() {
+  const conn = await db.getConnection();
+  try {
+    // Header: datos generales de la solicitud (sin campos de máquina)
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_solicitud_recogida (
+        uid_solicitud     INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        tenant_id         INT NOT NULL DEFAULT 1,
+        uid_cliente       INT NOT NULL,
+        direccion         VARCHAR(255) NOT NULL,
+        fecha_sugerida    DATE NULL,
+        fecha_confirmada  DATETIME NULL,
+        nota_confirmacion VARCHAR(255) NULL,
+        fotos             JSON NULL,
+        estado            ENUM('pendiente','confirmada','completada','cancelada') NOT NULL DEFAULT 'pendiente',
+        created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_sol_cliente (uid_cliente),
+        INDEX idx_sol_tenant  (tenant_id),
+        INDEX idx_sol_estado  (estado)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    // Eliminar columnas de máquina del esquema anterior si existen (upgrade path)
+    for (const col of ['uid_herramienta','her_nombre','her_marca','her_serial','tipo_servicio','descripcion']) {
+      try { await conn.execute(`ALTER TABLE b2c_solicitud_recogida DROP COLUMN ${col}`); } catch (_) {}
+    }
+    // Columna para vincular la orden de servicio creada desde esta solicitud
+    try {
+      await conn.execute(`ALTER TABLE b2c_solicitud_recogida ADD COLUMN uid_orden_creada INT NULL`);
+    } catch (e) {
+      if (e.code !== 'ER_DUP_FIELDNAME') console.warn('⚠️ uid_orden_creada:', String(e?.message || e));
+    }
+    console.log('✅ b2c_solicitud_recogida lista');
+  } catch (e) {
+    console.warn('⚠️ No pude crear b2c_solicitud_recogida:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
+async function ensureSolicitudRecogidaItem() {
+  const conn = await db.getConnection();
+  try {
+    // Una fila por máquina incluida en la solicitud
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_solicitud_recogida_item (
+        uid_item        INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        uid_solicitud   INT NOT NULL,
+        tenant_id       INT NOT NULL DEFAULT 1,
+        uid_herramienta INT NULL,
+        her_nombre      VARCHAR(100) NOT NULL,
+        her_marca       VARCHAR(80)  NULL,
+        her_serial      VARCHAR(80)  NULL,
+        tipo_servicio   ENUM('reparacion','mantenimiento','revision') NOT NULL DEFAULT 'reparacion',
+        descripcion     TEXT NULL,
+        INDEX idx_sri_solicitud (uid_solicitud),
+        INDEX idx_sri_tenant    (tenant_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log('✅ b2c_solicitud_recogida_item lista');
+    // Agregar columna fotos si no existe (upgrade path)
+    try {
+      await conn.execute(`ALTER TABLE b2c_solicitud_recogida_item ADD COLUMN fotos TEXT NULL`);
+    } catch (e) {
+      if (e.code !== 'ER_DUP_FIELDNAME') console.warn('⚠️ fotos item:', String(e?.message || e));
+    }
+  } catch (e) {
+    console.warn('⚠️ No pude crear b2c_solicitud_recogida_item:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -697,6 +769,8 @@ async function runMigrations() {
   await ensureEgresoTable();
   await ensureContabilidadAddon();
   await ensureEgresoVencimiento();
+  await ensureSolicitudRecogida();
+  await ensureSolicitudRecogidaItem();
   console.log('Migraciones completadas');
 }
 
