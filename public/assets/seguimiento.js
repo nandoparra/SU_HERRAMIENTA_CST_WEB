@@ -379,8 +379,89 @@ function renderMaquinas(vc) {
 
 // ── View: Nueva Solicitud de Recogida ─────────────────────────────────────────
 
-let _solMaquinas = [];
+let _solMaquinas = [];   // equipos existentes del cliente
 let _solFotosFiles = [];
+let _solMaqCounter = 0;  // contador monotónico para IDs de formulario
+
+function _solMaqOpts() {
+  return _solMaquinas.map(m =>
+    `<option value="${m.uid_herramienta}">${esc(m.her_nombre)}${m.her_marca ? ' — ' + esc(m.her_marca) : ''}</option>`
+  ).join('');
+}
+
+function seg_renderMaquinaItem(idx) {
+  return `<div class="sol-maq-item" id="smi-${idx}">
+    <div class="sol-maq-item-hdr">
+      <span class="sol-maq-num">Máquina</span>
+      <button type="button" class="sol-maq-remove-btn" onclick="seg_removeMaquina(${idx})" title="Eliminar">✕</button>
+    </div>
+    <div class="fgroup">
+      <select id="smi-sel-${idx}" onchange="seg_onMaqSelect(${idx})">
+        <option value="">+ Nueva máquina (escribe el nombre)</option>
+        ${_solMaqOpts()}
+      </select>
+    </div>
+    <div id="smi-nuevo-${idx}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="fgroup">
+          <label>Nombre <span class="req">*</span></label>
+          <input type="text" id="smi-nom-${idx}" placeholder="Ej: Taladro, Esmeril...">
+        </div>
+        <div class="fgroup">
+          <label>Marca</label>
+          <input type="text" id="smi-mar-${idx}" placeholder="Bosch, DeWalt...">
+        </div>
+      </div>
+      <div class="fgroup">
+        <label>Serial</label>
+        <input type="text" id="smi-ser-${idx}" placeholder="Número de serie (opcional)">
+      </div>
+    </div>
+    <div class="fgroup">
+      <label>Tipo de servicio <span class="req">*</span></label>
+      <select id="smi-tipo-${idx}">
+        <option value="reparacion">Reparación</option>
+        <option value="mantenimiento">Mantenimiento preventivo</option>
+        <option value="revision">Revisión / Diagnóstico</option>
+      </select>
+    </div>
+    <div class="fgroup">
+      <label>Descripción del problema</label>
+      <textarea id="smi-desc-${idx}" rows="2" placeholder="Cuéntenos qué le pasa al equipo..."></textarea>
+    </div>
+  </div>`;
+}
+
+function seg_addMaquina() {
+  const container = document.getElementById('solMaquinasContainer');
+  if (!container) return;
+  const idx = _solMaqCounter++;
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = seg_renderMaquinaItem(idx);
+  container.appendChild(wrapper.firstElementChild);
+  _seg_updateRemoveBtns();
+}
+
+function seg_removeMaquina(idx) {
+  document.getElementById(`smi-${idx}`)?.remove();
+  _seg_updateRemoveBtns();
+}
+
+function _seg_updateRemoveBtns() {
+  const items = document.querySelectorAll('#solMaquinasContainer .sol-maq-item');
+  items.forEach((el, i) => {
+    const numEl = el.querySelector('.sol-maq-num');
+    if (numEl) numEl.textContent = `Máquina ${i + 1}`;
+    const btn = el.querySelector('.sol-maq-remove-btn');
+    if (btn) btn.style.display = items.length <= 1 ? 'none' : '';
+  });
+}
+
+function seg_onMaqSelect(idx) {
+  const val = document.getElementById(`smi-sel-${idx}`)?.value;
+  const nuevoDiv = document.getElementById(`smi-nuevo-${idx}`);
+  if (nuevoDiv) nuevoDiv.style.display = val ? 'none' : 'block';
+}
 
 function renderSolicitud(vc) {
   vc.innerHTML = '<div class="loading">Cargando...</div>';
@@ -389,13 +470,11 @@ function renderSolicitud(vc) {
     .then(maquinas => {
       _solMaquinas = maquinas;
       _solFotosFiles = [];
-      const optsMaq = maquinas.map(m =>
-        `<option value="${m.uid_herramienta}">${esc(m.her_nombre)}${m.her_marca ? ' — ' + esc(m.her_marca) : ''}</option>`
-      ).join('');
+      _solMaqCounter = 0;
       const hoy = new Date().toISOString().split('T')[0];
 
       vc.innerHTML = `
-        <div style="max-width:580px;">
+        <div style="max-width:600px;">
           <div id="solMsg"></div>
 
           <div class="form-section" style="margin-bottom:16px;">
@@ -404,54 +483,18 @@ function renderSolicitud(vc) {
           </div>
 
           <div class="form-section">
-            <div class="sec-hdr" style="margin-bottom:14px;">Nueva solicitud</div>
+            <div class="sec-hdr" style="margin-bottom:14px;">Nueva solicitud de recogida</div>
 
-            <div class="fgroup">
-              <label>Equipo <span class="req">*</span></label>
-              <select id="solMaqSelect" onchange="seg_onSelectMaquina()">
-                <option value="">— Seleccionar equipo registrado —</option>
-                ${optsMaq}
-                <option value="__nuevo__">+ Registrar equipo nuevo</option>
-              </select>
-            </div>
+            <div id="solMaquinasContainer"></div>
 
-            <div id="solNuevoForm" style="display:none;border-top:1px solid #e5e7eb;padding-top:14px;margin-top:4px;">
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-                <div class="fgroup">
-                  <label>Nombre del equipo <span class="req">*</span></label>
-                  <input type="text" id="solNombre" placeholder="Ej: Taladro, Esmeril...">
-                </div>
-                <div class="fgroup">
-                  <label>Marca</label>
-                  <input type="text" id="solMarca" placeholder="Bosch, DeWalt...">
-                </div>
-              </div>
-              <div class="fgroup">
-                <label>Serial / Modelo</label>
-                <input type="text" id="solSerial" placeholder="Número de serie (opcional)">
-              </div>
-            </div>
-
-            <div class="fgroup">
-              <label>Tipo de servicio <span class="req">*</span></label>
-              <select id="solTipo">
-                <option value="reparacion">Reparación</option>
-                <option value="mantenimiento">Mantenimiento preventivo</option>
-                <option value="revision">Revisión / Diagnóstico</option>
-              </select>
-            </div>
-
-            <div class="fgroup">
-              <label>Descripción del problema</label>
-              <textarea id="solDesc" rows="3" placeholder="Cuéntenos qué le pasa al equipo..."></textarea>
-            </div>
+            <button type="button" class="add-maq-btn" onclick="seg_addMaquina()">+ Agregar otra máquina</button>
 
             <hr class="form-sep">
 
             <div class="fgroup">
               <label>Dirección de recogida <span class="req">*</span></label>
               <input type="text" id="solDireccion" placeholder="Calle, barrio, ciudad...">
-              <div class="form-hint">El taller irá a recoger el equipo en esta dirección.</div>
+              <div class="form-hint">El taller irá a recoger los equipos en esta dirección.</div>
             </div>
 
             <div class="fgroup">
@@ -461,7 +504,7 @@ function renderSolicitud(vc) {
             </div>
 
             <div class="fgroup">
-              <label>Fotos del equipo <span style="color:#9ca3af;font-size:11px;">— hasta 5 imágenes, opcional</span></label>
+              <label>Fotos generales <span style="color:#9ca3af;font-size:11px;">— hasta 5 imágenes, opcional</span></label>
               <label class="foto-upload-label">
                 📷 Seleccionar fotos
                 <input type="file" id="solFotosInput" accept="image/*" multiple style="display:none" onchange="seg_onFotosChange(this)">
@@ -475,16 +518,12 @@ function renderSolicitud(vc) {
           </div>
         </div>`;
 
+      seg_addMaquina();
       seg_loadSolicitudes();
     })
     .catch(() => {
       vc.innerHTML = '<div class="empty">No se pudo cargar el formulario.</div>';
     });
-}
-
-function seg_onSelectMaquina() {
-  const val = document.getElementById('solMaqSelect').value;
-  document.getElementById('solNuevoForm').style.display = val === '__nuevo__' ? 'block' : 'none';
 }
 
 function seg_onFotosChange(input) {
@@ -499,42 +538,41 @@ function seg_onFotosChange(input) {
 }
 
 async function seg_submitSolicitud() {
-  const btn = document.getElementById('solBtnEnviar');
+  const btn   = document.getElementById('solBtnEnviar');
   const msgEl = document.getElementById('solMsg');
   msgEl.innerHTML = '';
 
-  const maqVal    = document.getElementById('solMaqSelect').value;
   const direccion = document.getElementById('solDireccion').value.trim();
-  const isNuevo   = maqVal === '__nuevo__';
-  const nombre    = isNuevo ? document.getElementById('solNombre').value.trim() : '';
-  const marca     = isNuevo ? document.getElementById('solMarca').value.trim()  : '';
-  const serial    = isNuevo ? document.getElementById('solSerial').value.trim() : '';
-
-  if (!maqVal) { msgEl.innerHTML = '<div class="alert-err">Selecciona un equipo.</div>'; return; }
-  if (isNuevo && !nombre) { msgEl.innerHTML = '<div class="alert-err">Escribe el nombre del equipo.</div>'; return; }
   if (!direccion) { msgEl.innerHTML = '<div class="alert-err">La dirección de recogida es obligatoria.</div>'; return; }
+
+  // Recoger máquinas desde el formulario
+  const maquinas = [];
+  for (const item of document.querySelectorAll('#solMaquinasContainer .sol-maq-item')) {
+    const idx    = item.id.replace('smi-', '');
+    const selVal = document.getElementById(`smi-sel-${idx}`)?.value;
+    const tipo   = document.getElementById(`smi-tipo-${idx}`)?.value || 'reparacion';
+    const desc   = document.getElementById(`smi-desc-${idx}`)?.value?.trim() || null;
+    if (selVal) {
+      maquinas.push({ uid_herramienta: Number(selVal), tipo_servicio: tipo, descripcion: desc });
+    } else {
+      const nombre = document.getElementById(`smi-nom-${idx}`)?.value?.trim();
+      if (!nombre) { msgEl.innerHTML = '<div class="alert-err">Escribe el nombre de cada máquina nueva.</div>'; return; }
+      maquinas.push({
+        her_nombre: nombre,
+        her_marca:  document.getElementById(`smi-mar-${idx}`)?.value?.trim() || null,
+        her_serial: document.getElementById(`smi-ser-${idx}`)?.value?.trim() || null,
+        tipo_servicio: tipo, descripcion: desc,
+      });
+    }
+  }
+  if (!maquinas.length) { msgEl.innerHTML = '<div class="alert-err">Agrega al menos una máquina.</div>'; return; }
 
   btn.disabled = true;
   btn.textContent = '⏳ Enviando...';
   try {
-    const body = {
-      tipo_servicio: document.getElementById('solTipo').value,
-      descripcion:   document.getElementById('solDesc').value.trim() || undefined,
-      direccion,
-      fecha_sugerida: document.getElementById('solFecha').value || undefined,
-    };
-    if (isNuevo) {
-      body.her_nombre = nombre;
-      if (marca)  body.her_marca  = marca;
-      if (serial) body.her_serial = serial;
-    } else {
-      body.uid_herramienta = Number(maqVal);
-    }
-
+    const body = { maquinas, direccion, fecha_sugerida: document.getElementById('solFecha').value || undefined };
     const r = await fetch(`${API}/cliente/solicitudes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Error al crear solicitud');
@@ -542,15 +580,13 @@ async function seg_submitSolicitud() {
     if (_solFotosFiles.length) {
       const fd = new FormData();
       _solFotosFiles.forEach(f => fd.append('fotos', f));
-      await fetch(`${API}/cliente/solicitudes/${data.uid_solicitud}/fotos`, {
-        method: 'POST', body: fd,
-      });
+      await fetch(`${API}/cliente/solicitudes/${data.uid_solicitud}/fotos`, { method: 'POST', body: fd });
     }
 
     msgEl.innerHTML = '<div class="alert-ok">✅ Solicitud enviada. El taller confirmará la fecha por WhatsApp.</div>';
-    document.getElementById('solMaqSelect').value = '';
-    document.getElementById('solNuevoForm').style.display = 'none';
-    document.getElementById('solDesc').value = '';
+    // Reset form: vaciar máquinas y agregar una vacía
+    const container = document.getElementById('solMaquinasContainer');
+    if (container) { container.innerHTML = ''; _solMaqCounter = 0; seg_addMaquina(); }
     document.getElementById('solDireccion').value = '';
     document.getElementById('solFecha').value = '';
     document.getElementById('fotoPreview').innerHTML = '';
@@ -572,24 +608,25 @@ async function seg_loadSolicitudes() {
     el.innerHTML = '<span style="color:#9ca3af;font-size:13px;">Aún no tienes solicitudes.</span>';
     return;
   }
+  const tipoLabel = { reparacion:'Reparación', mantenimiento:'Mantenimiento', revision:'Revisión' };
   el.innerHTML = '<div class="sol-list">' + rows.map(s => {
-    const badgeClass = `sol-badge sol-${esc(s.estado)}`;
-    const estadoLabel = { pendiente: 'Pendiente', confirmada: 'Confirmada', completada: 'Completada', cancelada: 'Cancelada' }[s.estado] || s.estado;
+    const badgeClass  = `sol-badge sol-${esc(s.estado)}`;
+    const estadoLabel = { pendiente:'Pendiente', confirmada:'Confirmada', completada:'Completada', cancelada:'Cancelada' }[s.estado] || s.estado;
+    const maqsHtml = (s.maquinas || []).map(m =>
+      `<div style="font-size:12px;padding:2px 0;"><b>${esc(m.her_nombre)}</b>${m.her_marca ? ` — ${esc(m.her_marca)}` : ''} · <span style="color:#6b7280">${tipoLabel[m.tipo_servicio]||m.tipo_servicio}</span>${m.descripcion ? `<br><span style="color:#9ca3af;font-size:11px;">${esc(m.descripcion)}</span>` : ''}</div>`
+    ).join('');
     const confirmBox = s.estado === 'confirmada' && s.fecha_confirmada
       ? `<div class="sol-confirmada-box">📅 Recogida confirmada: ${fmtDatetimeLong(s.fecha_confirmada)}${s.nota_confirmacion ? '<br>' + esc(s.nota_confirmacion) : ''}</div>`
       : '';
     return `<div class="sol-card">
       <div class="sol-card-top">
-        <div class="sol-equipo">${esc(s.her_nombre || 'Equipo sin nombre')}</div>
+        <div>
+          <div class="sol-equipo">${(s.maquinas||[]).map(m=>esc(m.her_nombre)).join(', ')||'Sin equipos'}</div>
+          <div class="sol-detalle" style="margin-top:2px;">📍 ${esc(s.direccion)}${s.fecha_sugerida?` · 📅 ${fmtFecha(s.fecha_sugerida)}`:''} · <span style="color:#9ca3af">${fmtDatetime(s.created_at)}</span></div>
+        </div>
         <span class="${badgeClass}">${estadoLabel}</span>
       </div>
-      <div class="sol-detalle">
-        ${s.tipo_servicio ? `<b>${esc({ reparacion:'Reparación', mantenimiento:'Mantenimiento', revision:'Revisión' }[s.tipo_servicio] || s.tipo_servicio)}</b> · ` : ''}
-        ${s.descripcion ? esc(s.descripcion) + '<br>' : ''}
-        📍 ${esc(s.direccion)}
-        ${s.fecha_sugerida ? ` · 📅 Sugerida: ${fmtFecha(s.fecha_sugerida)}` : ''}
-        · <span style="color:#9ca3af">${fmtDatetime(s.created_at)}</span>
-      </div>
+      ${maqsHtml ? `<div style="margin-top:8px;">${maqsHtml}</div>` : ''}
       ${confirmBox}
     </div>`;
   }).join('') + '</div>';
