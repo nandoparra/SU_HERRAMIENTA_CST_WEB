@@ -397,14 +397,17 @@ function seg_renderMaquinaItem(idx) {
     </div>
     <div class="fgroup">
       <select id="smi-sel-${idx}" onchange="seg_onMaqSelect(${idx})">
-        <option value="">+ Nueva máquina (escribe el nombre)</option>
+        <option value="">Seleccionar equipo existente...</option>
         ${_solMaqOpts()}
       </select>
     </div>
-    <div id="smi-nuevo-${idx}">
+    <button type="button" id="smi-newtgl-${idx}" class="btn-nuevo-equipo" onclick="seg_toggleNuevo(${idx})">
+      ➕ Registrar equipo nuevo
+    </button>
+    <div id="smi-nuevo-${idx}" style="display:none;">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <div class="fgroup">
-          <label>Nombre <span class="req">*</span></label>
+          <label>Nombre / Modelo <span class="req">*</span></label>
           <input type="text" id="smi-nom-${idx}" placeholder="Ej: Taladro, Esmeril...">
         </div>
         <div class="fgroup">
@@ -430,6 +433,20 @@ function seg_renderMaquinaItem(idx) {
       <textarea id="smi-desc-${idx}" rows="2" placeholder="Cuéntenos qué le pasa al equipo..."></textarea>
     </div>
   </div>`;
+}
+
+function seg_toggleNuevo(idx) {
+  const div = document.getElementById(`smi-nuevo-${idx}`);
+  const sel = document.getElementById(`smi-sel-${idx}`);
+  const btn = document.getElementById(`smi-newtgl-${idx}`);
+  if (!div) return;
+  const opening = div.style.display === 'none';
+  div.style.display = opening ? 'block' : 'none';
+  if (opening && sel) sel.value = '';
+  if (btn) {
+    btn.classList.toggle('active', opening);
+    btn.textContent = opening ? '✕ Cancelar equipo nuevo' : '➕ Registrar equipo nuevo';
+  }
 }
 
 function seg_addMaquina() {
@@ -460,7 +477,12 @@ function _seg_updateRemoveBtns() {
 function seg_onMaqSelect(idx) {
   const val = document.getElementById(`smi-sel-${idx}`)?.value;
   const nuevoDiv = document.getElementById(`smi-nuevo-${idx}`);
-  if (nuevoDiv) nuevoDiv.style.display = val ? 'none' : 'block';
+  const btn = document.getElementById(`smi-newtgl-${idx}`);
+  if (val && nuevoDiv) { nuevoDiv.style.display = 'none'; }
+  if (val && btn) {
+    btn.classList.remove('active');
+    btn.textContent = '➕ Registrar equipo nuevo';
+  }
 }
 
 function renderSolicitud(vc) {
