@@ -216,6 +216,14 @@ Views.inicio = {
           </div>
           <div id="revSinCotList"></div>
         </div>
+        <div id="solPendSection" style="display:none">
+          <div class="alertas-section" style="cursor:pointer" onclick="navigate('solicitudesTaller')">
+            <div class="alertas-header">
+              <h3>🚗 Solicitudes de recogida pendientes</h3>
+            </div>
+            <div id="solPendList"></div>
+          </div>
+        </div>
       </div>`;
   },
   async init() {
@@ -304,6 +312,33 @@ Views.inicio = {
             </div>`).join('');
         }
       }
+
+      // Solicitudes de recogida pendientes
+      fetch('/api/taller/solicitudes-recogida?estado=pendiente').then(r => r.json()).then(solRows => {
+        const solSec = document.getElementById('solPendSection');
+        const solLst = document.getElementById('solPendList');
+        if (!solSec || !solLst || !Array.isArray(solRows) || !solRows.length) {
+          if (solSec) solSec.style.display = 'none';
+          return;
+        }
+        solSec.style.display = 'block';
+        solLst.innerHTML = solRows.slice(0, 5).map(s => {
+          const cliente = esc(s.cli_razon_social || s.cli_contacto || 'Cliente');
+          const equipos = (s.maquinas || []).map(m => esc(m.her_nombre)).join(', ') || '—';
+          const fecha   = s.fecha_sugerida ? s.fecha_sugerida.split('T')[0].split('-').reverse().join('/') : '';
+          return `<div class="alerta-row alerta-amarillo">
+            <div class="alerta-info">
+              <div class="alerta-maq">${equipos}</div>
+              <div class="alerta-cli">${cliente}</div>
+              ${fecha ? `<div class="alerta-orden">Fecha sugerida: ${fecha}</div>` : ''}
+            </div>
+            <div class="dias-badge dias-amarillo">Pendiente</div>
+          </div>`;
+        }).join('');
+        if (solRows.length > 5) {
+          solLst.innerHTML += `<div class="alertas-empty">… y ${solRows.length - 5} más — ver todas en Recogidas</div>`;
+        }
+      }).catch(() => {});
 
       // Garantías activas
       const garantias = data.garantiasActivas || [];
@@ -4938,6 +4973,17 @@ Views.solicitudesTaller = {
   }
 };
 
+async function sol_checkPending() {
+  try {
+    const rows = await fetch('/api/taller/solicitudes-recogida?estado=pendiente').then(r => r.json());
+    const count = Array.isArray(rows) ? rows.length : 0;
+    const badge = document.getElementById('solPendBadge');
+    if (!badge) return;
+    if (count > 0) { badge.textContent = count; badge.style.display = ''; }
+    else { badge.style.display = 'none'; }
+  } catch (_) {}
+}
+
 async function sol_cargar() {
   const estado = document.getElementById('stFiltroEstado')?.value || '';
   const url = `/api/taller/solicitudes-recogida${estado ? '?estado=' + estado : ''}`;
@@ -5039,6 +5085,7 @@ async function sol_confirmar(uid) {
     document.getElementById('stConfirmarModal').style.display = 'none';
     showToast('✅ Recogida confirmada — cliente notificado por WA');
     await sol_cargar();
+    sol_checkPending();
   } else {
     errEl.textContent = r.error || 'Error al confirmar';
     errEl.style.display = '';
@@ -5052,7 +5099,7 @@ async function sol_cambiarEstado(uid, estado) {
   const r = await fetch(`/api/taller/solicitudes-recogida/${uid}/estado`, {
     method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ estado }),
   }).then(x => x.json()).catch(() => ({ error:'Error de red' }));
-  if (r.success) { showToast('✅ Estado actualizado'); await sol_cargar(); }
+  if (r.success) { showToast('✅ Estado actualizado'); await sol_cargar(); sol_checkPending(); }
   else alert('Error: ' + (r.error || 'No se pudo actualizar'));
 }
 
@@ -5096,4 +5143,7 @@ async function sol_cambiarEstado(uid, estado) {
   const defaultView = isTecnico() ? 'misOrdenes' : 'inicio';
   const allowedHash = isTecnico() ? (TEC_VIEWS.includes(hash) ? hash : null) : hash;
   navigate(Views[allowedHash] ? allowedHash : defaultView);
+
+  // Badge solicitudes pendientes (solo personal interno)
+  if (!isTecnico()) sol_checkPending();
 })();
