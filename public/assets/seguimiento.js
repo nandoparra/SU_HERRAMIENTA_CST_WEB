@@ -413,9 +413,15 @@ function seg_renderMaquinaItem(idx) {
           <input type="text" id="smi-mar-${idx}" placeholder="Bosch, DeWalt...">
         </div>
       </div>
-      <div class="fgroup">
-        <label>Serial</label>
-        <input type="text" id="smi-ser-${idx}" placeholder="Número de serie (opcional)">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="fgroup">
+          <label>Serial</label>
+          <input type="text" id="smi-ser-${idx}" placeholder="Número de serie">
+        </div>
+        <div class="fgroup">
+          <label>Referencia</label>
+          <input type="text" id="smi-ref-${idx}" placeholder="Ref. del fabricante">
+        </div>
       </div>
     </div>
     <div class="fgroup">
@@ -645,9 +651,10 @@ async function seg_submitSolicitud() {
       maquinas.push({ uid_herramienta: Number(uidVal), tipo_servicio: tipo, descripcion: desc });
     } else {
       maquinas.push({
-        her_nombre: nombre,
-        her_marca:  document.getElementById(`smi-mar-${idx}`)?.value?.trim() || null,
-        her_serial: document.getElementById(`smi-ser-${idx}`)?.value?.trim() || null,
+        her_nombre:     nombre,
+        her_marca:      document.getElementById(`smi-mar-${idx}`)?.value?.trim() || null,
+        her_serial:     document.getElementById(`smi-ser-${idx}`)?.value?.trim() || null,
+        her_referencia: document.getElementById(`smi-ref-${idx}`)?.value?.trim() || null,
         tipo_servicio: tipo, descripcion: desc,
       });
     }

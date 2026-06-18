@@ -366,24 +366,35 @@ router.post('/cliente/solicitudes', async (req, res) => {
 
         const item_ids = [];
         for (const m of maquinas) {
+          let uid_h  = m.uid_herramienta || null;
           let nombre = (m.her_nombre || '').trim();
-          let marca  = (m.her_marca  || null);
-          let serial = (m.her_serial || null);
+          let marca  = m.her_marca  || null;
+          let serial = m.her_serial || null;
 
-          if (m.uid_herramienta) {
+          if (uid_h) {
+            // Máquina existente — leer datos actuales para denormalizar en el item
             const [[h]] = await conn.execute(
               `SELECT her_nombre, her_marca, her_serial FROM b2c_herramienta
                WHERE uid_herramienta = ? AND uid_cliente = ? AND tenant_id = ?`,
-              [m.uid_herramienta, cli.uid_cliente, tenantId]
+              [uid_h, cli.uid_cliente, tenantId]
             );
             if (h) { nombre = h.her_nombre; marca = h.her_marca; serial = h.her_serial; }
+          } else {
+            // Máquina nueva — guardar en b2c_herramienta para que quede en el inventario del cliente
+            const referencia = m.her_referencia || null;
+            const [newH] = await conn.execute(
+              `INSERT INTO b2c_herramienta (uid_cliente, her_nombre, her_marca, her_serial, her_referencia, her_estado, tenant_id)
+               VALUES (?, ?, ?, ?, ?, 'A', ?)`,
+              [cli.uid_cliente, nombre, marca, serial, referencia, tenantId]
+            );
+            uid_h = newH.insertId;
           }
 
           const [ins] = await conn.execute(
             `INSERT INTO b2c_solicitud_recogida_item
                (uid_solicitud, tenant_id, uid_herramienta, her_nombre, her_marca, her_serial, tipo_servicio, descripcion)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [uid_solicitud, tenantId, m.uid_herramienta || null, nombre, marca || null, serial || null,
+            [uid_solicitud, tenantId, uid_h, nombre, marca || null, serial || null,
              m.tipo_servicio || 'reparacion', m.descripcion?.trim() || null]
           );
           item_ids.push(ins.insertId);
