@@ -30,6 +30,27 @@ const uploadSolicitudFoto = multer({
   },
 });
 
+// Fotos por item (máquina) van a fotos-recepcion/ para que cuando se convierta en orden
+// el path en b2c_foto_herramienta_orden ya sea el correcto para el módulo de órdenes.
+const itemFotoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(UPLOADS_DIR, 'fotos-recepcion');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `sol_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
+  },
+});
+const uploadItemFoto = multer({
+  storage: itemFotoStorage,
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    file.mimetype.startsWith('image/') ? cb(null, true) : cb(new Error('Solo imágenes'));
+  },
+});
+
 // Rutas de portal cliente — NO requieren requireInterno (tipo C).
 // Este router se monta ANTES de orders.js en server.js para que las rutas /cliente/*
 // sean capturadas aquí y nunca lleguen al middleware requireInterno de orders.js.
@@ -460,7 +481,7 @@ router.post('/cliente/solicitudes/:id/fotos', uploadSolicitudFoto.array('fotos',
 });
 
 // ── Subir fotos a un ítem (máquina) de solicitud ──────────────────────────────
-router.post('/cliente/solicitudes/:id/items/:uid_item/fotos', uploadSolicitudFoto.array('fotos', 3), async (req, res) => {
+router.post('/cliente/solicitudes/:id/items/:uid_item/fotos', uploadItemFoto.array('fotos', 3), async (req, res) => {
   const user = req.session?.user;
   if (!user || user.tipo !== 'C') return res.status(403).json({ error: 'Acceso denegado' });
   if (!req.files?.length) return res.status(400).json({ error: 'No se recibieron imágenes' });
@@ -489,7 +510,7 @@ router.post('/cliente/solicitudes/:id/items/:uid_item/fotos', uploadSolicitudFot
 
       const fotos = JSON.parse(item.fotos || '[]');
       for (const f of req.files) {
-        fotos.push({ filename: f.filename, url: `/uploads/solicitudes-recogida/${f.filename}` });
+        fotos.push({ filename: f.filename, url: `/uploads/fotos-recepcion/${f.filename}` });
       }
       await conn.execute(
         `UPDATE b2c_solicitud_recogida_item SET fotos = ? WHERE uid_item = ?`,
