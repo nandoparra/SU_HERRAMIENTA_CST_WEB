@@ -330,14 +330,19 @@ router.get('/cliente/mis-maquinas', async (req, res) => {
   }
 });
 
-// ── Crear solicitud de recogida ────────────────────────────────────────────────
+// ── Crear solicitud de recogida (multi-máquina) ────────────────────────────────
 router.post('/cliente/solicitudes', async (req, res) => {
   const user = req.session?.user;
   if (!user || user.tipo !== 'C') return res.status(403).json({ error: 'Acceso denegado' });
 
-  const { uid_herramienta, her_nombre, her_marca, her_serial, tipo_servicio, descripcion, direccion, fecha_sugerida } = req.body;
+  const { maquinas, direccion, fecha_sugerida } = req.body;
   if (!direccion) return res.status(400).json({ error: 'La dirección de recogida es obligatoria' });
-  if (!her_nombre && !uid_herramienta) return res.status(400).json({ error: 'Indica el equipo o registra uno nuevo' });
+  if (!Array.isArray(maquinas) || !maquinas.length) return res.status(400).json({ error: 'Agrega al menos una máquina' });
+  for (const m of maquinas) {
+    if (!m.uid_herramienta && !m.her_nombre?.trim()) {
+      return res.status(400).json({ error: 'Cada máquina debe tener nombre o ser seleccionada del inventario' });
+    }
+  }
 
   try {
     const tenantId = getTenantId(req);
@@ -349,36 +354,44 @@ router.post('/cliente/solicitudes', async (req, res) => {
       );
       if (!cli) return res.status(403).json({ error: 'Cliente no encontrado' });
 
-      let resolvedNombre = her_nombre || null;
-      let resolvedMarca  = her_marca  || null;
-      let resolvedSerial = her_serial || null;
-
-      if (uid_herramienta) {
-        const [[h]] = await conn.execute(
-          `SELECT her_nombre, her_marca, her_serial FROM b2c_herramienta
-           WHERE uid_herramienta = ? AND uid_cliente = ? AND tenant_id = ?`,
-          [uid_herramienta, cli.uid_cliente, tenantId]
+      await conn.beginTransaction();
+      try {
+        await conn.execute(
+          `INSERT INTO b2c_solicitud_recogida (tenant_id, uid_cliente, direccion, fecha_sugerida)
+           VALUES (?, ?, ?, ?)`,
+          [tenantId, cli.uid_cliente, direccion, fecha_sugerida || null]
         );
-        if (!h) return res.status(404).json({ error: 'Máquina no encontrada' });
-        resolvedNombre = h.her_nombre;
-        resolvedMarca  = h.her_marca;
-        resolvedSerial = h.her_serial;
-      }
+        const [[ins]] = await conn.execute('SELECT LAST_INSERT_ID() AS id');
+        const uid_solicitud = ins.id;
 
-      await conn.execute(
-        `INSERT INTO b2c_solicitud_recogida
-           (tenant_id, uid_cliente, uid_herramienta, her_nombre, her_marca, her_serial,
-            tipo_servicio, descripcion, direccion, fecha_sugerida)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          tenantId, cli.uid_cliente, uid_herramienta || null,
-          resolvedNombre, resolvedMarca, resolvedSerial,
-          tipo_servicio || 'reparacion', descripcion || null,
-          direccion, fecha_sugerida || null,
-        ]
-      );
-      const [[ins]] = await conn.execute('SELECT LAST_INSERT_ID() AS id');
-      res.json({ success: true, uid_solicitud: ins.id });
+        for (const m of maquinas) {
+          let nombre = (m.her_nombre || '').trim();
+          let marca  = (m.her_marca  || null);
+          let serial = (m.her_serial || null);
+
+          if (m.uid_herramienta) {
+            const [[h]] = await conn.execute(
+              `SELECT her_nombre, her_marca, her_serial FROM b2c_herramienta
+               WHERE uid_herramienta = ? AND uid_cliente = ? AND tenant_id = ?`,
+              [m.uid_herramienta, cli.uid_cliente, tenantId]
+            );
+            if (h) { nombre = h.her_nombre; marca = h.her_marca; serial = h.her_serial; }
+          }
+
+          await conn.execute(
+            `INSERT INTO b2c_solicitud_recogida_item
+               (uid_solicitud, tenant_id, uid_herramienta, her_nombre, her_marca, her_serial, tipo_servicio, descripcion)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [uid_solicitud, tenantId, m.uid_herramienta || null, nombre, marca || null, serial || null,
+             m.tipo_servicio || 'reparacion', m.descripcion?.trim() || null]
+          );
+        }
+        await conn.commit();
+        res.json({ success: true, uid_solicitud });
+      } catch (e) {
+        await conn.rollback();
+        throw e;
+      }
     } finally {
       conn.release();
     }
@@ -433,7 +446,7 @@ router.post('/cliente/solicitudes/:id/fotos', uploadSolicitudFoto.array('fotos',
   }
 });
 
-// ── Listar solicitudes del cliente ────────────────────────────────────────────
+// ── Listar solicitudes del cliente (con ítems por solicitud) ──────────────────
 router.get('/cliente/solicitudes', async (req, res) => {
   const user = req.session?.user;
   if (!user || user.tipo !== 'C') return res.status(403).json([]);
@@ -448,14 +461,31 @@ router.get('/cliente/solicitudes', async (req, res) => {
       if (!cli) return res.json([]);
 
       const [rows] = await conn.execute(
-        `SELECT uid_solicitud, her_nombre, her_marca, tipo_servicio, descripcion,
-                direccion, fecha_sugerida, fecha_confirmada, nota_confirmacion,
+        `SELECT uid_solicitud, direccion, fecha_sugerida, fecha_confirmada, nota_confirmacion,
                 fotos, estado, created_at
          FROM b2c_solicitud_recogida
          WHERE uid_cliente = ? AND tenant_id = ?
          ORDER BY created_at DESC LIMIT 30`,
         [cli.uid_cliente, tenantId]
       );
+      if (!rows.length) return res.json([]);
+
+      const ids = rows.map(r => r.uid_solicitud);
+      const ph  = ids.map(() => '?').join(',');
+      const [items] = await conn.execute(
+        `SELECT uid_item, uid_solicitud, uid_herramienta, her_nombre, her_marca, her_serial, tipo_servicio, descripcion
+         FROM b2c_solicitud_recogida_item
+         WHERE uid_solicitud IN (${ph}) AND tenant_id = ?
+         ORDER BY uid_item`,
+        [...ids, tenantId]
+      );
+      const itemsMap = {};
+      items.forEach(i => {
+        const k = String(i.uid_solicitud);
+        if (!itemsMap[k]) itemsMap[k] = [];
+        itemsMap[k].push(i);
+      });
+      rows.forEach(r => { r.maquinas = itemsMap[String(r.uid_solicitud)] || []; });
       res.json(rows);
     } finally {
       conn.release();

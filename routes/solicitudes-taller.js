@@ -24,9 +24,8 @@ router.get('/taller/solicitudes-recogida', async (req, res) => {
       if (estadoFiltro) { where += ' AND s.estado = ?'; params.push(estadoFiltro); }
 
       const [rows] = await conn.execute(
-        `SELECT s.uid_solicitud, s.uid_cliente, s.uid_herramienta,
-                s.her_nombre, s.her_marca, s.her_serial, s.tipo_servicio,
-                s.descripcion, s.direccion, s.fecha_sugerida, s.fecha_confirmada,
+        `SELECT s.uid_solicitud, s.uid_cliente,
+                s.direccion, s.fecha_sugerida, s.fecha_confirmada,
                 s.nota_confirmacion, s.fotos, s.estado, s.created_at,
                 c.cli_razon_social, c.cli_contacto, c.cli_telefono, c.cli_identificacion
          FROM b2c_solicitud_recogida s
@@ -35,6 +34,25 @@ router.get('/taller/solicitudes-recogida', async (req, res) => {
          ORDER BY s.created_at DESC LIMIT 100`,
         params
       );
+      if (!rows.length) return res.json([]);
+
+      const ids = rows.map(r => r.uid_solicitud);
+      const ph  = ids.map(() => '?').join(',');
+      const tenantId = getTenantId(req);
+      const [items] = await conn.execute(
+        `SELECT uid_item, uid_solicitud, uid_herramienta, her_nombre, her_marca, her_serial, tipo_servicio, descripcion
+         FROM b2c_solicitud_recogida_item
+         WHERE uid_solicitud IN (${ph}) AND tenant_id = ?
+         ORDER BY uid_item`,
+        [...ids, tenantId]
+      );
+      const itemsMap = {};
+      items.forEach(i => {
+        const k = String(i.uid_solicitud);
+        if (!itemsMap[k]) itemsMap[k] = [];
+        itemsMap[k].push(i);
+      });
+      rows.forEach(r => { r.maquinas = itemsMap[String(r.uid_solicitud)] || []; });
       res.json(rows);
     } finally {
       conn.release();
@@ -55,7 +73,8 @@ router.patch('/taller/solicitudes-recogida/:id/confirmar', async (req, res) => {
     const conn = await db.getConnection();
     try {
       const [[sol]] = await conn.execute(
-        `SELECT s.*, c.cli_telefono, c.cli_razon_social, c.cli_contacto
+        `SELECT s.uid_solicitud, s.estado, s.direccion,
+                c.cli_telefono, c.cli_razon_social, c.cli_contacto
          FROM b2c_solicitud_recogida s
          LEFT JOIN b2c_cliente c ON c.uid_cliente = s.uid_cliente
          WHERE s.uid_solicitud = ? AND s.tenant_id = ?`,
@@ -80,10 +99,19 @@ router.patch('/taller/solicitudes-recogida/:id/confirmar', async (req, res) => {
             weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',
           }) + ' a las ' + fecha.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
 
+          // Obtener equipos de la solicitud
+          const [solItems] = await conn.execute(
+            `SELECT her_nombre FROM b2c_solicitud_recogida_item WHERE uid_solicitud = ? ORDER BY uid_item`,
+            [sol.uid_solicitud]
+          );
+          const equiposStr = solItems.length
+            ? solItems.map(i => `• ${i.her_nombre}`).join('\n')
+            : '• su(s) equipo(s)';
+
           const clienteNombre = sol.cli_razon_social || sol.cli_contacto || 'cliente';
           const msg = `Hola ${clienteNombre}, le saluda *Su Herramienta CST* 🔧\n\n` +
             `✅ *Su solicitud de recogida ha sido confirmada.*\n\n` +
-            `🔧 Equipo: *${sol.her_nombre || 'su equipo'}*\n` +
+            `🔧 Equipos:\n${equiposStr}\n` +
             `📅 Fecha y hora: *${fechaStr}*\n` +
             `📍 Dirección: ${sol.direccion}` +
             (nota_confirmacion ? `\n\n${nota_confirmacion}` : '') +
