@@ -463,7 +463,7 @@ function seg_searchMaq(idx) {
     return;
   }
   resultsEl.innerHTML = matches.map(m => {
-    const detalle = [m.her_marca ? 'Marca: ' + esc(m.her_marca) : '', m.her_serial ? 'S/N: ' + esc(m.her_serial) : ''].filter(Boolean).join(' · ');
+    const detalle = [m.her_marca ? 'Marca: ' + esc(m.her_marca) : '', m.her_serial ? 'S/N: ' + esc(m.her_serial) : '', m.her_referencia ? 'Ref: ' + esc(m.her_referencia) : ''].filter(Boolean).join(' · ');
     return `<div class="sol-sr-item" data-uid="${m.uid_herramienta}" data-nombre="${esc(m.her_nombre).replace(/"/g,'&quot;')}">
       <div style="font-weight:600;font-size:13px;">${esc(m.her_nombre)}</div>
       ${detalle ? `<div style="font-size:11px;color:#6b7280;">${detalle}</div>` : ''}
