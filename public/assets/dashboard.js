@@ -5017,8 +5017,12 @@ async function sol_cargar() {
     const accionesHtml = s.estado === 'pendiente'
       ? `<button onclick="sol_abrirConfirmar(${s.uid_solicitud}, '${safeEqs}', '${safeDir}');" style="background:#1d3557;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;margin-right:6px;">📅 Confirmar fecha</button>
          <button onclick="sol_cambiarEstado(${s.uid_solicitud},'cancelada')" style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;">Cancelar</button>`
-      : s.estado === 'confirmada'
-      ? `<button onclick="sol_cambiarEstado(${s.uid_solicitud},'completada')" style="background:#d1fae5;color:#065f46;border:1px solid #bbf7d0;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;">✅ Marcar completada</button>`
+      : s.estado === 'confirmada' && !s.uid_orden_creada
+      ? `<button onclick="sol_crearOrden(${s.uid_solicitud})" style="background:#065f46;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;margin-right:6px;">📦 Recibida → Crear orden</button>
+         <button onclick="sol_cambiarEstado(${s.uid_solicitud},'cancelada')" style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;">Cancelar</button>`
+      : s.uid_orden_creada
+      ? `<span style="font-size:12px;font-weight:600;color:#065f46;">✅ Orden #${s.ord_consecutivo || s.uid_orden_creada} creada</span>
+         <button onclick="navigate('ordenes')" style="margin-left:10px;background:none;border:1px solid #d1d5db;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;">Ver órdenes →</button>`
       : '';
     const confirmBox = fechaCon
       ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:8px 12px;margin-top:8px;font-size:13px;font-weight:600;color:#065f46;">📅 ${fechaCon}${s.nota_confirmacion ? ' — ' + esc(s.nota_confirmacion) : ''}</div>` : '';
@@ -5090,6 +5094,22 @@ async function sol_confirmar(uid) {
     errEl.textContent = r.error || 'Error al confirmar';
     errEl.style.display = '';
     document.getElementById('stBtnConf').disabled = false;
+  }
+}
+
+async function sol_crearOrden(uid) {
+  if (!confirm('¿Las máquinas ya están en el taller?\nEsto creará una orden de servicio y marcará la solicitud como completada.')) return;
+  const btn = document.querySelector(`[onclick="sol_crearOrden(${uid})"]`);
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Creando orden...'; }
+  const r = await fetch(`/api/taller/solicitudes-recogida/${uid}/crear-orden`, { method: 'POST' })
+    .then(x => x.json()).catch(() => ({ error: 'Error de red' }));
+  if (r.success) {
+    showToast(`✅ Orden #${r.consecutivo} creada exitosamente`);
+    await sol_cargar();
+    sol_checkPending();
+  } else {
+    if (btn) { btn.disabled = false; btn.textContent = '📦 Recibida → Crear orden'; }
+    alert('Error: ' + (r.error || 'No se pudo crear la orden'));
   }
 }
 

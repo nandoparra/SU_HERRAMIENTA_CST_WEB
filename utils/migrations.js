@@ -700,6 +700,12 @@ async function ensureSolicitudRecogida() {
     for (const col of ['uid_herramienta','her_nombre','her_marca','her_serial','tipo_servicio','descripcion']) {
       try { await conn.execute(`ALTER TABLE b2c_solicitud_recogida DROP COLUMN ${col}`); } catch (_) {}
     }
+    // Columna para vincular la orden de servicio creada desde esta solicitud
+    try {
+      await conn.execute(`ALTER TABLE b2c_solicitud_recogida ADD COLUMN uid_orden_creada INT NULL`);
+    } catch (e) {
+      if (e.code !== 'ER_DUP_FIELDNAME') console.warn('⚠️ uid_orden_creada:', String(e?.message || e));
+    }
     console.log('✅ b2c_solicitud_recogida lista');
   } catch (e) {
     console.warn('⚠️ No pude crear b2c_solicitud_recogida:', String(e?.message || e));

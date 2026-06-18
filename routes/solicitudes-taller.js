@@ -27,9 +27,11 @@ router.get('/taller/solicitudes-recogida', async (req, res) => {
         `SELECT s.uid_solicitud, s.uid_cliente,
                 s.direccion, s.fecha_sugerida, s.fecha_confirmada,
                 s.nota_confirmacion, s.fotos, s.estado, s.created_at,
+                s.uid_orden_creada, o.ord_consecutivo,
                 c.cli_razon_social, c.cli_contacto, c.cli_telefono, c.cli_identificacion
          FROM b2c_solicitud_recogida s
          LEFT JOIN b2c_cliente c ON c.uid_cliente = s.uid_cliente
+         LEFT JOIN b2c_orden o ON o.uid_orden = s.uid_orden_creada
          ${where}
          ORDER BY s.created_at DESC LIMIT 100`,
         params
@@ -128,6 +130,82 @@ router.patch('/taller/solicitudes-recogida/:id/confirmar', async (req, res) => {
     }
   } catch (e) {
     log.error({ err: e }, 'Error confirmando solicitud:');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// ── Crear orden de servicio desde solicitud confirmada ───────────────────────
+router.post('/taller/solicitudes-recogida/:id/crear-orden', async (req, res) => {
+  try {
+    const tenantId = getTenantId(req);
+    const conn = await db.getConnection();
+    try {
+      const [[sol]] = await conn.execute(
+        `SELECT uid_solicitud, estado, uid_cliente, uid_orden_creada
+         FROM b2c_solicitud_recogida
+         WHERE uid_solicitud = ? AND tenant_id = ?`,
+        [req.params.id, tenantId]
+      );
+      if (!sol) return res.status(404).json({ error: 'Solicitud no encontrada' });
+      if (sol.uid_orden_creada) {
+        const [[ord]] = await conn.execute(
+          `SELECT ord_consecutivo FROM b2c_orden WHERE uid_orden = ?`, [sol.uid_orden_creada]
+        );
+        return res.status(409).json({ error: 'Ya tiene una orden creada', uid_orden: sol.uid_orden_creada, consecutivo: ord?.ord_consecutivo });
+      }
+      if (sol.estado !== 'confirmada') {
+        return res.status(409).json({ error: `Solo se puede convertir desde estado "confirmada" (actual: "${sol.estado}")` });
+      }
+
+      const [items] = await conn.execute(
+        `SELECT uid_herramienta, her_nombre FROM b2c_solicitud_recogida_item
+         WHERE uid_solicitud = ? AND tenant_id = ? ORDER BY uid_item`,
+        [sol.uid_solicitud, tenantId]
+      );
+      if (!items.length) return res.status(400).json({ error: 'La solicitud no tiene máquinas' });
+      const sinUid = items.filter(i => !i.uid_herramienta);
+      if (sinUid.length) {
+        return res.status(400).json({ error: `Máquina(s) sin uid_herramienta: ${sinUid.map(i => i.her_nombre).join(', ')}` });
+      }
+
+      await conn.beginTransaction();
+      try {
+        const [[maxRow]] = await conn.execute(`SELECT COALESCE(MAX(ord_consecutivo), 0) + 1 AS next FROM b2c_orden`);
+        const consecutivo = maxRow.next;
+        const d = new Date();
+        const fechaHoy = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+
+        const [ordRes] = await conn.execute(
+          `INSERT INTO b2c_orden (ord_consecutivo, uid_cliente, ord_estado, ord_total, ord_impuestos, ord_valor_total, ord_fecha, ord_tipo, tenant_id)
+           VALUES (?, ?, 'A', 0, 0, 0, ?, 'normal', ?)`,
+          [consecutivo, sol.uid_cliente, fechaHoy, tenantId]
+        );
+        const uid_orden = ordRes.insertId;
+
+        for (const item of items) {
+          await conn.execute(
+            `INSERT INTO b2c_herramienta_orden (uid_orden, uid_herramienta, her_estado, tenant_id)
+             VALUES (?, ?, 'pendiente_revision', ?)`,
+            [uid_orden, item.uid_herramienta, tenantId]
+          );
+        }
+
+        await conn.execute(
+          `UPDATE b2c_solicitud_recogida SET estado = 'completada', uid_orden_creada = ? WHERE uid_solicitud = ?`,
+          [uid_orden, sol.uid_solicitud]
+        );
+
+        await conn.commit();
+        res.json({ success: true, uid_orden, consecutivo });
+      } catch (e) {
+        await conn.rollback();
+        throw e;
+      }
+    } finally {
+      conn.release();
+    }
+  } catch (e) {
+    log.error({ err: e }, 'Error creando orden desde solicitud:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
