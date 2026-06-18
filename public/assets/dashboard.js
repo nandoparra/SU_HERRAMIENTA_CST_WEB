@@ -313,14 +313,26 @@ Views.inicio = {
         }
       }
 
-      // Solicitudes de recogida pendientes
+      // Solicitudes de recogida pendientes — KPI card + sección detalle
       fetch('/api/taller/solicitudes-recogida?estado=pendiente').then(r => r.json()).then(solRows => {
+        const count = Array.isArray(solRows) ? solRows.length : 0;
+        // KPI card (solo aparece si hay pendientes)
+        const grid = document.getElementById('kpiGrid');
+        const existCard = document.getElementById('solKpiCard');
+        if (existCard) existCard.remove();
+        if (count > 0 && grid) {
+          grid.insertAdjacentHTML('beforeend',
+            `<div id="solKpiCard" class="kpi-card kc-orange" onclick="navigate('solicitudesTaller')" style="cursor:pointer">
+               <div class="kpi-icon">🚗</div>
+               <div class="kpi-val">${count}</div>
+               <div class="kpi-lbl">Recogida${count !== 1 ? 's' : ''} pendiente${count !== 1 ? 's' : ''}</div>
+             </div>`
+          );
+        }
+        // Sección detalle
         const solSec = document.getElementById('solPendSection');
         const solLst = document.getElementById('solPendList');
-        if (!solSec || !solLst || !Array.isArray(solRows) || !solRows.length) {
-          if (solSec) solSec.style.display = 'none';
-          return;
-        }
+        if (!solSec || !solLst || !count) { if (solSec) solSec.style.display = 'none'; return; }
         solSec.style.display = 'block';
         solLst.innerHTML = solRows.slice(0, 5).map(s => {
           const cliente = esc(s.cli_razon_social || s.cli_contacto || 'Cliente');

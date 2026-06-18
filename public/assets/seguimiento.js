@@ -563,11 +563,6 @@ function renderSolicitud(vc) {
         <div style="max-width:600px;">
           <div id="solMsg"></div>
 
-          <div class="form-section" style="margin-bottom:16px;">
-            <div class="sec-hdr" style="margin-bottom:14px;">Mis solicitudes previas</div>
-            <div id="solLista"><span style="color:#9ca3af;font-size:13px;">Cargando...</span></div>
-          </div>
-
           <div class="form-section">
             <div class="sec-hdr" style="margin-bottom:14px;">Nueva solicitud de recogida</div>
 
@@ -592,6 +587,11 @@ function renderSolicitud(vc) {
             <button class="btn-primary" id="solBtnEnviar" onclick="seg_submitSolicitud()">
               🚗 Enviar solicitud de recogida
             </button>
+          </div>
+
+          <div class="form-section" style="margin-top:20px;">
+            <div class="sec-hdr" style="margin-bottom:14px;">Mis solicitudes previas</div>
+            <div id="solLista"><span style="color:#9ca3af;font-size:13px;">Cargando...</span></div>
           </div>
         </div>`;
 

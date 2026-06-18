@@ -158,7 +158,7 @@ router.post('/taller/solicitudes-recogida/:id/crear-orden', async (req, res) => 
       }
 
       const [items] = await conn.execute(
-        `SELECT uid_herramienta, her_nombre FROM b2c_solicitud_recogida_item
+        `SELECT uid_herramienta, her_nombre, descripcion, fotos FROM b2c_solicitud_recogida_item
          WHERE uid_solicitud = ? AND tenant_id = ? ORDER BY uid_item`,
         [sol.uid_solicitud, tenantId]
       );
@@ -183,11 +183,22 @@ router.post('/taller/solicitudes-recogida/:id/crear-orden', async (req, res) => 
         const uid_orden = ordRes.insertId;
 
         for (const item of items) {
-          await conn.execute(
-            `INSERT INTO b2c_herramienta_orden (uid_orden, uid_herramienta, her_estado, tenant_id)
-             VALUES (?, ?, 'pendiente_revision', ?)`,
-            [uid_orden, item.uid_herramienta, tenantId]
+          const [hoRes] = await conn.execute(
+            `INSERT INTO b2c_herramienta_orden (uid_orden, uid_herramienta, hor_observaciones, her_estado, tenant_id)
+             VALUES (?, ?, ?, 'pendiente_revision', ?)`,
+            [uid_orden, item.uid_herramienta, item.descripcion || null, tenantId]
           );
+          const uid_ho = hoRes.insertId;
+
+          // Transferir fotos del item a b2c_foto_herramienta_orden como fotos de recepción
+          const fotos = JSON.parse(item.fotos || '[]');
+          for (const f of fotos) {
+            await conn.execute(
+              `INSERT INTO b2c_foto_herramienta_orden (uid_herramienta_orden, fho_archivo, fho_nombre, fho_tipo, tenant_id)
+               VALUES (?, ?, ?, 'recepcion', ?)`,
+              [uid_ho, f.filename, f.filename, tenantId]
+            );
+          }
         }
 
         await conn.execute(
