@@ -4950,35 +4950,46 @@ async function sol_cargar() {
   }
   const estadoLabel = { pendiente:'Pendiente', confirmada:'Confirmada', completada:'Completada', cancelada:'Cancelada' };
   const estadoColor = { pendiente:'#fef3c7;color:#92400e', confirmada:'#d1fae5;color:#065f46', completada:'#dbeafe;color:#1e40af', cancelada:'#fee2e2;color:#991b1b' };
+  const tipoLabel   = { reparacion:'Reparación', mantenimiento:'Mantenimiento', revision:'Revisión' };
 
   el.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px;">` + rows.map(s => {
-    const badge = `<span style="background:${estadoColor[s.estado]||'#e5e7eb;color:#374151'};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;">${estadoLabel[s.estado]||s.estado}</span>`;
-    const cliente = s.cli_razon_social || s.cli_contacto || 'Cliente desconocido';
+    const badge    = `<span style="background:${estadoColor[s.estado]||'#e5e7eb;color:#374151'};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;">${estadoLabel[s.estado]||s.estado}</span>`;
+    const cliente  = s.cli_razon_social || s.cli_contacto || 'Cliente desconocido';
+    const maquinas = s.maquinas || [];
+    const maqsTitulo = maquinas.map(m => esc(m.her_nombre)).join(', ') || 'Sin equipos';
     const fechaCon = s.fecha_confirmada ? new Date(s.fecha_confirmada).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : null;
+
+    const maqsDetalleHtml = maquinas.map(m =>
+      `<div style="font-size:12px;padding:2px 0;">
+        <b>${esc(m.her_nombre)}</b>${m.her_marca?` — ${esc(m.her_marca)}`:''}${m.her_serial?` (S/N: ${esc(m.her_serial)})`:''} · <span style="color:#6b7280">${tipoLabel[m.tipo_servicio]||m.tipo_servicio}</span>
+        ${m.descripcion?`<br><span style="color:#9ca3af">${esc(m.descripcion)}</span>`:''}
+      </div>`
+    ).join('');
+
+    const safeDir  = (s.direccion||'').replace(/'/g,"\\'");
+    const safeEqs  = maqsTitulo.replace(/'/g,"\\'");
     const accionesHtml = s.estado === 'pendiente'
-      ? `<button onclick="sol_abrirConfirmar(${s.uid_solicitud}, '${(s.her_nombre||'').replace(/'/g,"\\'")}', '${(s.direccion||'').replace(/'/g,"\\'")}');" style="background:#1d3557;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;margin-right:6px;">📅 Confirmar fecha</button>
+      ? `<button onclick="sol_abrirConfirmar(${s.uid_solicitud}, '${safeEqs}', '${safeDir}');" style="background:#1d3557;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;margin-right:6px;">📅 Confirmar fecha</button>
          <button onclick="sol_cambiarEstado(${s.uid_solicitud},'cancelada')" style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;">Cancelar</button>`
       : s.estado === 'confirmada'
       ? `<button onclick="sol_cambiarEstado(${s.uid_solicitud},'completada')" style="background:#d1fae5;color:#065f46;border:1px solid #bbf7d0;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;">✅ Marcar completada</button>`
       : '';
     const confirmBox = fechaCon
-      ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:8px 12px;margin-top:8px;font-size:13px;font-weight:600;color:#065f46;">📅 ${fechaCon}${s.nota_confirmacion ? ' — ' + s.nota_confirmacion : ''}</div>` : '';
+      ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:8px 12px;margin-top:8px;font-size:13px;font-weight:600;color:#065f46;">📅 ${fechaCon}${s.nota_confirmacion ? ' — ' + esc(s.nota_confirmacion) : ''}</div>` : '';
+
     return `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">
         <div>
-          <div style="font-weight:700;font-size:14px;">${s.her_nombre||'Equipo sin nombre'}</div>
+          <div style="font-weight:700;font-size:14px;">${maqsTitulo}</div>
           <div style="font-size:12px;color:#6b7280;">${cliente}${s.cli_identificacion?' · CC '+s.cli_identificacion:''}</div>
         </div>
         ${badge}
       </div>
+      ${maqsDetalleHtml ? `<div style="margin:6px 0 8px;">${maqsDetalleHtml}</div>` : ''}
       <div style="font-size:12px;color:#374151;line-height:1.7;">
-        <b>Tipo:</b> ${{ reparacion:'Reparación', mantenimiento:'Mantenimiento', revision:'Revisión' }[s.tipo_servicio]||s.tipo_servicio} &nbsp;
-        ${s.her_marca?`<b>Marca:</b> ${s.her_marca} &nbsp;`:''}
-        ${s.her_serial?`<b>S/N:</b> ${s.her_serial} &nbsp;`:''}
-        <br><b>📍</b> ${s.direccion}
+        <b>📍</b> ${esc(s.direccion)}
         ${s.fecha_sugerida?` &nbsp; <b>Fecha sugerida:</b> ${s.fecha_sugerida.split('T')[0].split('-').reverse().join('/')}` : ''}
-        ${s.descripcion?`<br><b>Descripción:</b> ${s.descripcion}`:''}
-        ${s.cli_telefono?`<br><b>Tel:</b> ${s.cli_telefono}`:''}
+        ${s.cli_telefono?`<br><b>Tel:</b> ${esc(s.cli_telefono)}`:''}
         <br><b>Recibida:</b> ${new Date(s.created_at).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}
       </div>
       ${confirmBox}
@@ -4987,14 +4998,14 @@ async function sol_cargar() {
   }).join('') + '</div>';
 }
 
-function sol_abrirConfirmar(uid, equipo, direccion) {
+function sol_abrirConfirmar(uid, equipos, direccion) {
   const hoy = new Date().toISOString().slice(0,16);
   const modal = document.getElementById('stConfirmarModal');
   modal.innerHTML = `
     <div style="background:#fff;width:94%;max-width:440px;border-radius:12px;padding:20px;">
       <div style="font-weight:700;font-size:15px;margin-bottom:14px;">📅 Confirmar recogida</div>
       <div style="font-size:13px;color:#6b7280;margin-bottom:14px;">
-        <b>Equipo:</b> ${equipo}<br><b>Dirección:</b> ${direccion}
+        <b>Equipos:</b> ${esc(equipos)}<br><b>Dirección:</b> ${esc(direccion)}
       </div>
       <div style="margin-bottom:12px;">
         <label style="font-size:13px;font-weight:600;display:block;margin-bottom:5px;">Fecha y hora de recogida <span style="color:#dc2626">*</span></label>

@@ -38,7 +38,6 @@ router.get('/taller/solicitudes-recogida', async (req, res) => {
 
       const ids = rows.map(r => r.uid_solicitud);
       const ph  = ids.map(() => '?').join(',');
-      const tenantId = getTenantId(req);
       const [items] = await conn.execute(
         `SELECT uid_item, uid_solicitud, uid_herramienta, her_nombre, her_marca, her_serial, tipo_servicio, descripcion
          FROM b2c_solicitud_recogida_item
