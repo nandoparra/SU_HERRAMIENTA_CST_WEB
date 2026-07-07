@@ -1,22 +1,25 @@
 # Railway / Nixpacks — dependencias del sistema para Puppeteer (whatsapp-web.js)
+# Usa nixPkgs (no aptPkgs) — en Ubuntu 22.04 el paquete apt chromium-browser
+# es un snap y no funciona en contenedores sin snapd.
 [phases.setup]
-aptPkgs = [
-  "chromium-browser",
-  "libglib2.0-0",
-  "libnss3",
-  "libatk1.0-0",
-  "libatk-bridge2.0-0",
-  "libcups2",
-  "libdrm2",
-  "libxkbcommon0",
-  "libxcomposite1",
-  "libxdamage1",
-  "libxfixes3",
-  "libxrandr2",
-  "libgbm1",
-  "libasound2",
+nixPkgs = [
+  "chromium",
+  "nss",
+  "cups",
+  "libdrm",
+  "mesa",
+  "xorg.libX11",
+  "glib",
+  "at-spi2-atk",
+  "atk",
+  "cairo",
+  "pango",
+  "alsa-lib",
+  "expat",
+  "nspr",
+  "gdk-pixbuf",
 ]
 
 [variables]
 PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true"
-PUPPETEER_EXECUTABLE_PATH = "/usr/bin/chromium-browser"
+PUPPETEER_EXECUTABLE_PATH = "/run/current-system/sw/bin/chromium"

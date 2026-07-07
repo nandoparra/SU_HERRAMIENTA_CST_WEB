@@ -24,6 +24,25 @@ function removeChromeLocksRecursive(dir) {
 // Limpiar en el directorio base cubre a todos los tenants (recursivo)
 removeChromeLocksRecursive(WA_AUTH_BASE);
 
+// ── Buscar ejecutable de Chromium ────────────────────────────────────────────
+// En Railway (Nixpacks) el chromium de Nix NO está en /usr/bin — está en el
+// perfil de Nix. Buscamos en candidatos conocidos antes de dejar que Puppeteer
+// use su propio binario (que puede no existir si PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true).
+function findChromiumExecutable() {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
+  const candidates = [
+    '/run/current-system/sw/bin/chromium',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+  ];
+  for (const p of candidates) {
+    try { fs.accessSync(p, fs.constants.X_OK); return p; } catch {}
+  }
+  return undefined; // Puppeteer usará su binario descargado
+}
+
 // ── Pool: tenantId (number) → { client, ready, lastQR } ─────────────────────
 const pool = new Map();
 
@@ -93,7 +112,7 @@ function createTenantClient(tenantId) {
         '--no-zygote',
         '--disable-extensions',
       ],
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      executablePath: findChromiumExecutable(),
     },
   });
 
