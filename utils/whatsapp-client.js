@@ -105,10 +105,8 @@ function createTenantClient(tenantId) {
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',   // crítico en Railway — /dev/shm limitado causa crash de Chromium
+        '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--no-zygote',
-        '--single-process',          // evita fork/clone avanzados que pueden fallar en kernels viejos
         '--disable-extensions',
       ],
       executablePath: findChromiumExecutable(),
