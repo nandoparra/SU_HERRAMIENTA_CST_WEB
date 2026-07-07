@@ -25,22 +25,20 @@ function removeChromeLocksRecursive(dir) {
 removeChromeLocksRecursive(WA_AUTH_BASE);
 
 // ── Buscar ejecutable de Chromium ────────────────────────────────────────────
-// En Railway (Nixpacks) el chromium de Nix NO está en /usr/bin — está en el
-// perfil de Nix. Buscamos en candidatos conocidos antes de dejar que Puppeteer
-// use su propio binario (que puede no existir si PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true).
+// NO incluir /usr/bin/chromium ni /usr/bin/chromium-browser — en Ubuntu 22.04
+// (base de Railway) son snap wrappers que no funcionan en contenedores sin snapd.
+// Preferimos el Chrome bundled que Puppeteer descarga durante npm install.
 function findChromiumExecutable() {
-  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
-  const candidates = [
-    '/run/current-system/sw/bin/chromium',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome',
-  ];
-  for (const p of candidates) {
-    try { fs.accessSync(p, fs.constants.X_OK); return p; } catch {}
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    console.log(`[WA] Chrome: usando PUPPETEER_EXECUTABLE_PATH → ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
+    return process.env.PUPPETEER_EXECUTABLE_PATH;
   }
-  return undefined; // Puppeteer usará su binario descargado
+  // Solo el path de Nix (cuando nixpacks.toml usa nixPkgs = ["chromium"])
+  const nixPath = '/run/current-system/sw/bin/chromium';
+  try { fs.accessSync(nixPath, fs.constants.X_OK); console.log(`[WA] Chrome: Nix → ${nixPath}`); return nixPath; } catch {}
+  // Dejar que Puppeteer use su Chrome bundled (descargado en npm install)
+  console.log('[WA] Chrome: usando bundled de Puppeteer (npm install)');
+  return undefined;
 }
 
 // ── Pool: tenantId (number) → { client, ready, lastQR } ─────────────────────
@@ -110,6 +108,7 @@ function createTenantClient(tenantId) {
         '--disable-dev-shm-usage',   // crítico en Railway — /dev/shm limitado causa crash de Chromium
         '--disable-gpu',
         '--no-zygote',
+        '--single-process',          // evita fork/clone avanzados que pueden fallar en kernels viejos
         '--disable-extensions',
       ],
       executablePath: findChromiumExecutable(),
