@@ -55,7 +55,7 @@ registerMessageHandler(async (tenantId, msg) => {
     conn = await db.getConnection();
 
     const [[pendiente]] = await conn.execute(
-      `SELECT uid_autorizacion, uid_orden, estado, COALESCE(tenant_id, 1) AS tenant_id
+      `SELECT uid_autorizacion, uid_orden, estado, created_at, COALESCE(tenant_id, 1) AS tenant_id
        FROM b2c_wa_autorizacion_pendiente
        WHERE wa_phone = ?
        ORDER BY created_at DESC
@@ -65,6 +65,20 @@ registerMessageHandler(async (tenantId, msg) => {
 
     if (!pendiente) {
       log.debug(`📨 wa-handler: ****${senderPhone.slice(-4)} no tiene conversación activa — ignorando`);
+      return;
+    }
+
+    // Conversaciones de autorización vencen a los 7 días — suficiente margen para que
+    // el cliente decida sobre la cotización, pero evita que un mensaje no relacionado
+    // (sticker, saludo, reacción) semanas/meses después reabra una cotización vieja
+    // y el cliente reciba el aviso "1,2,3,4" fuera de contexto.
+    const PENDIENTE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+    if (Date.now() - new Date(pendiente.created_at).getTime() > PENDIENTE_TTL_MS) {
+      log.debug(`📨 wa-handler: pendiente de ****${senderPhone.slice(-4)} venció (>7 días) — descartando sin responder`);
+      await conn.execute(
+        `DELETE FROM b2c_wa_autorizacion_pendiente WHERE uid_autorizacion = ?`,
+        [pendiente.uid_autorizacion]
+      );
       return;
     }
 
