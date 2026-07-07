@@ -85,7 +85,14 @@ function createTenantClient(tenantId) {
   const client = new Client({
     authStrategy: new LocalAuth(authOpts),
     puppeteer: {
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',   // crítico en Railway — /dev/shm limitado causa crash de Chromium
+        '--disable-gpu',
+        '--no-zygote',
+        '--disable-extensions',
+      ],
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     },
   });
