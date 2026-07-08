@@ -40,14 +40,19 @@ registerMessageHandler(async (tenantId, msg) => {
   try {
     conn = await db.getConnection();
 
+    log.info(`📨 wa-handler: buscando pendiente para senderPhone="${senderPhone}"`);
     const [[pendiente]] = await conn.execute(
-      `SELECT uid_autorizacion, uid_orden, estado, created_at, COALESCE(tenant_id, 1) AS tenant_id
+      `SELECT uid_autorizacion, uid_orden, estado, created_at, wa_phone, COALESCE(tenant_id, 1) AS tenant_id
        FROM b2c_wa_autorizacion_pendiente
        WHERE wa_phone = ?
        ORDER BY created_at DESC
        LIMIT 1`,
       [senderPhone]
     );
+    if (!pendiente) {
+      const [todos] = await conn.execute(`SELECT wa_phone FROM b2c_wa_autorizacion_pendiente LIMIT 5`);
+      log.info(`📨 wa-handler: pendiente NULL — registros en tabla: ${JSON.stringify(todos.map(r => r.wa_phone))}`);
+    }
 
     if (!pendiente) {
       await handleAgente(conn, senderPhone, tenantId, text);
@@ -68,7 +73,7 @@ registerMessageHandler(async (tenantId, msg) => {
       return;
     }
 
-    log.debug(`📨 wa-handler: pendiente encontrado uid_orden=${pendiente.uid_orden} estado=${pendiente.estado}`);
+    log.info(`📨 wa-handler: pendiente ENCONTRADO uid_orden=${pendiente.uid_orden} estado=${pendiente.estado} wa_phone_db=${pendiente.wa_phone || '(sin columna)'}`);
 
     if (pendiente.estado === 'esperando_opcion') {
       if (['1', '2', '3', '4'].includes(text)) {
