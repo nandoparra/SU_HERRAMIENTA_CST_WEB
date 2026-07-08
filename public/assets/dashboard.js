@@ -1079,8 +1079,9 @@ window.ord_generarFactura = async function(uidOrden, btn) {
   const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Generando...';
   try {
     const r = await fetch(`${API}/alegra/invoices/${uidOrden}`, { method: 'POST' });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'Error al generar factura');
+    const ct = r.headers.get('content-type') || '';
+    const d = ct.includes('json') ? await r.json() : {};
+    if (!r.ok) throw new Error(d.error || `Error ${r.status} al generar factura`);
     showToast('✅ Factura electrónica emitida en Alegra');
     if (d.url) {
       btn.textContent = '✅ Factura emitida';
