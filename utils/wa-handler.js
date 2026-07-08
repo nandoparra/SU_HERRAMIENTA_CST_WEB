@@ -7,7 +7,7 @@
  */
 
 const db = require('./db');
-const { registerMessageHandler, sendWAMessage } = require('./whatsapp-client');
+const { registerMessageHandler, sendWAMessage, isReady } = require('./whatsapp-client');
 const log = require('./logger');
 const { responderConIA } = require('../services/wa-agente');
 
@@ -330,6 +330,17 @@ async function handleAgente(conn, senderPhone, tenantId, text) {
     log.info(`🤖 wa-agente: procesando mensaje de ****${senderPhone.slice(-4)}`);
     const respuesta = await responderConIA(conn, senderPhone, tenantId, text);
     log.info(`🤖 wa-agente: respuesta lista (${respuesta.length} chars), enviando...`);
+
+    // Si WA se desconectó brevemente mientras Claude procesaba (ej. 440 transitorio),
+    // esperar hasta 10s para que reconecte antes de intentar enviar.
+    if (!isReady(tenantId)) {
+      for (let i = 0; i < 5; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        if (isReady(tenantId)) break;
+        log.info(`🤖 wa-agente: WA no listo, esperando... (${(i + 1) * 2}s/10s)`);
+      }
+    }
+
     await sendWAMessage(tenantId, senderPhone, respuesta);
     log.info(`🤖 wa-agente: mensaje enviado a ****${senderPhone.slice(-4)}`);
   } catch (e) {

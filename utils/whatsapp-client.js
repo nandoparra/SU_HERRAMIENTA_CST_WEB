@@ -91,6 +91,11 @@ async function createTenantClient(tenantId) {
 
       pool.delete(tid);
 
+      // Si resetTenantClient inició este cierre, él se encarga de crear el nuevo cliente.
+      // Sin este guard, el close handler y resetTenantClient crean dos sockets simultáneos
+      // que se dan 440 mutuamente en un ciclo infinito.
+      if (info._skipReconnect) return;
+
       if (shouldReconnect) {
         setTimeout(() => {
           log.info(`[WA][tenant ${tid}] Reconectando...`);
@@ -168,6 +173,9 @@ async function resetTenantClient(tenantId = 1) {
   const tid = Number(tenantId);
   const info = pool.get(tid);
   if (info) {
+    // Marcar antes de cerrar para que el handler connection.update 'close'
+    // no programe un segundo createTenantClient en paralelo con el nuestro.
+    info._skipReconnect = true;
     try { info.sock.ws.close(); } catch (_) {}
     pool.delete(tid);
   }
