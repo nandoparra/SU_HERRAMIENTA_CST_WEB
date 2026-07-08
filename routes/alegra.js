@@ -3,6 +3,10 @@ const express = require('express');
 const router  = express.Router();
 const { requireInterno } = require('../middleware/auth');
 const { alegraGet }      = require('../utils/alegra-client');
+const { generarFactura } = require('../services/alegra-factura');
+const { resolveOrder }   = require('../utils/schema');
+const { getTenantId }    = require('../utils/tenant-id');
+const db  = require('../utils/db');
 const log = require('../utils/logger');
 
 router.use(requireInterno);
@@ -41,6 +45,65 @@ router.get('/internal/alegra/test-connection', requireAdmin, async (req, res) =>
         ? 'Credenciales inválidas — verifica ALEGRA_USER y ALEGRA_TOKEN'
         : `Error conectando con Alegra: ${e.message}`,
     });
+  }
+});
+
+// Genera factura electrónica en Alegra para una orden de servicio
+router.post('/alegra/invoices/:orderId', async (req, res) => {
+  const tenantId = getTenantId(req);
+  const conn = await db.getConnection();
+  let uid_orden = null;
+  try {
+    const order = await resolveOrder(conn, req.params.orderId, tenantId);
+    if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
+    uid_orden = order.uid_orden;
+
+    const [[estadoRow]] = await conn.execute(
+      `SELECT ord_alegra_id, ord_alegra_url FROM b2c_orden WHERE uid_orden = ?`,
+      [uid_orden]
+    );
+    if (estadoRow?.ord_alegra_id) {
+      return res.status(409).json({
+        error: 'La orden ya tiene una factura electrónica',
+        alegraId: estadoRow.ord_alegra_id,
+        url: estadoRow.ord_alegra_url,
+      });
+    }
+
+    const [maquinas] = await conn.execute(
+      `SELECT h.her_nombre, h.her_marca, cm.subtotal
+       FROM b2c_herramienta_orden ho
+       JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+       JOIN b2c_cotizacion_maquina cm
+            ON CAST(cm.uid_herramienta_orden AS CHAR) = CAST(ho.uid_herramienta_orden AS CHAR)
+       WHERE ho.uid_orden = ? AND COALESCE(cm.subtotal, 0) > 0
+       ORDER BY ho.uid_herramienta_orden`,
+      [uid_orden]
+    );
+    if (!maquinas.length) {
+      return res.status(400).json({ error: 'No hay máquinas con cotización para facturar' });
+    }
+
+    const { alegraId, url } = await generarFactura({ orden: order, cliente: order, maquinas });
+
+    await conn.execute(
+      `UPDATE b2c_orden SET ord_alegra_id = ?, ord_alegra_url = ?, ord_factura_estado = 'emitida'
+       WHERE uid_orden = ? AND tenant_id = ?`,
+      [alegraId, url, uid_orden, tenantId]
+    );
+
+    res.json({ success: true, alegraId, url });
+  } catch (e) {
+    log.error({ err: e }, 'Error generando factura Alegra');
+    if (uid_orden) {
+      conn.execute(
+        `UPDATE b2c_orden SET ord_factura_estado = 'error' WHERE uid_orden = ?`,
+        [uid_orden]
+      ).catch(() => {});
+    }
+    res.status(e.status || 500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
   }
 });
 
