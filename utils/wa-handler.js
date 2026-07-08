@@ -9,6 +9,7 @@
 const db = require('./db');
 const { registerMessageHandler, sendWAMessage } = require('./whatsapp-client');
 const log = require('./logger');
+const { responderConIA } = require('../services/wa-agente');
 
 function formatCOP(amount) {
   return `$${Number(amount || 0).toLocaleString('es-CO')}`;
@@ -30,6 +31,9 @@ registerMessageHandler(async (tenantId, msg) => {
   // El JID de Baileys ya es el número puro: "573104650437@s.whatsapp.net"
   const senderPhone = jid.split('@')[0];
 
+  // Stickers, audio, imágenes y reacciones no tienen texto — ignorar completamente
+  if (!text) return;
+
   log.debug(`📨 wa-handler: mensaje de ****${senderPhone.slice(-4)} — [contenido omitido]`);
 
   let conn;
@@ -46,7 +50,7 @@ registerMessageHandler(async (tenantId, msg) => {
     );
 
     if (!pendiente) {
-      log.debug(`📨 wa-handler: ****${senderPhone.slice(-4)} no tiene conversación activa — ignorando`);
+      await handleAgente(conn, senderPhone, tenantId, text);
       return;
     }
 
@@ -66,18 +70,12 @@ registerMessageHandler(async (tenantId, msg) => {
 
     log.debug(`📨 wa-handler: pendiente encontrado uid_orden=${pendiente.uid_orden} estado=${pendiente.estado}`);
 
-    // Audio, imagen u otro mensaje sin texto — responder con aviso
-    if (!text) {
-      await sendWAMessage(tenantId, senderPhone,
-        'Este número es exclusivo para notificaciones automáticas y no permite conversación.\n\n' +
-        'Si desea responder a su cotización, por favor indique únicamente *1*, *2*, *3* o *4*.\n\n' +
-        'Para cualquier otra consulta comuníquese con nosotros al *3104650437*. — SU HERRAMIENTA CST'
-      );
-      return;
-    }
-
     if (pendiente.estado === 'esperando_opcion') {
-      await handleOpcion(conn, pendiente, text, senderPhone, tenantId);
+      if (['1', '2', '3', '4'].includes(text)) {
+        await handleOpcion(conn, pendiente, text, senderPhone, tenantId);
+      } else {
+        await handleAgente(conn, senderPhone, tenantId, text);
+      }
     } else if (pendiente.estado === 'esperando_maquinas') {
       await handleSeleccionMaquinas(conn, pendiente, text, senderPhone, tenantId);
     }
@@ -325,6 +323,18 @@ async function enviarListaRepuestos(conn, uid_orden, tenantId = 1) {
   let phone = partsNumber;
   if (!phone.startsWith('57')) phone = '57' + phone.slice(-10);
   await sendWAMessage(tenantId, `${phone}@c.us`, msg);
+}
+
+async function handleAgente(conn, senderPhone, tenantId, text) {
+  try {
+    log.info(`🤖 wa-agente: procesando mensaje de ****${senderPhone.slice(-4)}`);
+    const respuesta = await responderConIA(conn, senderPhone, tenantId, text);
+    log.info(`🤖 wa-agente: respuesta lista (${respuesta.length} chars), enviando...`);
+    await sendWAMessage(tenantId, senderPhone, respuesta);
+    log.info(`🤖 wa-agente: mensaje enviado a ****${senderPhone.slice(-4)}`);
+  } catch (e) {
+    log.error({ err: e }, `❌ wa-agente: error procesando mensaje de ****${senderPhone.slice(-4)}`);
+  }
 }
 
 module.exports = {};
