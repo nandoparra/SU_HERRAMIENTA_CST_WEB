@@ -525,6 +525,7 @@ Views.ordenes = {
         <div style="padding:20px;color:#888;text-align:center;">Cargando...</div>`;
       const data = await fetch(`${API}/orders/${uid}/detalle`).then(r=>r.json()).catch(e=>({error:e.message}));
       if (data.error) { right.innerHTML=`<div class="mobile-back" onclick="ord_back()">← Volver</div><div style="padding:20px;color:#e74c3c;">${data.error}</div>`; return; }
+      window._ordDetalleActual = data;
       const {orden,maquinas,tieneCotizacion,cotOrden} = data;
 
       const maqHtml = maquinas.map(m => {
@@ -679,7 +680,7 @@ Views.ordenes = {
             <button class="btn btn-green" onclick="ord_generarVenta(${orden.uid_orden},this)">💳 Generar venta</button>
             ${orden.ord_factura_estado==='emitida'
               ? `<a class="btn btn-teal" href="${orden.ord_alegra_url||'#'}" target="_blank">✅ Factura emitida</a>`
-              : `<button class="btn btn-teal" onclick="ord_generarFactura(${orden.uid_orden},this)">📄 Factura electrónica</button>`
+              : `<button class="btn btn-teal" onclick="ord_abrirModalFactura(${orden.uid_orden})">📄 Factura electrónica</button>`
             }
             <div id="msgPreview-${orden.uid_orden}" style="display:none;margin:8px 0;padding:10px 12px;background:#f1f8e9;border-left:3px solid #66bb6a;border-radius:4px;white-space:pre-wrap;font-size:13px;line-height:1.5;max-height:220px;overflow-y:auto;"></div>
             `:''}
@@ -1074,22 +1075,88 @@ window.ord_generarVenta = async function(uidOrden, btn) {
   }
 };
 
-window.ord_generarFactura = async function(uidOrden, btn) {
-  if (!confirm('¿Generar factura electrónica en Alegra para esta orden?')) return;
+window.ord_abrirModalFactura = function(uidOrden) {
+  const data = window._ordDetalleActual;
+  if (!data) return;
+  const { orden, maquinas } = data;
+
+  const maqConCot = maquinas.filter(m => m.cotizacion && Number(m.cotizacion.subtotal) > 0);
+  if (!maqConCot.length) { alert('Esta orden no tiene cotización para facturar'); return; }
+
+  const total = maqConCot.reduce((s, m) => s + Number(m.cotizacion.subtotal), 0);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const serviciosHtml = maqConCot.map(m =>
+    `<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid #f0f0f0;">
+       <span>${[m.her_nombre,m.her_marca].filter(Boolean).join(' ')}</span>
+       <span style="font-weight:600;">$${Number(m.cotizacion.subtotal).toLocaleString('es-CO')}</span>
+     </div>`
+  ).join('');
+
+  document.getElementById('facturaModal')?.remove();
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg'; bg.id = 'facturaModal';
+  bg.innerHTML = `<div class="modal" style="max-width:480px;">
+    <h3>📄 Factura electrónica — Orden #${orden.ord_consecutivo}</h3>
+
+    <label>Cliente</label>
+    <div style="padding:8px 10px;background:#f5f5f5;border-radius:6px;font-size:13px;margin-bottom:2px;">
+      ${orden.cli_razon_social||''} &nbsp;·&nbsp; ${orden.cli_identificacion||''}
+    </div>
+
+    <label>Fecha</label>
+    <input id="facFecha" type="date" value="${today}">
+
+    <label>Forma de pago</label>
+    <select id="facFormaPago">
+      <option value="CASH">Contado</option>
+      <option value="CREDIT">A crédito</option>
+    </select>
+
+    <label>Método de pago</label>
+    <select id="facMetodoPago">
+      <option value="CASH">Efectivo</option>
+      <option value="BANK_TRANSFER">Transferencia bancaria</option>
+      <option value="CREDIT_CARD">Tarjeta crédito</option>
+      <option value="DEBIT_CARD">Tarjeta débito</option>
+      <option value="CHECK">Cheque</option>
+      <option value="NEQUI">Nequi</option>
+    </select>
+
+    <label style="margin-top:14px;">Servicios a facturar</label>
+    <div style="background:#f9f9f9;border-radius:6px;padding:8px 10px;">
+      ${serviciosHtml}
+      <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:700;padding:7px 0 0;">
+        <span>Total</span>
+        <span>$${total.toLocaleString('es-CO')}</span>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-grey" onclick="document.getElementById('facturaModal').remove()">Cancelar</button>
+      <button class="btn btn-teal" id="btnEnviarFactura" onclick="ord_enviarFactura(${uidOrden},this)">Generar en Alegra</button>
+    </div>
+  </div>`;
+  document.body.appendChild(bg);
+};
+
+window.ord_enviarFactura = async function(uidOrden, btn) {
+  const paymentForm   = document.getElementById('facFormaPago').value;
+  const paymentMethod = document.getElementById('facMetodoPago').value;
+  const date          = document.getElementById('facFecha').value;
   const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Generando...';
   try {
-    const r = await fetch(`${API}/alegra/invoices/${uidOrden}`, { method: 'POST' });
+    const r = await fetch(`${API}/alegra/invoices/${uidOrden}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paymentForm, paymentMethod, date }),
+    });
     const ct = r.headers.get('content-type') || '';
     const d = ct.includes('json') ? await r.json() : {};
-    if (!r.ok) throw new Error(d.error || `Error ${r.status} al generar factura`);
+    if (!r.ok) throw new Error(d.error || `Error ${r.status}`);
+    document.getElementById('facturaModal').remove();
     showToast('✅ Factura electrónica emitida en Alegra');
-    if (d.url) {
-      btn.textContent = '✅ Factura emitida';
-      btn.onclick = () => window.open(d.url, '_blank');
-    } else {
-      btn.textContent = '✅ Factura emitida';
-      btn.disabled = true;
-    }
+    ord_verDetalle(uidOrden);
   } catch (e) {
     alert('⚠️ ' + e.message);
     btn.disabled = false; btn.textContent = orig;

@@ -1,11 +1,12 @@
 'use strict';
 const { alegraGet, alegraPost } = require('../utils/alegra-client');
 
-const ALEGRA_SERVICIO_ID = parseInt(process.env.ALEGRA_SERVICIO_ID || '1435', 10);
+const ALEGRA_SERVICIO_ID   = parseInt(process.env.ALEGRA_SERVICIO_ID        || '1435', 10);
+const ALEGRA_TEMPLATE_ID   = process.env.ALEGRA_INVOICE_TEMPLATE_ID          || '30';
 
 /**
- * Detecta si la identificación es NIT o CC basado en formato colombiano.
- * NIT: contiene guion (ej: "9862087-1") o tiene <= 9 dígitos (empresa sin dígito de verificación)
+ * Detecta el tipo de identificación colombiano basado en formato.
+ * NIT: contiene guion (9862087-1) o tiene <=9 dígitos (empresa sin dígito de verificación)
  * CC: 10 dígitos sin guion (cédula de ciudadanía)
  */
 function detectTipoId(identificacion) {
@@ -15,33 +16,67 @@ function detectTipoId(identificacion) {
   return digits.length >= 10 ? 'CC' : 'NIT';
 }
 
+/**
+ * Descompone nombre completo en partes para nameObject de Alegra.
+ * Convención colombiana: primer nombre, segundo nombre, primer apellido, segundo apellido.
+ */
+function buildNameObject(nombre) {
+  const parts = String(nombre || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 4) {
+    return { firstName: parts[0], secondName: parts[1], lastName: parts[2], secondLastName: parts.slice(3).join(' ') };
+  } else if (parts.length === 3) {
+    return { firstName: parts[0], secondName: '', lastName: parts[1], secondLastName: parts[2] };
+  } else {
+    return { firstName: parts[0] || '', secondName: '', lastName: parts[1] || '', secondLastName: '' };
+  }
+}
+
+async function searchContactByIdentification(digitsId) {
+  const results = await alegraGet(`/contacts?identification=${encodeURIComponent(digitsId)}`);
+  if (!Array.isArray(results) || !results.length) return null;
+  return results[0].id;
+}
+
 async function findOrCreateContact({ identificacion, nombre, telefono }) {
   const digitsId = String(identificacion).replace(/\D/g, '');
-
-  // Buscar por identificación exacta (comparando solo dígitos)
-  const results = await alegraGet(`/contacts?term=${encodeURIComponent(digitsId)}&limit=10`);
-  if (Array.isArray(results)) {
-    const match = results.find(c => {
-      const idAlg = String(c.identificationObject?.number || c.identification || '').replace(/\D/g, '');
-      return idAlg === digitsId;
-    });
-    if (match) return match.id;
-  }
-
   const tipoId = detectTipoId(identificacion);
+  const kindOfPerson = tipoId === 'NIT' ? 'LEGAL_ENTITY' : 'PERSON_ENTITY';
 
+  // 1. Buscar contacto existente primero
+  const existingId = await searchContactByIdentification(digitsId);
+  if (existingId) return existingId;
+
+  // 2. No encontrado — crear
+  const nombreStr = String(nombre || identificacion);
   const payload = {
-    name: nombre || identificacion,
+    name: nombreStr,
     identificationObject: { type: tipoId, number: digitsId },
+    kindOfPerson,
+    regime: 'SIMPLIFIED_REGIME',
     type: ['client'],
   };
+  // nameObject requerido por Alegra Colombia para personas naturales (PERSON_ENTITY)
+  if (kindOfPerson === 'PERSON_ENTITY') {
+    payload.nameObject = buildNameObject(nombreStr);
+  }
   if (telefono) {
     const digits = String(telefono).replace(/\D/g, '').replace(/^57/, '').slice(-10);
     if (digits.length === 10) payload.phonePrimary = digits;
   }
 
-  const created = await alegraPost('/contacts', payload);
-  return created.id;
+  try {
+    const created = await alegraPost('/contacts', payload);
+    return created.id;
+  } catch (e) {
+    // Si Alegra dice que ya existe (búsqueda inicial falló por paginación o delay),
+    // intentar buscar de nuevo para obtener el ID
+    const msg = String(e.alegraBody?.message || e.message || '');
+    if (e.status === 400 && msg.toLowerCase().includes('ya existe')) {
+      const retryId = await searchContactByIdentification(digitsId);
+      if (retryId) return retryId;
+    }
+    throw e;
+  }
 }
 
 /**
@@ -53,14 +88,14 @@ async function findOrCreateContact({ identificacion, nombre, telefono }) {
  *   maquinas: [{ her_nombre, her_marca, subtotal }]
  * @returns {{ alegraId: number, url: string|null }}
  */
-async function generarFactura({ orden, cliente, maquinas }) {
+async function generarFactura({ orden, cliente, maquinas, paymentForm = 'CASH', paymentMethod = 'CASH', date }) {
   const contactId = await findOrCreateContact({
     identificacion: cliente.cli_identificacion,
     nombre: cliente.cli_razon_social || cliente.cli_contacto || cliente.cli_identificacion,
     telefono: cliente.cli_telefono,
   });
 
-  const today = new Date().toISOString().slice(0, 10);
+  const invoiceDate = date || new Date().toISOString().slice(0, 10);
 
   const items = maquinas
     .filter(m => Number(m.subtotal) > 0)
@@ -78,16 +113,20 @@ async function generarFactura({ orden, cliente, maquinas }) {
   }
 
   const invoice = await alegraPost('/invoices', {
-    date: today,
-    dueDate: today,
+    date: invoiceDate,
+    dueDate: invoiceDate,
     client: { id: contactId },
     items,
+    paymentForm,
+    paymentMethod,
+    status: 'open',
+    numberTemplate: { id: ALEGRA_TEMPLATE_ID },
     observations: `Orden de servicio #${orden.ord_consecutivo}`,
   });
 
   return {
     alegraId: invoice.id,
-    url: invoice.shareLink || invoice.url || null,
+    url: `https://app.alegra.com/invoice/view/id/${invoice.id}`,
   };
 }
 

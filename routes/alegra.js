@@ -88,7 +88,8 @@ router.post('/alegra/invoices/:orderId', async (req, res) => {
         return res.status(400).json({ error: 'No hay máquinas con cotización para facturar' });
       }
 
-      const { alegraId, url } = await generarFactura({ orden: order, cliente: order, maquinas });
+      const { paymentForm = 'CASH', paymentMethod = 'CASH', date } = req.body || {};
+      const { alegraId, url } = await generarFactura({ orden: order, cliente: order, maquinas, paymentForm, paymentMethod, date });
 
       await conn.execute(
         `UPDATE b2c_orden SET ord_alegra_id = ?, ord_alegra_url = ?, ord_factura_estado = 'emitida'
