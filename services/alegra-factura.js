@@ -3,17 +3,36 @@ const { alegraGet, alegraPost } = require('../utils/alegra-client');
 
 const ALEGRA_SERVICIO_ID = parseInt(process.env.ALEGRA_SERVICIO_ID || '1435', 10);
 
+/**
+ * Detecta si la identificación es NIT o CC basado en formato colombiano.
+ * NIT: contiene guion (ej: "9862087-1") o tiene <= 9 dígitos (empresa sin dígito de verificación)
+ * CC: 10 dígitos sin guion (cédula de ciudadanía)
+ */
+function detectTipoId(identificacion) {
+  const raw = String(identificacion).trim();
+  if (raw.includes('-')) return 'NIT';
+  const digits = raw.replace(/\D/g, '');
+  return digits.length >= 10 ? 'CC' : 'NIT';
+}
+
 async function findOrCreateContact({ identificacion, nombre, telefono }) {
-  // Buscar por identificación exacta
-  const results = await alegraGet(`/contacts?term=${encodeURIComponent(identificacion)}&limit=10`);
+  const digitsId = String(identificacion).replace(/\D/g, '');
+
+  // Buscar por identificación exacta (comparando solo dígitos)
+  const results = await alegraGet(`/contacts?term=${encodeURIComponent(digitsId)}&limit=10`);
   if (Array.isArray(results)) {
-    const match = results.find(c => String(c.identification).replace(/\D/g, '') === String(identificacion).replace(/\D/g, ''));
+    const match = results.find(c => {
+      const idAlg = String(c.identificationObject?.number || c.identification || '').replace(/\D/g, '');
+      return idAlg === digitsId;
+    });
     if (match) return match.id;
   }
 
+  const tipoId = detectTipoId(identificacion);
+
   const payload = {
     name: nombre || identificacion,
-    identification: String(identificacion).replace(/\D/g, ''),
+    identificationObject: { type: tipoId, number: digitsId },
     type: ['client'],
   };
   if (telefono) {
