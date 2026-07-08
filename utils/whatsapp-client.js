@@ -151,7 +151,9 @@ async function sendWAMessage(tenantId, phoneOrChatId, content) {
   const phone = String(phoneOrChatId).replace(/@[a-z.]+$/, '').replace(/\D/g, '');
   const jid = `${phone}@s.whatsapp.net`;
 
-  return await info.sock.sendMessage(jid, { text: String(content) });
+  // String → texto plano; objeto → contenido multimedia de Baileys (document, image, etc.)
+  const msgContent = typeof content === 'string' ? { text: content } : content;
+  return await info.sock.sendMessage(jid, msgContent);
 }
 
 function getLastQR(tenantId = 1) {

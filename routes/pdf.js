@@ -9,7 +9,6 @@ const { resolveOrder } = require('../utils/schema');
 const { generateQuotePDF, generateMaintenancePDF, generateOrdenServicioPDF } = require('../utils/pdf-generator');
 const { generateText }  = require('../utils/ia');
 const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
-const { MessageMedia }  = require('whatsapp-web.js');
 const { requireInterno } = require('../middleware/auth');
 const { UPLOADS_DIR } = require('../utils/uploads');
 const { logAudit } = require('../utils/audit');
@@ -216,8 +215,7 @@ router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) 
 
       const pdf    = await generateQuotePDF({ order, machines, items, quoteNumber: order.ord_consecutivo, tenant: req.tenant });
       const fname  = 'cotizacion-' + order.ord_consecutivo + '.pdf';
-      const media  = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
-      await sendWAMessage(tenantId, getPhone(order), media);
+      await sendWAMessage(tenantId, getPhone(order), { document: pdf, mimetype: 'application/pdf', fileName: fname });
 
       res.json({ success: true, filename: fname });
     } finally {
@@ -245,8 +243,7 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireIn
       const existing = await getExistingInforme(conn, req.params.equipmentOrderId);
       if (existing) {
         const pdfBuf = fs.readFileSync(existing.fpath);
-        const media  = new MessageMedia('application/pdf', pdfBuf.toString('base64'), fname);
-        await sendWAMessage(tenantId, getPhone(order), media);
+        await sendWAMessage(tenantId, getPhone(order), { document: pdfBuf, mimetype: 'application/pdf', fileName: fname });
         return res.json({ success: true, filename: fname });
       }
 
@@ -258,8 +255,7 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireIn
       await saveInforme(conn, order.uid_orden, req.params.equipmentOrderId, pdf, order.ord_consecutivo);
       await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'informe_generado', entidad: 'herramienta_orden', uidEntidad: req.params.equipmentOrderId, datosDespues: { uid_orden: order.uid_orden }, ip: req.ip });
 
-      const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
-      await sendWAMessage(tenantId, getPhone(order), media);
+      await sendWAMessage(tenantId, getPhone(order), { document: pdf, mimetype: 'application/pdf', fileName: fname });
       res.json({ success: true, filename: fname });
     } finally {
       conn.release();
@@ -413,12 +409,11 @@ router.post('/orders/:orderId/send-pdf/orden', requireInterno, async (req, res) 
       });
 
       const fname = 'orden-' + ordenRow.ord_consecutivo + '.pdf';
-      const media = new MessageMedia('application/pdf', pdf.toString('base64'), fname);
       const phone = getPhone({ cli_telefono: ordenRow.cli_telefono });
 
       let waWarning = null;
       try {
-        await sendWAMessage(tenantId, phone, media);
+        await sendWAMessage(tenantId, phone, { document: pdf, mimetype: 'application/pdf', fileName: fname });
         const machineList = maquinas.map(m => `• ${m.her_nombre || 'Máquina'}${m.her_marca ? ' (' + m.her_marca + ')' : ''}`).join('\n');
         const textMsg = `Hola, le saluda *Su Herramienta CST* 🔧\n\nHemos recibido su(s) equipo(s) para revisión. Orden #${ordenRow.ord_consecutivo}:\n\n${machineList}\n\nLe notificaremos cuando la revisión esté lista. ¡Gracias por confiar en nosotros!`;
         await sendWAMessage(tenantId, phone, textMsg);
