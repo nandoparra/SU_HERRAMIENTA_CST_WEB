@@ -747,6 +747,44 @@ async function ensureSolicitudRecogidaItem() {
   }
 }
 
+async function ensureWaAgenteTablas() {
+  const conn = await db.getConnection();
+  try {
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_wa_conversacion (
+        uid_mensaje  BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        tenant_id    INT          NOT NULL DEFAULT 1,
+        wa_phone     VARCHAR(30)  NOT NULL,
+        rol          ENUM('user','assistant') NOT NULL,
+        contenido    TEXT         NOT NULL,
+        created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_wac_phone (tenant_id, wa_phone),
+        INDEX idx_wac_ts    (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    try {
+      await conn.execute(
+        `ALTER TABLE b2c_tenant ADD COLUMN ten_agente_wa TINYINT(1) NOT NULL DEFAULT 0`
+      );
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    try {
+      await conn.execute(
+        `ALTER TABLE b2c_tenant ADD COLUMN ten_agente_wa_hora_inicio TINYINT NOT NULL DEFAULT 7`
+      );
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    try {
+      await conn.execute(
+        `ALTER TABLE b2c_tenant ADD COLUMN ten_agente_wa_hora_fin TINYINT NOT NULL DEFAULT 20`
+      );
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    console.log('✅ Tablas agente WA verificadas/creadas');
+  } catch (e) {
+    console.warn('⚠️ No pude crear tablas agente WA:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function ensureAlegraColumns() {
   const conn = await db.getConnection();
   try {
@@ -789,6 +827,7 @@ async function runMigrations() {
   await ensureSolicitudRecogida();
   await ensureSolicitudRecogidaItem();
   await ensureAlegraColumns();
+  await ensureWaAgenteTablas();
   console.log('Migraciones completadas');
 }
 
