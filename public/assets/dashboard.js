@@ -677,6 +677,10 @@ Views.ordenes = {
             <button class="btn btn-orange" onclick="ord_generarMsgCot(${orden.uid_orden},this)">🤖 Generar mensaje</button>
             <button class="btn btn-orange" id="btnSendCotWA-${orden.uid_orden}" onclick="ord_enviarCotWA(${orden.uid_orden},this)" disabled>📱 Enviar WA</button>
             <button class="btn btn-green" onclick="ord_generarVenta(${orden.uid_orden},this)">💳 Generar venta</button>
+            ${orden.ord_factura_estado==='emitida'
+              ? `<a class="btn btn-teal" href="${orden.ord_alegra_url||'#'}" target="_blank">✅ Factura emitida</a>`
+              : `<button class="btn btn-teal" onclick="ord_generarFactura(${orden.uid_orden},this)">📄 Factura electrónica</button>`
+            }
             <div id="msgPreview-${orden.uid_orden}" style="display:none;margin:8px 0;padding:10px 12px;background:#f1f8e9;border-left:3px solid #66bb6a;border-radius:4px;white-space:pre-wrap;font-size:13px;line-height:1.5;max-height:220px;overflow-y:auto;"></div>
             `:''}
           </div>
@@ -1064,6 +1068,27 @@ window.ord_generarVenta = async function(uidOrden, btn) {
     if (!r.ok) throw new Error(d.error || 'Error al crear la venta');
     showToast(`✅ Venta #${d.ven_consecutivo} creada`);
     navigate('ventas');
+  } catch (e) {
+    alert('⚠️ ' + e.message);
+    btn.disabled = false; btn.textContent = orig;
+  }
+};
+
+window.ord_generarFactura = async function(uidOrden, btn) {
+  if (!confirm('¿Generar factura electrónica en Alegra para esta orden?')) return;
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Generando...';
+  try {
+    const r = await fetch(`${API}/alegra/invoices/${uidOrden}`, { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Error al generar factura');
+    showToast('✅ Factura electrónica emitida en Alegra');
+    if (d.url) {
+      btn.textContent = '✅ Factura emitida';
+      btn.onclick = () => window.open(d.url, '_blank');
+    } else {
+      btn.textContent = '✅ Factura emitida';
+      btn.disabled = true;
+    }
   } catch (e) {
     alert('⚠️ ' + e.message);
     btn.disabled = false; btn.textContent = orig;
