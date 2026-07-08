@@ -747,6 +747,23 @@ async function ensureSolicitudRecogidaItem() {
   }
 }
 
+async function ensureAlegraColumns() {
+  const conn = await db.getConnection();
+  try {
+    try { await conn.execute(`ALTER TABLE b2c_orden ADD COLUMN ord_alegra_id INT NULL`); }
+    catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    try { await conn.execute(`ALTER TABLE b2c_orden ADD COLUMN ord_alegra_url VARCHAR(255) NULL`); }
+    catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    try { await conn.execute(`ALTER TABLE b2c_orden ADD COLUMN ord_factura_estado ENUM('pendiente','emitida','error') NULL`); }
+    catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    console.log('✅ Columnas Alegra en b2c_orden verificadas');
+  } catch (e) {
+    console.warn('⚠️ No pude agregar columnas Alegra:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -771,6 +788,7 @@ async function runMigrations() {
   await ensureEgresoVencimiento();
   await ensureSolicitudRecogida();
   await ensureSolicitudRecogidaItem();
+  await ensureAlegraColumns();
   console.log('Migraciones completadas');
 }
 
