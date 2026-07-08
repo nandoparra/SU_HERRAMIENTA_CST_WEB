@@ -326,8 +326,15 @@ async function enviarListaRepuestos(conn, uid_orden, tenantId = 1) {
 }
 
 async function handleAgente(conn, senderPhone, tenantId, text) {
-  const respuesta = await responderConIA(conn, senderPhone, tenantId, text);
-  await sendWAMessage(tenantId, senderPhone, respuesta);
+  try {
+    log.info(`🤖 wa-agente: procesando mensaje de ****${senderPhone.slice(-4)}`);
+    const respuesta = await responderConIA(conn, senderPhone, tenantId, text);
+    log.info(`🤖 wa-agente: respuesta lista (${respuesta.length} chars), enviando...`);
+    await sendWAMessage(tenantId, senderPhone, respuesta);
+    log.info(`🤖 wa-agente: mensaje enviado a ****${senderPhone.slice(-4)}`);
+  } catch (e) {
+    log.error({ err: e }, `❌ wa-agente: error procesando mensaje de ****${senderPhone.slice(-4)}`);
+  }
 }
 
 module.exports = {};
