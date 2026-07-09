@@ -4,7 +4,7 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
-const { isReady, sendWAMessage, getLastQR, resetTenantClient } = require('../utils/whatsapp-client');
+const { isReady, sendWAMessage, getLastQR, resetTenantClient, getLidForPhone } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 const QRCode = require('qrcode');
 const { requireInterno } = require('../middleware/auth');
@@ -114,6 +114,23 @@ router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, waLimiter, a
            VALUES (?, ?, 'esperando_opcion', ?)`,
           [order.uid_orden, phone, tenantId]
         );
+        // Resolver el LID del destinatario vía USync y guardarlo en wa_lid.
+        // Si el cliente tiene cuenta LID (WA Privacy migration), sus respuestas
+        // llegarán desde el LID — guardar aquí permite match directo en Phase 1
+        // sin pasos extra para el cliente. Fire-and-forget (no bloquea respuesta).
+        getLidForPhone(tenantId, phone).then(async lid => {
+          if (!lid) return;
+          const conn2 = await db.getConnection();
+          try {
+            await conn2.execute(
+              `UPDATE b2c_wa_autorizacion_pendiente SET wa_lid = ? WHERE uid_orden = ? AND wa_phone = ? AND tenant_id = ?`,
+              [lid, order.uid_orden, phone, tenantId]
+            );
+            log.info(`[WA] Pendiente uid_orden=${order.uid_orden} — wa_lid guardado: ****${lid.slice(-4)}`);
+          } finally {
+            conn2.release();
+          }
+        }).catch(e => log.warn(`[WA] Error guardando wa_lid en pendiente: ${e.message}`));
       }
 
       res.json({ success: true, destinatarios: chatIds.length, cliente: order.cli_razon_social || order.cli_contacto || '', status: 'Enviado' });

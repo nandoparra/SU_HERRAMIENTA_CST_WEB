@@ -54,32 +54,33 @@ registerMessageHandler(async (tenantId, msg) => {
     }
 
     // Búsqueda en dos fases:
-    // 1. Por senderPhone exacto (funciona si el pendiente ya tiene el LID guardado)
-    // 2. Por teléfono resuelto (funciona para pendientes guardados antes del fix LID)
+    // Phase 1: por wa_phone exacto O por wa_lid (si getLidForPhone lo guardó al enviar la cotización)
+    // Phase 2: por teléfono resuelto desde el mapa en memoria (contacts.upsert / sendMessage receipt)
     let [[pendiente]] = await conn.execute(
-      `SELECT uid_autorizacion, uid_orden, estado, wa_phone, created_at, COALESCE(tenant_id, 1) AS tenant_id
+      `SELECT uid_autorizacion, uid_orden, estado, wa_phone, wa_lid, created_at, COALESCE(tenant_id, 1) AS tenant_id
        FROM b2c_wa_autorizacion_pendiente
-       WHERE wa_phone = ?
+       WHERE wa_phone = ? OR wa_lid = ?
        ORDER BY created_at DESC
        LIMIT 1`,
-      [senderPhone]
+      [senderPhone, senderPhone]
     );
 
     if (!pendiente && phoneForLookup !== senderPhone) {
       [[pendiente]] = await conn.execute(
-        `SELECT uid_autorizacion, uid_orden, estado, wa_phone, created_at, COALESCE(tenant_id, 1) AS tenant_id
+        `SELECT uid_autorizacion, uid_orden, estado, wa_phone, wa_lid, created_at, COALESCE(tenant_id, 1) AS tenant_id
          FROM b2c_wa_autorizacion_pendiente
-         WHERE wa_phone = ?
+         WHERE wa_phone = ? OR wa_lid = ?
          ORDER BY created_at DESC
          LIMIT 1`,
-        [phoneForLookup]
+        [phoneForLookup, phoneForLookup]
       );
       if (pendiente && jid.endsWith('@lid')) {
+        // Guardar el LID en wa_lid para que la próxima vez Phase 1 lo encuentre directamente
         await conn.execute(
-          `UPDATE b2c_wa_autorizacion_pendiente SET wa_phone = ? WHERE uid_autorizacion = ?`,
+          `UPDATE b2c_wa_autorizacion_pendiente SET wa_lid = ? WHERE uid_autorizacion = ? AND wa_lid IS NULL`,
           [senderPhone, pendiente.uid_autorizacion]
         );
-        log.debug(`📨 wa-handler: migración LID — wa_phone actualizado a ****${senderPhone.slice(-4)}`);
+        log.debug(`📨 wa-handler: LID aprendido — wa_lid actualizado a ****${senderPhone.slice(-4)}`);
       }
     }
 

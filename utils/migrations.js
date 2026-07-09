@@ -802,6 +802,27 @@ async function ensureAlegraColumns() {
   }
 }
 
+async function ensureWaLidColumn() {
+  const conn = await db.getConnection();
+  try {
+    try {
+      await conn.execute(
+        `ALTER TABLE b2c_wa_autorizacion_pendiente ADD COLUMN wa_lid VARCHAR(50) NULL`
+      );
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    try {
+      await conn.execute(
+        `ALTER TABLE b2c_wa_autorizacion_pendiente ADD INDEX idx_wa_lid (wa_lid)`
+      );
+    } catch (e) { if (e.code !== 'ER_DUP_KEYNAME') throw e; }
+    console.log('✅ Columna wa_lid en b2c_wa_autorizacion_pendiente verificada');
+  } catch (e) {
+    console.warn('⚠️ No pude agregar columna wa_lid:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -828,6 +849,7 @@ async function runMigrations() {
   await ensureSolicitudRecogidaItem();
   await ensureAlegraColumns();
   await ensureWaAgenteTablas();
+  await ensureWaLidColumn();
   console.log('Migraciones completadas');
 }
 

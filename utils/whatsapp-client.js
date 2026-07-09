@@ -4,6 +4,8 @@ const {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  USyncQuery,
+  USyncUser,
 } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const qrcode = require('qrcode-terminal');
@@ -293,6 +295,50 @@ function getLastQR(tenantId = 1) {
 }
 
 /**
+ * Consulta a WA el LID (Linked Identity) asociado a un número de teléfono.
+ * Usa executeUSyncQuery con los protocolos Contact + LID — la misma vía
+ * que Baileys usa internamente para establecer sesiones Signal con cuentas LID.
+ *
+ * Retorna el número bare del LID (ej: "81106212806850") o null si WA no tiene LID para ese teléfono.
+ */
+async function getLidForPhone(tenantId, phone) {
+  const tid = Number(tenantId);
+  const info = pool.get(tid);
+  if (!info?.ready || !info.sock?.executeUSyncQuery) return null;
+
+  const cleanPhone = String(phone).replace(/\D/g, '');
+  const phoneJid = `${cleanPhone}@s.whatsapp.net`;
+
+  try {
+    const query = new USyncQuery()
+      .withContactProtocol()
+      .withLIDProtocol()
+      .withUser(new USyncUser().withId(phoneJid));
+
+    const results = await info.sock.executeUSyncQuery(query);
+    if (!results?.list?.length) return null;
+
+    const item = results.list.find(r => r.id === phoneJid) || results.list[0];
+    if (!item?.lid) return null;
+
+    // item.lid viene del parser de USyncLIDProtocol: node.attrs.val
+    // puede ser "81106212806850@lid" o "81106212806850" — normalizamos
+    const lidBare = String(item.lid).replace(/@[a-z.]+$/, '');
+    if (!lidBare) return null;
+
+    // Actualizar mapa en memoria: LID → teléfono
+    info._lidToPhone.set(`${lidBare}@lid`, cleanPhone);
+    info._lidToPhone.set(lidBare, cleanPhone);
+
+    log.info(`[WA] LID resuelto (USync): ****${cleanPhone.slice(-4)} → LID ****${lidBare.slice(-4)}`);
+    return lidBare;
+  } catch (e) {
+    log.warn(`[WA] getLidForPhone(****${cleanPhone.slice(-4)}): ${e.message}`);
+    return null;
+  }
+}
+
+/**
  * Destruye la sesión actual del tenant, borra archivos de auth del disco
  * e inicia un cliente nuevo que emitirá QR.
  */
@@ -336,6 +382,7 @@ module.exports = {
   isReady,
   sendWAMessage,
   getLidPhone,
+  getLidForPhone,
   resolveWAJid,
   getLastQR,
   resetTenantClient,
