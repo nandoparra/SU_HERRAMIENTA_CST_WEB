@@ -304,21 +304,33 @@ function getLastQR(tenantId = 1) {
 async function getLidForPhone(tenantId, phone) {
   const tid = Number(tenantId);
   const info = pool.get(tid);
-  if (!info?.ready || !info.sock?.executeUSyncQuery) return null;
+  if (!info?.ready || !info.sock?.executeUSyncQuery) {
+    log.info(`[WA] getLidForPhone(****${String(phone).slice(-4)}): WA no listo o executeUSyncQuery no disponible`);
+    return null;
+  }
 
   const cleanPhone = String(phone).replace(/\D/g, '');
   const phoneJid = `${cleanPhone}@s.whatsapp.net`;
 
+  log.info(`[WA] getLidForPhone: consultando LID para ****${cleanPhone.slice(-4)}`);
   try {
+    // Mismo patrón que pnFromLIDUSync interno de Baileys:
+    // withLIDProtocol() + withContext('background') + withId(phoneJid)
     const query = new USyncQuery()
-      .withContactProtocol()
       .withLIDProtocol()
+      .withContext('background')
       .withUser(new USyncUser().withId(phoneJid));
 
     const results = await info.sock.executeUSyncQuery(query);
-    if (!results?.list?.length) return null;
+
+    if (!results?.list?.length) {
+      log.info(`[WA] getLidForPhone(****${cleanPhone.slice(-4)}): sin resultados de WA`);
+      return null;
+    }
 
     const item = results.list.find(r => r.id === phoneJid) || results.list[0];
+    log.info(`[WA] getLidForPhone(****${cleanPhone.slice(-4)}): campos=[${Object.keys(item || {}).join(',')}] lid=${item?.lid ?? 'null'}`);
+
     if (!item?.lid) return null;
 
     // item.lid viene del parser de USyncLIDProtocol: node.attrs.val
