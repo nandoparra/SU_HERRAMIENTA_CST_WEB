@@ -61,29 +61,32 @@ async function createTenantClient(tenantId) {
     markOnlineOnConnect: false,
   });
 
-  const info = { sock, ready: false, lastQR: null, _lidToPhone: new Map() };
+  const info = { sock, ready: false, lastQR: null, _lidToPhone: new Map(), _pendingSends: new Map() };
   pool.set(tid, info);
 
   // Escuchar sync de contactos de Baileys para construir el mapa LID → teléfono.
   // WA usa LIDs (Linked Identity) como identificador en cuentas migradas.
   // Al conectarse, WA sincroniza contactos con id (phone@s.whatsapp.net) y lid (lid@lid).
   function upsertContacts(contacts) {
+    let withLid = 0, withoutLid = 0;
     for (const c of contacts) {
       if (!c.id) continue;
       if (c.lid) {
-        // Puede llegar con c.id = phone y c.lid = lid, o viceversa
+        withLid++;
         const lidJid   = c.id.endsWith('@lid') ? c.id  : c.lid;
         const phoneJid = c.id.endsWith('@lid') ? c.lid : c.id;
         if (!phoneJid.endsWith('@lid')) {
           const phone = phoneJid.replace(/@[a-z.]+$/, '');
           info._lidToPhone.set(lidJid, phone);
           info._lidToPhone.set(lidJid.split('@')[0], phone);
-          log.debug(`[WA] contact upsert LID: ****${lidJid.split('@')[0].slice(-4)} → ****${phone.slice(-4)}`);
+          log.info(`[WA] contacts LID: ****${lidJid.split('@')[0].slice(-4)} → ****${phone.slice(-4)}`);
         }
       } else {
-        // Sin campo lid — loguear para diagnóstico
-        log.debug(`[WA] contact upsert sin lid: id=${c.id.split('@')[1] || c.id} notify=${c.notify || '-'}`);
+        withoutLid++;
       }
+    }
+    if (contacts.length > 0) {
+      log.info(`[WA] contacts.upsert: total=${contacts.length} con_lid=${withLid} sin_lid=${withoutLid}`);
     }
   }
   sock.ev.on('contacts.upsert', upsertContacts);
@@ -143,8 +146,32 @@ async function createTenantClient(tenantId) {
   });
 
   sock.ev.on('messages.upsert', ({ messages, type }) => {
-    if (type !== 'notify' || !_messageHandler) return;
+    // 'append' = historial al conectarse — ignorar para no saturar logs en arranque
+    if (type === 'append') return;
     for (const msg of messages) {
+      // Log mensajes enviados por nosotros: revela si WA usa LID como remoteJid al entregar
+      if (msg.key?.fromMe && msg.key?.remoteJid && !msg.key.remoteJid.endsWith('@g.us')) {
+        const rjid = msg.key.remoteJid;
+        const domain = rjid.split('@')[1];
+        const bare   = rjid.split('@')[0].slice(-4);
+        if (domain === 'lid') {
+          // WA confirmó entrega a JID LID — capturar en _pendingSends para resolver después
+          const msgId = msg.key.id;
+          const pending = info._pendingSends?.get(msgId);
+          if (pending) {
+            info._lidToPhone.set(rjid, pending);
+            info._lidToPhone.set(rjid.split('@')[0], pending);
+            info._pendingSends.delete(msgId);
+            log.info(`[WA] fromMe LID capturado: ****${bare}@lid → ****${pending.slice(-4)}`);
+          } else {
+            log.info(`[WA] fromMe LID: ****${bare}@lid (sin tracking — ${msgId?.slice(-6)})`);
+          }
+        } else {
+          log.info(`[WA] fromMe: ****${bare}@${domain} type=${type}`);
+        }
+      }
+
+      if (type !== 'notify' || !_messageHandler) continue;
       if (!msg.message) continue;
       _messageHandler(tid, msg);
     }
@@ -189,18 +216,28 @@ async function sendWAMessage(tenantId, phoneOrJid, content) {
   }
 
   const msgContent = typeof content === 'string' ? { text: content } : content;
-  const result = await info.sock.sendMessage(jid, msgContent);
+  const originalPhone = jid.replace(/@[a-z.]+$/, '');
 
-  // Cuando WA entrega a un usuario LID, result.key.remoteJid puede ser el LID JID.
-  // Si es distinto del JID que usamos para enviar, guardamos el mapeo LID → teléfono.
+  // Registrar el ID del mensaje antes de enviarlo para capturar LID en messages.upsert fromMe
+  // (el evento puede llegar con remoteJid=@lid si WA enruta internamente al LID del usuario)
+  const result = await info.sock.sendMessage(jid, msgContent);
+  const msgId = result?.key?.id;
+  if (msgId && !jid.endsWith('@lid')) {
+    info._pendingSends.set(msgId, originalPhone);
+    setTimeout(() => info._pendingSends.delete(msgId), 15_000);
+  }
+
+  // Verificar si sendMessage ya reveló el LID en su respuesta
   const deliveryJid = result?.key?.remoteJid;
   if (deliveryJid && deliveryJid !== jid && deliveryJid.endsWith('@lid') && !jid.endsWith('@lid')) {
-    const originalPhone = jid.replace(/@[a-z.]+$/, '');
     info._lidToPhone.set(deliveryJid, originalPhone);
     info._lidToPhone.set(deliveryJid.split('@')[0], originalPhone);
+    info._pendingSends.delete(msgId);
     log.info(`[WA] LID capturado desde sendMessage: ****${deliveryJid.split('@')[0].slice(-4)} → ****${originalPhone.slice(-4)}`);
   } else {
-    log.debug(`[WA] sendMessage entregado a: ${result?.key?.remoteJid?.split('@')[1] || '?'}`);
+    const domain = deliveryJid?.split('@')[1] || '?';
+    const bare   = deliveryJid?.split('@')[0]?.slice(-4) || '?';
+    log.info(`[WA] sendMessage → ****${bare}@${domain} (destino ****${originalPhone.slice(-4)}@${jid.split('@')[1]})`);
   }
 
   return result;
