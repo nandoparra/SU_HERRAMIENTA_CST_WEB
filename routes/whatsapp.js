@@ -109,9 +109,13 @@ router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, waLimiter, a
       );
       for (const chatId of chatIds) {
         const phone = chatId.replace(/@[a-z.]+$/, ''); // "573XXXXXXXXXX"
+        // ON DUPLICATE KEY UPDATE: si ya hay un pendiente para este teléfono (orden anterior),
+        // lo reemplaza por el actual. Evita el bug donde INSERT IGNORE falla silenciosamente
+        // porque hay un pendiente de una orden anterior para el mismo número (UNIQUE KEY wa_phone).
         await conn.execute(
-          `INSERT IGNORE INTO b2c_wa_autorizacion_pendiente (uid_orden, wa_phone, estado, tenant_id)
-           VALUES (?, ?, 'esperando_opcion', ?)`,
+          `INSERT INTO b2c_wa_autorizacion_pendiente (uid_orden, wa_phone, estado, tenant_id)
+           VALUES (?, ?, 'esperando_opcion', ?)
+           ON DUPLICATE KEY UPDATE uid_orden = VALUES(uid_orden), estado = 'esperando_opcion', wa_lid = NULL`,
           [order.uid_orden, phone, tenantId]
         );
         // Resolver el LID del destinatario vía USync y guardarlo en wa_lid.
