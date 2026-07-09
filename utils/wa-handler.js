@@ -7,7 +7,7 @@
  */
 
 const db = require('./db');
-const { registerMessageHandler, sendWAMessage, isReady, getLidPhone } = require('./whatsapp-client');
+const { registerMessageHandler, sendWAMessage, isReady, getLidPhone, resolveWAJid } = require('./whatsapp-client');
 const log = require('./logger');
 const { responderConIA } = require('../services/wa-agente');
 
@@ -74,18 +74,52 @@ registerMessageHandler(async (tenantId, msg) => {
          LIMIT 1`,
         [phoneForLookup]
       );
-      // Migración lazy: actualizar wa_phone al LID para que próximos mensajes sean rápidos
       if (pendiente && jid.endsWith('@lid')) {
         await conn.execute(
           `UPDATE b2c_wa_autorizacion_pendiente SET wa_phone = ? WHERE uid_autorizacion = ?`,
           [senderPhone, pendiente.uid_autorizacion]
         );
-        log.debug(`📨 wa-handler: migración LID — wa_phone actualizado a ${senderPhone}`);
+        log.debug(`📨 wa-handler: migración LID — wa_phone actualizado a ****${senderPhone.slice(-4)}`);
+      }
+    }
+
+    // Tercera fase: si contacts.upsert no tiene el mapeo LID, probar onWhatsApp en cada
+    // pendiente activo. También sirve como diagnóstico para ver qué devuelve WA.
+    if (!pendiente && jid.endsWith('@lid')) {
+      log.info(`🔍 LID scan: ****${senderPhone.slice(-4)} — contacts_map resolvió=${getLidPhone(tenantId, jid) !== null}`);
+      const [allPendientes] = await conn.execute(
+        `SELECT uid_autorizacion, uid_orden, estado, wa_phone, created_at, COALESCE(tenant_id, 1) AS tenant_id
+         FROM b2c_wa_autorizacion_pendiente
+         WHERE tenant_id = ? AND estado IN ('esperando_opcion','esperando_maquinas')`,
+        [tenantId]
+      );
+      for (const p of allPendientes) {
+        try {
+          const resolvedJid = await resolveWAJid(tenantId, p.wa_phone);
+          const resolvedBare   = resolvedJid ? resolvedJid.split('@')[0] : null;
+          const resolvedDomain = resolvedJid ? resolvedJid.split('@')[1] : 'null';
+          log.info(`🔍 LID scan: phone=****${p.wa_phone.slice(-4)} → ****${resolvedBare ? resolvedBare.slice(-4) : 'null'}@${resolvedDomain} | sender=****${senderPhone.slice(-4)}`);
+          if (resolvedBare && resolvedBare === senderPhone) {
+            pendiente = p;
+            phoneForLookup = p.wa_phone;
+            await conn.execute(
+              `UPDATE b2c_wa_autorizacion_pendiente SET wa_phone = ? WHERE uid_autorizacion = ?`,
+              [senderPhone, p.uid_autorizacion]
+            );
+            log.info(`✅ LID scan: pendiente encontrado y migrado para ****${senderPhone.slice(-4)}`);
+            break;
+          }
+        } catch (scanErr) {
+          log.warn(`⚠️ LID scan error para ****${p.wa_phone.slice(-4)}: ${scanErr.message}`);
+        }
+      }
+      if (!pendiente) {
+        log.info(`🔍 LID scan: sin coincidencia para ****${senderPhone.slice(-4)}`);
       }
     }
 
     if (!pendiente) {
-      await handleAgente(conn, senderPhone, tenantId, text, jid);
+      await handleAgente(conn, phoneForLookup, tenantId, text, jid);
       return;
     }
 
@@ -109,7 +143,7 @@ registerMessageHandler(async (tenantId, msg) => {
       if (['1', '2', '3', '4'].includes(text)) {
         await handleOpcion(conn, pendiente, text, jid, tenantId);
       } else {
-        await handleAgente(conn, senderPhone, tenantId, text, jid);
+        await handleAgente(conn, phoneForLookup, tenantId, text, jid);
       }
     } else if (pendiente.estado === 'esperando_maquinas') {
       await handleSeleccionMaquinas(conn, pendiente, text, jid, tenantId);

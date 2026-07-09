@@ -69,14 +69,20 @@ async function createTenantClient(tenantId) {
   // Al conectarse, WA sincroniza contactos con id (phone@s.whatsapp.net) y lid (lid@lid).
   function upsertContacts(contacts) {
     for (const c of contacts) {
-      if (!c.id || !c.lid) continue;
-      // Puede llegar con c.id = phone y c.lid = lid, o viceversa
-      const lidJid  = c.id.endsWith('@lid') ? c.id  : c.lid;
-      const phoneJid = c.id.endsWith('@lid') ? c.lid : c.id;
-      if (phoneJid && !phoneJid.endsWith('@lid')) {
-        const phone = phoneJid.replace(/@[a-z.]+$/, '');
-        info._lidToPhone.set(lidJid, phone);
-        info._lidToPhone.set(lidJid.replace(/@[a-z.]+$/, ''), phone);
+      if (!c.id) continue;
+      if (c.lid) {
+        // Puede llegar con c.id = phone y c.lid = lid, o viceversa
+        const lidJid   = c.id.endsWith('@lid') ? c.id  : c.lid;
+        const phoneJid = c.id.endsWith('@lid') ? c.lid : c.id;
+        if (!phoneJid.endsWith('@lid')) {
+          const phone = phoneJid.replace(/@[a-z.]+$/, '');
+          info._lidToPhone.set(lidJid, phone);
+          info._lidToPhone.set(lidJid.split('@')[0], phone);
+          log.debug(`[WA] contact upsert LID: ****${lidJid.split('@')[0].slice(-4)} → ****${phone.slice(-4)}`);
+        }
+      } else {
+        // Sin campo lid — loguear para diagnóstico
+        log.debug(`[WA] contact upsert sin lid: id=${c.id.split('@')[1] || c.id} notify=${c.notify || '-'}`);
       }
     }
   }
@@ -183,7 +189,21 @@ async function sendWAMessage(tenantId, phoneOrJid, content) {
   }
 
   const msgContent = typeof content === 'string' ? { text: content } : content;
-  return await info.sock.sendMessage(jid, msgContent);
+  const result = await info.sock.sendMessage(jid, msgContent);
+
+  // Cuando WA entrega a un usuario LID, result.key.remoteJid puede ser el LID JID.
+  // Si es distinto del JID que usamos para enviar, guardamos el mapeo LID → teléfono.
+  const deliveryJid = result?.key?.remoteJid;
+  if (deliveryJid && deliveryJid !== jid && deliveryJid.endsWith('@lid') && !jid.endsWith('@lid')) {
+    const originalPhone = jid.replace(/@[a-z.]+$/, '');
+    info._lidToPhone.set(deliveryJid, originalPhone);
+    info._lidToPhone.set(deliveryJid.split('@')[0], originalPhone);
+    log.info(`[WA] LID capturado desde sendMessage: ****${deliveryJid.split('@')[0].slice(-4)} → ****${originalPhone.slice(-4)}`);
+  } else {
+    log.debug(`[WA] sendMessage entregado a: ${result?.key?.remoteJid?.split('@')[1] || '?'}`);
+  }
+
+  return result;
 }
 
 /**
