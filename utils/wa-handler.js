@@ -84,6 +84,32 @@ registerMessageHandler(async (tenantId, msg) => {
       }
     }
 
+    // Phase 3: heurística de único pendiente para JIDs LID sin wa_lid guardado.
+    // WA migró algunos usuarios a Linked Identity (LID) — sus mensajes llegan desde
+    // un JID numérico aleatorio (@lid) sin relación matemática con su teléfono.
+    // Si hay exactamente UN pendiente activo para este tenant sin wa_lid asignado,
+    // lo asociamos a este LID. Funciona bien en talleres de baja concurrencia donde
+    // rara vez hay dos clientes esperando autorizar al mismo tiempo.
+    if (!pendiente && jid.endsWith('@lid') && ['1','2','3','4'].includes(text)) {
+      const [candidatos] = await conn.execute(
+        `SELECT uid_autorizacion, uid_orden, estado, wa_phone, wa_lid, created_at, COALESCE(tenant_id, 1) AS tenant_id
+         FROM b2c_wa_autorizacion_pendiente
+         WHERE tenant_id = ? AND wa_lid IS NULL AND estado IN ('esperando_opcion','esperando_maquinas')
+         ORDER BY created_at DESC`,
+        [tenantId]
+      );
+      if (candidatos.length === 1) {
+        pendiente = candidatos[0];
+        log.info(`[WA] Phase 3 heurístico: LID ****${senderPhone.slice(-4)} → único pendiente uid_orden=${pendiente.uid_orden} (wa_phone ****${pendiente.wa_phone.slice(-4)})`);
+        await conn.execute(
+          `UPDATE b2c_wa_autorizacion_pendiente SET wa_lid = ? WHERE uid_autorizacion = ?`,
+          [senderPhone, pendiente.uid_autorizacion]
+        );
+      } else if (candidatos.length > 1) {
+        log.info(`[WA] Phase 3 abortado: LID ****${senderPhone.slice(-4)} — ${candidatos.length} pendientes sin wa_lid, no se puede determinar cuál`);
+      }
+    }
+
     if (!pendiente) {
       await handleAgente(conn, phoneForLookup, tenantId, text, jid);
       return;

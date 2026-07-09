@@ -295,53 +295,40 @@ function getLastQR(tenantId = 1) {
 }
 
 /**
- * Consulta a WA el LID (Linked Identity) asociado a un número de teléfono.
- * Usa executeUSyncQuery con los protocolos Contact + LID — la misma vía
- * que Baileys usa internamente para establecer sesiones Signal con cuentas LID.
- *
- * Retorna el número bare del LID (ej: "81106212806850") o null si WA no tiene LID para ese teléfono.
+ * Intenta resolver teléfono → LID via USync (fire-and-forget al enviar cotización).
+ * WA restringe este API para llamadas externas: withContext('background') da bad-request,
+ * withContactProtocol no devuelve lid. Intentamos withLIDProtocol solo, sin context.
+ * Si funciona, guarda en _lidToPhone para que Phase 1 del handler lo use.
+ * Retorna el número bare del LID o null si WA no lo proporciona.
  */
 async function getLidForPhone(tenantId, phone) {
   const tid = Number(tenantId);
   const info = pool.get(tid);
-  if (!info?.ready || !info.sock?.executeUSyncQuery) {
-    log.info(`[WA] getLidForPhone(****${String(phone).slice(-4)}): WA no listo o executeUSyncQuery no disponible`);
-    return null;
-  }
+  if (!info?.ready || !info.sock?.executeUSyncQuery) return null;
 
   const cleanPhone = String(phone).replace(/\D/g, '');
   const phoneJid = `${cleanPhone}@s.whatsapp.net`;
 
-  log.info(`[WA] getLidForPhone: consultando LID para ****${cleanPhone.slice(-4)}`);
   try {
-    // Mismo patrón que pnFromLIDUSync interno de Baileys:
-    // withLIDProtocol() + withContext('background') + withId(phoneJid)
-    const query = new USyncQuery()
-      .withLIDProtocol()
-      .withContext('background')
-      .withUser(new USyncUser().withId(phoneJid));
+    // Solo withLIDProtocol, sin context ni withContactProtocol.
+    // withContext('background') → bad-request desde WA.
+    // withContactProtocol agregado → no incluye lid en respuesta.
+    const results = await info.sock.executeUSyncQuery(
+      new USyncQuery().withLIDProtocol().withUser(new USyncUser().withId(phoneJid))
+    );
 
-    const results = await info.sock.executeUSyncQuery(query);
-
-    if (!results?.list?.length) {
-      log.info(`[WA] getLidForPhone(****${cleanPhone.slice(-4)}): sin resultados de WA`);
-      return null;
-    }
+    if (!results?.list?.length) return null;
 
     const item = results.list.find(r => r.id === phoneJid) || results.list[0];
     log.info(`[WA] getLidForPhone(****${cleanPhone.slice(-4)}): campos=[${Object.keys(item || {}).join(',')}] lid=${item?.lid ?? 'null'}`);
 
     if (!item?.lid) return null;
 
-    // item.lid viene del parser de USyncLIDProtocol: node.attrs.val
-    // puede ser "81106212806850@lid" o "81106212806850" — normalizamos
     const lidBare = String(item.lid).replace(/@[a-z.]+$/, '');
     if (!lidBare) return null;
 
-    // Actualizar mapa en memoria: LID → teléfono
     info._lidToPhone.set(`${lidBare}@lid`, cleanPhone);
     info._lidToPhone.set(lidBare, cleanPhone);
-
     log.info(`[WA] LID resuelto (USync): ****${cleanPhone.slice(-4)} → LID ****${lidBare.slice(-4)}`);
     return lidBare;
   } catch (e) {
