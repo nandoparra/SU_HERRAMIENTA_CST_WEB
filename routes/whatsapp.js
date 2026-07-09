@@ -100,21 +100,20 @@ router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, waLimiter, a
       );
 
       // Registrar conversación de autorización pendiente por cada número del cliente.
-      // Resolver el JID real (puede ser LID en cuentas migradas) para que coincida con
-      // el remoteJid entrante de Baileys al recibir la respuesta del cliente.
+      // 1. Borrar pendientes anteriores de esta orden (pueden tener formato de teléfono antiguo,
+      //    no LID) — evita que el lookup falle cuando Baileys entrega el JID en formato @lid.
+      // 2. Resolver el JID real con onWhatsApp() y guardar el número sin @domain.
+      await conn.execute(
+        `DELETE FROM b2c_wa_autorizacion_pendiente WHERE uid_orden = ? AND tenant_id = ?`,
+        [order.uid_orden, tenantId]
+      );
       for (const chatId of chatIds) {
         const phone = chatId.replace(/@[a-z.]+$/, ''); // "573XXXXXXXXXX"
-        // Preferir JID LID si el número está migrado; fallback al número de teléfono
         const resolvedJid = await resolveWAJid(tenantId, phone);
         const waPhone = resolvedJid ? resolvedJid.split('@')[0] : phone;
         await conn.execute(
-          `INSERT INTO b2c_wa_autorizacion_pendiente (uid_orden, wa_phone, estado, tenant_id)
-           VALUES (?, ?, 'esperando_opcion', ?)
-           ON DUPLICATE KEY UPDATE
-             uid_orden  = VALUES(uid_orden),
-             wa_phone   = VALUES(wa_phone),
-             estado     = 'esperando_opcion',
-             created_at = CURRENT_TIMESTAMP`,
+          `INSERT IGNORE INTO b2c_wa_autorizacion_pendiente (uid_orden, wa_phone, estado, tenant_id)
+           VALUES (?, ?, 'esperando_opcion', ?)`,
           [order.uid_orden, waPhone, tenantId]
         );
       }

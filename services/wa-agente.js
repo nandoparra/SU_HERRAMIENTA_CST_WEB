@@ -49,20 +49,35 @@ function normalizePhone(senderPhone) {
  */
 async function findClienteByPhone(conn, senderPhone, tenantId) {
   const phone10 = normalizePhone(senderPhone);
-  if (phone10.length < 9) return null;
 
-  const [rows] = await conn.execute(
+  // Búsqueda primaria por teléfono colombiano (funciona para números normales)
+  if (phone10.length >= 9) {
+    const [rows] = await conn.execute(
+      `SELECT c.uid_cliente, c.cli_razon_social, c.cli_contacto, c.cli_identificacion
+       FROM b2c_cliente c
+       WHERE c.tenant_id = ?
+         AND (
+           REPLACE(REPLACE(REPLACE(c.cli_telefono,      ' ', ''), '-', ''), '+57', '') LIKE ?
+           OR REPLACE(REPLACE(REPLACE(c.cli_tel_contacto,' ', ''), '-', ''), '+57', '') LIKE ?
+         )
+       LIMIT 1`,
+      [tenantId, `%${phone10}`, `%${phone10}`]
+    );
+    if (rows[0]) return rows[0];
+  }
+
+  // Fallback LID: cuando el senderPhone es un JID LID (ej: "81186212806850"),
+  // buscamos el cliente via el pendiente de autorización que guardamos con ese JID.
+  const [byLid] = await conn.execute(
     `SELECT c.uid_cliente, c.cli_razon_social, c.cli_contacto, c.cli_identificacion
-     FROM b2c_cliente c
-     WHERE c.tenant_id = ?
-       AND (
-         REPLACE(REPLACE(REPLACE(c.cli_telefono,      ' ', ''), '-', ''), '+57', '') LIKE ?
-         OR REPLACE(REPLACE(REPLACE(c.cli_tel_contacto,' ', ''), '-', ''), '+57', '') LIKE ?
-       )
+     FROM b2c_wa_autorizacion_pendiente wap
+     JOIN b2c_orden o ON o.uid_orden = wap.uid_orden
+     JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente AND c.tenant_id = ?
+     WHERE wap.wa_phone = ? AND wap.tenant_id = ?
      LIMIT 1`,
-    [tenantId, `%${phone10}`, `%${phone10}`]
+    [tenantId, senderPhone, tenantId]
   );
-  return rows[0] || null;
+  return byLid[0] || null;
 }
 
 // ── buildContextoCliente ──────────────────────────────────────────────────────
