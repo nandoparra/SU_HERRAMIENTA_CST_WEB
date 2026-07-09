@@ -4,7 +4,7 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
-const { isReady, sendWAMessage, getLastQR, resetTenantClient } = require('../utils/whatsapp-client');
+const { isReady, sendWAMessage, resolveWAJid, getLastQR, resetTenantClient } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 const QRCode = require('qrcode');
 const { requireInterno } = require('../middleware/auth');
@@ -99,18 +99,23 @@ router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, waLimiter, a
         [order.uid_orden]
       );
 
-      // Registrar conversación de autorización pendiente por cada número del cliente
-      // UNIQUE(wa_phone): si ya había un pendiente anterior de este número, se reemplaza con esta orden
+      // Registrar conversación de autorización pendiente por cada número del cliente.
+      // Resolver el JID real (puede ser LID en cuentas migradas) para que coincida con
+      // el remoteJid entrante de Baileys al recibir la respuesta del cliente.
       for (const chatId of chatIds) {
-        const phone = chatId.replace(/@[a-z.]+$/, '');
+        const phone = chatId.replace(/@[a-z.]+$/, ''); // "573XXXXXXXXXX"
+        // Preferir JID LID si el número está migrado; fallback al número de teléfono
+        const resolvedJid = await resolveWAJid(tenantId, phone);
+        const waPhone = resolvedJid ? resolvedJid.split('@')[0] : phone;
         await conn.execute(
           `INSERT INTO b2c_wa_autorizacion_pendiente (uid_orden, wa_phone, estado, tenant_id)
            VALUES (?, ?, 'esperando_opcion', ?)
            ON DUPLICATE KEY UPDATE
-             uid_orden = VALUES(uid_orden),
-             estado    = 'esperando_opcion',
+             uid_orden  = VALUES(uid_orden),
+             wa_phone   = VALUES(wa_phone),
+             estado     = 'esperando_opcion',
              created_at = CURRENT_TIMESTAMP`,
-          [order.uid_orden, phone, tenantId]
+          [order.uid_orden, waPhone, tenantId]
         );
       }
 

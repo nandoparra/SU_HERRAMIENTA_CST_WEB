@@ -40,22 +40,17 @@ registerMessageHandler(async (tenantId, msg) => {
   try {
     conn = await db.getConnection();
 
-    log.info(`📨 wa-handler: buscando pendiente para senderPhone="${senderPhone}"`);
     const [[pendiente]] = await conn.execute(
-      `SELECT uid_autorizacion, uid_orden, estado, created_at, wa_phone, COALESCE(tenant_id, 1) AS tenant_id
+      `SELECT uid_autorizacion, uid_orden, estado, created_at, COALESCE(tenant_id, 1) AS tenant_id
        FROM b2c_wa_autorizacion_pendiente
        WHERE wa_phone = ?
        ORDER BY created_at DESC
        LIMIT 1`,
       [senderPhone]
     );
-    if (!pendiente) {
-      const [todos] = await conn.execute(`SELECT wa_phone FROM b2c_wa_autorizacion_pendiente LIMIT 5`);
-      log.info(`📨 wa-handler: pendiente NULL — registros en tabla: ${JSON.stringify(todos.map(r => r.wa_phone))}`);
-    }
 
     if (!pendiente) {
-      await handleAgente(conn, senderPhone, tenantId, text);
+      await handleAgente(conn, senderPhone, tenantId, text, jid);
       return;
     }
 
@@ -73,16 +68,16 @@ registerMessageHandler(async (tenantId, msg) => {
       return;
     }
 
-    log.info(`📨 wa-handler: pendiente ENCONTRADO uid_orden=${pendiente.uid_orden} estado=${pendiente.estado} wa_phone_db=${pendiente.wa_phone || '(sin columna)'}`);
+    log.debug(`📨 wa-handler: pendiente encontrado uid_orden=${pendiente.uid_orden} estado=${pendiente.estado}`);
 
     if (pendiente.estado === 'esperando_opcion') {
       if (['1', '2', '3', '4'].includes(text)) {
-        await handleOpcion(conn, pendiente, text, senderPhone, tenantId);
+        await handleOpcion(conn, pendiente, text, jid, tenantId);
       } else {
-        await handleAgente(conn, senderPhone, tenantId, text);
+        await handleAgente(conn, senderPhone, tenantId, text, jid);
       }
     } else if (pendiente.estado === 'esperando_maquinas') {
-      await handleSeleccionMaquinas(conn, pendiente, text, senderPhone, tenantId);
+      await handleSeleccionMaquinas(conn, pendiente, text, jid, tenantId);
     }
   } catch (e) {
     log.error({ err: e }, '❌ wa-handler error');
@@ -94,7 +89,9 @@ registerMessageHandler(async (tenantId, msg) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Opción inicial: 1 / 2 / 3 / 4
 // ─────────────────────────────────────────────────────────────────────────────
-async function handleOpcion(conn, pendiente, text, senderPhone, tenantId = 1) {
+// senderJid: JID completo entrante ("81186212806850@lid" o "573...@s.whatsapp.net")
+// Usado para enviar la respuesta al canal correcto (LID o @s.whatsapp.net).
+async function handleOpcion(conn, pendiente, text, senderJid, tenantId = 1) {
   const { uid_autorizacion, uid_orden } = pendiente;
 
   if (text === '1') {
@@ -118,7 +115,7 @@ async function handleOpcion(conn, pendiente, text, senderPhone, tenantId = 1) {
       [uid_autorizacion]
     );
     await enviarListaRepuestos(conn, uid_orden, tenantId);
-    await sendWAMessage(tenantId, senderPhone,
+    await sendWAMessage(tenantId, senderJid,
       '✅ *¡Cotización autorizada!* Gracias, procederemos con la reparación de todas sus herramientas. Le avisaremos cuando estén listas. — SU HERRAMIENTA CST'
     );
 
@@ -142,7 +139,7 @@ async function handleOpcion(conn, pendiente, text, senderPhone, tenantId = 1) {
       `DELETE FROM b2c_wa_autorizacion_pendiente WHERE uid_autorizacion = ?`,
       [uid_autorizacion]
     );
-    await sendWAMessage(tenantId, senderPhone,
+    await sendWAMessage(tenantId, senderJid,
       'Entendido, hemos registrado que *no autoriza* la reparación en este momento. Si cambia de opinión no dude en contactarnos. — SU HERRAMIENTA CST'
     );
 
@@ -167,7 +164,7 @@ async function handleOpcion(conn, pendiente, text, senderPhone, tenantId = 1) {
       return `${i + 1}. ${nombre}${serial}${precio}`;
     }).join('\n');
 
-    await sendWAMessage(tenantId, senderPhone,
+    await sendWAMessage(tenantId, senderJid,
       `Seleccione las máquinas a *autorizar* enviando sus números separados por coma (ej: 1,3):\n\n${lista}`
     );
     await conn.execute(
@@ -199,13 +196,13 @@ async function handleOpcion(conn, pendiente, text, senderPhone, tenantId = 1) {
       );
     }
     // Confirmar al cliente
-    await sendWAMessage(tenantId, senderPhone,
+    await sendWAMessage(tenantId, senderJid,
       `Le comunicamos con nuestro asesor: *${advisorNumber}* — SU HERRAMIENTA CST`
     );
 
   } else {
     // Opción no reconocida
-    await sendWAMessage(tenantId, senderPhone,
+    await sendWAMessage(tenantId, senderJid,
       'Este número es exclusivo para notificaciones automáticas y no permite conversación.\n\n' +
       'Si desea responder a su cotización, por favor indique únicamente *1*, *2*, *3* o *4*.\n\n' +
       'Para cualquier otra consulta comuníquese con nosotros al *3104650437*. — SU HERRAMIENTA CST'
@@ -216,7 +213,7 @@ async function handleOpcion(conn, pendiente, text, senderPhone, tenantId = 1) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Selección parcial: cliente envía los números de las máquinas que autoriza
 // ─────────────────────────────────────────────────────────────────────────────
-async function handleSeleccionMaquinas(conn, pendiente, text, senderPhone, tenantId = 1) {
+async function handleSeleccionMaquinas(conn, pendiente, text, senderJid, tenantId = 1) {
   const { uid_autorizacion, uid_orden } = pendiente;
 
   const [maquinas] = await conn.execute(
@@ -233,7 +230,7 @@ async function handleSeleccionMaquinas(conn, pendiente, text, senderPhone, tenan
   const validos = numerosRaw.filter(n => n >= 1 && n <= maquinas.length);
 
   if (!validos.length) {
-    await sendWAMessage(tenantId, senderPhone,
+    await sendWAMessage(tenantId, senderJid,
       `No entendí su selección. Por favor envíe los números separados por coma (ej: 1,3). Los números deben estar entre 1 y ${maquinas.length}.`
     );
     return; // Mantiene el pendiente activo para reintentar
@@ -276,7 +273,7 @@ async function handleSeleccionMaquinas(conn, pendiente, text, senderPhone, tenan
   if (noAutorizadas) confirmacion += '\n\n*No autorizadas:*\n' + noAutorizadas;
   confirmacion += '\n\nProcederemos con las herramientas autorizadas. Le avisaremos cuando estén listas. — SU HERRAMIENTA CST';
 
-  await sendWAMessage(tenantId, senderPhone, confirmacion);
+  await sendWAMessage(tenantId, senderJid, confirmacion);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -330,7 +327,9 @@ async function enviarListaRepuestos(conn, uid_orden, tenantId = 1) {
   await sendWAMessage(tenantId, `${phone}@c.us`, msg);
 }
 
-async function handleAgente(conn, senderPhone, tenantId, text) {
+// senderPhone: número JID sin @domain — clave para historial en BD
+// senderJid: JID completo ("...@lid" o "...@s.whatsapp.net") — usado para enviar
+async function handleAgente(conn, senderPhone, tenantId, text, senderJid) {
   try {
     log.info(`🤖 wa-agente: procesando mensaje de ****${senderPhone.slice(-4)}`);
     const respuesta = await responderConIA(conn, senderPhone, tenantId, text);
@@ -346,7 +345,7 @@ async function handleAgente(conn, senderPhone, tenantId, text) {
       }
     }
 
-    await sendWAMessage(tenantId, senderPhone, respuesta);
+    await sendWAMessage(tenantId, senderJid, respuesta);
     log.info(`🤖 wa-agente: mensaje enviado a ****${senderPhone.slice(-4)}`);
   } catch (e) {
     log.error({ err: e }, `❌ wa-agente: error procesando mensaje de ****${senderPhone.slice(-4)}`);

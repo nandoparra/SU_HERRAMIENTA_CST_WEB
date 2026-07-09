@@ -144,21 +144,47 @@ function isReady(tenantId = 1) {
 /**
  * Envía un mensaje de texto por WhatsApp.
  * @param {number} tenantId
- * @param {string} phoneOrChatId  "573104650437" o "573104650437@c.us" o "@s.whatsapp.net"
- * @param {string} content  Texto a enviar
+ * @param {string} phoneOrJid  Número ("573104650437"), JID completo ("57...@s.whatsapp.net"),
+ *                             "@c.us" (normalizado a @s.whatsapp.net), o "@lid" (LID, usado tal cual)
+ * @param {string|object} content  Texto a enviar o contenido multimedia de Baileys
  */
-async function sendWAMessage(tenantId, phoneOrChatId, content) {
+async function sendWAMessage(tenantId, phoneOrJid, content) {
   const tid = Number(tenantId);
   const info = pool.get(tid);
   if (!info?.ready) throw new Error('WhatsApp no está listo para este taller');
 
-  // Normalizar a dígitos puros y convertir al JID de Baileys
-  const phone = String(phoneOrChatId).replace(/@[a-z.]+$/, '').replace(/\D/g, '');
-  const jid = `${phone}@s.whatsapp.net`;
+  const str = String(phoneOrJid);
+  let jid;
+  if (str.includes('@')) {
+    // JID completo — normalizar @c.us a @s.whatsapp.net, conservar @lid y @g.us
+    jid = str.replace('@c.us', '@s.whatsapp.net');
+  } else {
+    // Solo número — construir JID @s.whatsapp.net
+    jid = `${str.replace(/\D/g, '')}@s.whatsapp.net`;
+  }
 
-  // String → texto plano; objeto → contenido multimedia de Baileys (document, image, etc.)
   const msgContent = typeof content === 'string' ? { text: content } : content;
   return await info.sock.sendMessage(jid, msgContent);
+}
+
+/**
+ * Resuelve un número de teléfono al JID real de WhatsApp (puede ser @lid para usuarios migrados).
+ * Necesario para que el wa_phone almacenado coincida con el remoteJid entrante.
+ * @returns {string|null} JID completo (ej: "81186212806850@lid") o null si falla
+ */
+async function resolveWAJid(tenantId, phone) {
+  const tid = Number(tenantId);
+  const info = pool.get(tid);
+  if (!info?.ready) return null;
+  const cleanPhone = String(phone).replace(/\D/g, '');
+  try {
+    const results = await info.sock.onWhatsApp(cleanPhone);
+    const result = Array.isArray(results) ? results[0] : null;
+    return (result?.exists && result.jid) ? result.jid : null;
+  } catch (e) {
+    log.warn(`[WA] resolveWAJid: no se pudo resolver ${cleanPhone.slice(-4)}: ${e.message}`);
+    return null;
+  }
 }
 
 function getLastQR(tenantId = 1) {
@@ -208,6 +234,7 @@ module.exports = {
   initTenantClient,
   isReady,
   sendWAMessage,
+  resolveWAJid,
   getLastQR,
   resetTenantClient,
   registerMessageHandler,
