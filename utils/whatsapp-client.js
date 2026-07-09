@@ -227,13 +227,25 @@ async function sendWAMessage(tenantId, phoneOrJid, content) {
     setTimeout(() => info._pendingSends.delete(msgId), 15_000);
   }
 
-  // Verificar si sendMessage ya reveló el LID en su respuesta
+  // Verificar si sendMessage reveló el LID en su respuesta
   const deliveryJid = result?.key?.remoteJid;
-  if (deliveryJid && deliveryJid !== jid && deliveryJid.endsWith('@lid') && !jid.endsWith('@lid')) {
-    info._lidToPhone.set(deliveryJid, originalPhone);
-    info._lidToPhone.set(deliveryJid.split('@')[0], originalPhone);
-    info._pendingSends.delete(msgId);
-    log.info(`[WA] LID capturado desde sendMessage: ****${deliveryJid.split('@')[0].slice(-4)} → ****${originalPhone.slice(-4)}`);
+  if (deliveryJid && deliveryJid !== jid && deliveryJid.endsWith('@lid')) {
+    const deliveryBare = deliveryJid.split('@')[0];
+    if (!jid.endsWith('@lid')) {
+      // Caso 1: enviamos a @s.whatsapp.net y WA reveló el LID del destinatario
+      info._lidToPhone.set(deliveryJid, originalPhone);
+      info._lidToPhone.set(deliveryBare, originalPhone);
+      info._pendingSends.delete(msgId);
+      log.info(`[WA] LID capturado (phone→lid): ****${deliveryBare.slice(-4)} → ****${originalPhone.slice(-4)}`);
+    } else {
+      // Caso 2: enviamos a @lid y WA confirmó con un LID DISTINTO (el LID de entrega).
+      // El LID de entrega puede ser el número de teléfono con dominio @lid.
+      // Mapeamos: LID entrante → bare del LID de entrega (probablemente el teléfono).
+      const jidBare = jid.split('@')[0];
+      info._lidToPhone.set(jid, deliveryBare);
+      info._lidToPhone.set(jidBare, deliveryBare);
+      log.info(`[WA] LID→LID capturado: ****${jidBare.slice(-4)} → ****${deliveryBare.slice(-4)} (buscaré pendiente con este valor)`);
+    }
   } else {
     const domain = deliveryJid?.split('@')[1] || '?';
     const bare   = deliveryJid?.split('@')[0]?.slice(-4) || '?';
