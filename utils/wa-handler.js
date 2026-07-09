@@ -7,7 +7,7 @@
  */
 
 const db = require('./db');
-const { registerMessageHandler, sendWAMessage, isReady } = require('./whatsapp-client');
+const { registerMessageHandler, sendWAMessage, isReady, getLidPhone } = require('./whatsapp-client');
 const log = require('./logger');
 const { responderConIA } = require('../services/wa-agente');
 
@@ -40,14 +40,49 @@ registerMessageHandler(async (tenantId, msg) => {
   try {
     conn = await db.getConnection();
 
-    const [[pendiente]] = await conn.execute(
-      `SELECT uid_autorizacion, uid_orden, estado, created_at, COALESCE(tenant_id, 1) AS tenant_id
+    // Para usuarios con JID LID (ej: "81186212806850@lid"), el wa_phone en BD puede
+    // estar guardado como número de teléfono ("573022754949") porque cuando enviamos
+    // la cotización no sabíamos el LID. Intentamos resolver LID→teléfono via el mapa
+    // de contactos que Baileys construye en contacts.upsert al conectarse.
+    let phoneForLookup = senderPhone;
+    if (jid.endsWith('@lid')) {
+      const resolvedPhone = getLidPhone(tenantId, jid);
+      if (resolvedPhone) {
+        log.debug(`📨 wa-handler: LID ****${senderPhone.slice(-4)} resuelto a teléfono ****${resolvedPhone.slice(-4)}`);
+        phoneForLookup = resolvedPhone;
+      }
+    }
+
+    // Búsqueda en dos fases:
+    // 1. Por senderPhone exacto (funciona si el pendiente ya tiene el LID guardado)
+    // 2. Por teléfono resuelto (funciona para pendientes guardados antes del fix LID)
+    let [[pendiente]] = await conn.execute(
+      `SELECT uid_autorizacion, uid_orden, estado, wa_phone, created_at, COALESCE(tenant_id, 1) AS tenant_id
        FROM b2c_wa_autorizacion_pendiente
        WHERE wa_phone = ?
        ORDER BY created_at DESC
        LIMIT 1`,
       [senderPhone]
     );
+
+    if (!pendiente && phoneForLookup !== senderPhone) {
+      [[pendiente]] = await conn.execute(
+        `SELECT uid_autorizacion, uid_orden, estado, wa_phone, created_at, COALESCE(tenant_id, 1) AS tenant_id
+         FROM b2c_wa_autorizacion_pendiente
+         WHERE wa_phone = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [phoneForLookup]
+      );
+      // Migración lazy: actualizar wa_phone al LID para que próximos mensajes sean rápidos
+      if (pendiente && jid.endsWith('@lid')) {
+        await conn.execute(
+          `UPDATE b2c_wa_autorizacion_pendiente SET wa_phone = ? WHERE uid_autorizacion = ?`,
+          [senderPhone, pendiente.uid_autorizacion]
+        );
+        log.debug(`📨 wa-handler: migración LID — wa_phone actualizado a ${senderPhone}`);
+      }
+    }
 
     if (!pendiente) {
       await handleAgente(conn, senderPhone, tenantId, text, jid);

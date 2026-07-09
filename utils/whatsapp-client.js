@@ -61,8 +61,27 @@ async function createTenantClient(tenantId) {
     markOnlineOnConnect: false,
   });
 
-  const info = { sock, ready: false, lastQR: null };
+  const info = { sock, ready: false, lastQR: null, _lidToPhone: new Map() };
   pool.set(tid, info);
+
+  // Escuchar sync de contactos de Baileys para construir el mapa LID → teléfono.
+  // WA usa LIDs (Linked Identity) como identificador en cuentas migradas.
+  // Al conectarse, WA sincroniza contactos con id (phone@s.whatsapp.net) y lid (lid@lid).
+  function upsertContacts(contacts) {
+    for (const c of contacts) {
+      if (!c.id || !c.lid) continue;
+      // Puede llegar con c.id = phone y c.lid = lid, o viceversa
+      const lidJid  = c.id.endsWith('@lid') ? c.id  : c.lid;
+      const phoneJid = c.id.endsWith('@lid') ? c.lid : c.id;
+      if (phoneJid && !phoneJid.endsWith('@lid')) {
+        const phone = phoneJid.replace(/@[a-z.]+$/, '');
+        info._lidToPhone.set(lidJid, phone);
+        info._lidToPhone.set(lidJid.replace(/@[a-z.]+$/, ''), phone);
+      }
+    }
+  }
+  sock.ev.on('contacts.upsert', upsertContacts);
+  sock.ev.on('contacts.update', upsertContacts);
 
   sock.ev.on('creds.update', saveCreds);
 
@@ -168,9 +187,22 @@ async function sendWAMessage(tenantId, phoneOrJid, content) {
 }
 
 /**
- * Resuelve un número de teléfono al JID real de WhatsApp (puede ser @lid para usuarios migrados).
- * Necesario para que el wa_phone almacenado coincida con el remoteJid entrante.
- * @returns {string|null} JID completo (ej: "81186212806850@lid") o null si falla
+ * Dado un JID LID ("81186212806850@lid" o el número bare "81186212806850"),
+ * devuelve el número de teléfono colombiano ("573022754949") si Baileys lo conoce.
+ * El mapa se puebla en contacts.upsert al conectarse (sync de contactos WA).
+ * @returns {string|null}
+ */
+function getLidPhone(tenantId, jidOrBare) {
+  const info = pool.get(Number(tenantId));
+  if (!info) return null;
+  return info._lidToPhone.get(jidOrBare) || info._lidToPhone.get(jidOrBare.split('@')[0]) || null;
+}
+
+/**
+ * Resuelve un número de teléfono vía sock.onWhatsApp().
+ * NOTA: devuelve el JID de teléfono (@s.whatsapp.net), NO el LID.
+ * Útil para verificar que un número tiene WA antes de enviar.
+ * @returns {string|null}
  */
 async function resolveWAJid(tenantId, phone) {
   const tid = Number(tenantId);
@@ -182,7 +214,7 @@ async function resolveWAJid(tenantId, phone) {
     const result = Array.isArray(results) ? results[0] : null;
     return (result?.exists && result.jid) ? result.jid : null;
   } catch (e) {
-    log.warn(`[WA] resolveWAJid: no se pudo resolver ${cleanPhone.slice(-4)}: ${e.message}`);
+    log.warn(`[WA] resolveWAJid: no se pudo verificar ${cleanPhone.slice(-4)}: ${e.message}`);
     return null;
   }
 }
@@ -234,6 +266,7 @@ module.exports = {
   initTenantClient,
   isReady,
   sendWAMessage,
+  getLidPhone,
   resolveWAJid,
   getLastQR,
   resetTenantClient,

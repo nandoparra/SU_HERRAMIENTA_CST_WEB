@@ -4,7 +4,7 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
-const { isReady, sendWAMessage, resolveWAJid, getLastQR, resetTenantClient } = require('../utils/whatsapp-client');
+const { isReady, sendWAMessage, getLastQR, resetTenantClient } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 const QRCode = require('qrcode');
 const { requireInterno } = require('../middleware/auth');
@@ -100,21 +100,19 @@ router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, waLimiter, a
       );
 
       // Registrar conversación de autorización pendiente por cada número del cliente.
-      // 1. Borrar pendientes anteriores de esta orden (pueden tener formato de teléfono antiguo,
-      //    no LID) — evita que el lookup falle cuando Baileys entrega el JID en formato @lid.
-      // 2. Resolver el JID real con onWhatsApp() y guardar el número sin @domain.
+      // Guardamos el número de teléfono. Si el cliente tiene una cuenta con LID (Linked
+      // Identity), wa-handler.js resuelve el LID → teléfono via contacts.upsert de Baileys
+      // y hace la migración lazy del wa_phone al LID en el primer mensaje entrante.
       await conn.execute(
         `DELETE FROM b2c_wa_autorizacion_pendiente WHERE uid_orden = ? AND tenant_id = ?`,
         [order.uid_orden, tenantId]
       );
       for (const chatId of chatIds) {
         const phone = chatId.replace(/@[a-z.]+$/, ''); // "573XXXXXXXXXX"
-        const resolvedJid = await resolveWAJid(tenantId, phone);
-        const waPhone = resolvedJid ? resolvedJid.split('@')[0] : phone;
         await conn.execute(
           `INSERT IGNORE INTO b2c_wa_autorizacion_pendiente (uid_orden, wa_phone, estado, tenant_id)
            VALUES (?, ?, 'esperando_opcion', ?)`,
-          [order.uid_orden, waPhone, tenantId]
+          [order.uid_orden, phone, tenantId]
         );
       }
 
