@@ -25,6 +25,11 @@ const pool = new Map();
 
 let _messageHandler = null;
 
+// Deduplicación de mensajes: Baileys puede emitir el mismo mensaje dos veces
+// (reconexiones, inestabilidad de red). El Set guarda IDs procesados 60 segundos,
+// suficiente para descartar duplicados sin acumular memoria.
+const _processedMsgIds = new Set();
+
 function registerMessageHandler(fn) {
   _messageHandler = fn;
 }
@@ -175,6 +180,13 @@ async function createTenantClient(tenantId) {
 
       if (type !== 'notify' || !_messageHandler) continue;
       if (!msg.message) continue;
+      const dedupKey = `${tid}:${msg.key?.id}`;
+      if (!msg.key?.id || _processedMsgIds.has(dedupKey)) {
+        if (msg.key?.id) log.debug(`[WA] Mensaje duplicado ignorado: id=...${String(msg.key.id).slice(-6)}`);
+        continue;
+      }
+      _processedMsgIds.add(dedupKey);
+      setTimeout(() => _processedMsgIds.delete(dedupKey), 60_000);
       _messageHandler(tid, msg);
     }
   });

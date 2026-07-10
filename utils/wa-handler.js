@@ -91,6 +91,15 @@ registerMessageHandler(async (tenantId, msg) => {
     // lo asociamos a este LID. Funciona bien en talleres de baja concurrencia donde
     // rara vez hay dos clientes esperando autorizar al mismo tiempo.
     if (!pendiente && jid.endsWith('@lid') && ['1','2','3','4'].includes(text)) {
+      // Limpiar pendientes vencidos sin wa_lid antes de contar candidatos.
+      // Misma TTL (7 días) que el handler principal. Esto elimina cotizaciones antiguas
+      // sin respuesta que inflarían el conteo e impedirían que Phase 3 matchee
+      // el único pendiente real activo.
+      await conn.execute(
+        `DELETE FROM b2c_wa_autorizacion_pendiente
+         WHERE tenant_id = ? AND wa_lid IS NULL AND created_at < DATE_SUB(NOW(), INTERVAL 7 DAY)`,
+        [tenantId]
+      );
       const [candidatos] = await conn.execute(
         `SELECT uid_autorizacion, uid_orden, estado, wa_phone, wa_lid, created_at, COALESCE(tenant_id, 1) AS tenant_id
          FROM b2c_wa_autorizacion_pendiente
@@ -98,20 +107,16 @@ registerMessageHandler(async (tenantId, msg) => {
          ORDER BY created_at DESC`,
         [tenantId]
       );
-      if (candidatos.length >= 1) {
-        // Tomar siempre el más reciente (ORDER BY created_at DESC ya lo pone primero).
-        // Si hay varios candidatos (pendientes viejos de órdenes anteriores con formatos
-        // de teléfono distintos), el más reciente es siempre el de la cotización que el
-        // operario acaba de enviar. Los otros se ignoran: no se autorizan ni se borran.
+      if (candidatos.length === 1) {
+        // Solo matchear cuando hay exactamente UN pendiente activo sin wa_lid.
+        // Si hay más de uno, no podemos determinar a cuál cliente pertenece este LID
+        // y abortar es más seguro que autorizar la orden equivocada.
         pendiente = candidatos[0];
-        const extra = candidatos.length > 1 ? ` (${candidatos.length} candidatos, tomando el más reciente)` : '';
-        log.info(`[WA] Phase 3 heurístico: LID ****${senderPhone.slice(-4)} → pendiente uid_orden=${pendiente.uid_orden} wa_phone ****${pendiente.wa_phone.slice(-4)}${extra}`);
+        log.info(`[WA] Phase 3 heurístico: LID ****${senderPhone.slice(-4)} → único pendiente activo uid_orden=${pendiente.uid_orden} wa_phone ****${pendiente.wa_phone.slice(-4)}`);
         await conn.execute(
           `UPDATE b2c_wa_autorizacion_pendiente SET wa_lid = ? WHERE uid_autorizacion = ?`,
           [senderPhone, pendiente.uid_autorizacion]
         );
-        // Persistir mapping LID → teléfono para reconocer al cliente en futuras
-        // conversaciones con el agente, incluso después de un reinicio del servidor.
         await conn.execute(
           `INSERT INTO b2c_wa_lid_mapping (tenant_id, wa_lid, wa_phone)
            VALUES (?, ?, ?)
@@ -120,6 +125,8 @@ registerMessageHandler(async (tenantId, msg) => {
         );
         setLidPhone(tenantId, senderPhone, pendiente.wa_phone);
         phoneForLookup = pendiente.wa_phone;
+      } else if (candidatos.length > 1) {
+        log.info(`[WA] Phase 3 abortado: LID ****${senderPhone.slice(-4)} — ${candidatos.length} pendientes activos sin wa_lid, no se puede determinar cuál`);
       }
     }
 
