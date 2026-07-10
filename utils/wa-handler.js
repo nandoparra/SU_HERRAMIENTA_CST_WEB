@@ -7,7 +7,7 @@
  */
 
 const db = require('./db');
-const { registerMessageHandler, sendWAMessage, isReady, getLidPhone } = require('./whatsapp-client');
+const { registerMessageHandler, sendWAMessage, isReady, getLidPhone, setLidPhone } = require('./whatsapp-client');
 const log = require('./logger');
 const { responderConIA } = require('../services/wa-agente');
 
@@ -98,15 +98,28 @@ registerMessageHandler(async (tenantId, msg) => {
          ORDER BY created_at DESC`,
         [tenantId]
       );
-      if (candidatos.length === 1) {
+      if (candidatos.length >= 1) {
+        // Tomar siempre el más reciente (ORDER BY created_at DESC ya lo pone primero).
+        // Si hay varios candidatos (pendientes viejos de órdenes anteriores con formatos
+        // de teléfono distintos), el más reciente es siempre el de la cotización que el
+        // operario acaba de enviar. Los otros se ignoran: no se autorizan ni se borran.
         pendiente = candidatos[0];
-        log.info(`[WA] Phase 3 heurístico: LID ****${senderPhone.slice(-4)} → único pendiente uid_orden=${pendiente.uid_orden} (wa_phone ****${pendiente.wa_phone.slice(-4)})`);
+        const extra = candidatos.length > 1 ? ` (${candidatos.length} candidatos, tomando el más reciente)` : '';
+        log.info(`[WA] Phase 3 heurístico: LID ****${senderPhone.slice(-4)} → pendiente uid_orden=${pendiente.uid_orden} wa_phone ****${pendiente.wa_phone.slice(-4)}${extra}`);
         await conn.execute(
           `UPDATE b2c_wa_autorizacion_pendiente SET wa_lid = ? WHERE uid_autorizacion = ?`,
           [senderPhone, pendiente.uid_autorizacion]
         );
-      } else if (candidatos.length > 1) {
-        log.info(`[WA] Phase 3 abortado: LID ****${senderPhone.slice(-4)} — ${candidatos.length} pendientes sin wa_lid, no se puede determinar cuál`);
+        // Persistir mapping LID → teléfono para reconocer al cliente en futuras
+        // conversaciones con el agente, incluso después de un reinicio del servidor.
+        await conn.execute(
+          `INSERT INTO b2c_wa_lid_mapping (tenant_id, wa_lid, wa_phone)
+           VALUES (?, ?, ?)
+           ON DUPLICATE KEY UPDATE wa_phone = VALUES(wa_phone)`,
+          [tenantId, senderPhone, pendiente.wa_phone]
+        );
+        setLidPhone(tenantId, senderPhone, pendiente.wa_phone);
+        phoneForLookup = pendiente.wa_phone;
       }
     }
 

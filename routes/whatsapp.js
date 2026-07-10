@@ -103,9 +103,16 @@ router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, waLimiter, a
       // Guardamos el número de teléfono. Si el cliente tiene una cuenta con LID (Linked
       // Identity), wa-handler.js resuelve el LID → teléfono via contacts.upsert de Baileys
       // y hace la migración lazy del wa_phone al LID en el primer mensaje entrante.
+      // Borrar TODOS los pendientes del cliente (no solo esta orden).
+      // Si el mismo cliente tenía pendientes de órdenes anteriores sin respuesta,
+      // con teléfonos en formatos distintos, quedaban múltiples filas y Phase 3
+      // abortaba. Este DELETE garantiza que al crear el nuevo pendiente para esta
+      // cotización sea el único activo para este cliente.
       await conn.execute(
-        `DELETE FROM b2c_wa_autorizacion_pendiente WHERE uid_orden = ? AND tenant_id = ?`,
-        [order.uid_orden, tenantId]
+        `DELETE wap FROM b2c_wa_autorizacion_pendiente wap
+         INNER JOIN b2c_orden o ON o.uid_orden = wap.uid_orden AND o.tenant_id = wap.tenant_id
+         WHERE o.uid_cliente = ? AND wap.tenant_id = ?`,
+        [order.uid_cliente, tenantId]
       );
       for (const chatId of chatIds) {
         const phone = chatId.replace(/@[a-z.]+$/, ''); // "573XXXXXXXXXX"
