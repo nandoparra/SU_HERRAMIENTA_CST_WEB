@@ -454,12 +454,15 @@ async function responderConIA(conn, senderPhone, tenantId, textoCliente) {
     respuesta = FALLBACK_MSG;
   }
 
-  // 7. Persistir intercambio en historial solo si Claude respondió correctamente
+  // 7. Persistir intercambio en historial
+  // El mensaje del usuario se guarda siempre (trazabilidad): si Claude falla queda
+  // en BD para depuración y para que el próximo mensaje del cliente tenga historial.
+  // El mensaje del asistente se guarda solo si Claude respondió correctamente.
+  await conn.execute(
+    `INSERT INTO b2c_wa_conversacion (tenant_id, wa_phone, rol, contenido) VALUES (?, ?, 'user', ?)`,
+    [tenantId, senderPhone, textoCliente]
+  );
   if (exitoIA) {
-    await conn.execute(
-      `INSERT INTO b2c_wa_conversacion (tenant_id, wa_phone, rol, contenido) VALUES (?, ?, 'user', ?)`,
-      [tenantId, senderPhone, textoCliente]
-    );
     await conn.execute(
       `INSERT INTO b2c_wa_conversacion (tenant_id, wa_phone, rol, contenido) VALUES (?, ?, 'assistant', ?)`,
       [tenantId, senderPhone, respuesta]
