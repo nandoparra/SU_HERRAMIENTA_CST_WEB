@@ -270,6 +270,22 @@ function getLidPhone(tenantId, jidOrBare) {
 }
 
 /**
+ * Guarda manualmente un mapping LID → teléfono en el mapa en memoria.
+ * Usado desde wa-handler.js (Phase 3) cuando identificamos al cliente
+ * por heurística. Permite que futuros mensajes del mismo LID resuelvan
+ * el teléfono real sin necesidad de USync (que WA restringe externamente).
+ */
+function setLidPhone(tenantId, lid, phone) {
+  const info = pool.get(Number(tenantId));
+  if (!info || !lid || !phone) return;
+  const lidBare = String(lid).replace(/@[a-z.]+$/, '');
+  if (!lidBare) return;
+  info._lidToPhone.set(`${lidBare}@lid`, phone);
+  info._lidToPhone.set(lidBare, phone);
+  log.info(`[WA] LID mapeado (fase 3): ****${lidBare.slice(-4)} → ****${String(phone).slice(-4)}`);
+}
+
+/**
  * Resuelve un número de teléfono vía sock.onWhatsApp().
  * NOTA: devuelve el JID de teléfono (@s.whatsapp.net), NO el LID.
  * Útil para verificar que un número tiene WA antes de enviar.
@@ -381,6 +397,7 @@ module.exports = {
   isReady,
   sendWAMessage,
   getLidPhone,
+  setLidPhone,
   getLidForPhone,
   resolveWAJid,
   getLastQR,

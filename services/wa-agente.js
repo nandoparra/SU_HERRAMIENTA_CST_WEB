@@ -18,6 +18,14 @@ const FALLBACK_MSG =
   `En este momento no puedo responderte. Para cualquier consulta comunícate ` +
   `con nosotros directamente al ${TALLER_PHONE}. — Asistente SU HERRAMIENTA`;
 
+// Respuesta cuando el número no está registrado y el mensaje no contiene
+// ningún identificador reconocible. No llama a Claude para ahorrar tokens.
+const MSG_NO_IDENTIFICADO =
+  `Hola 👋 Para atenderte necesito identificarte. ` +
+  `Por favor envíame tu número de *cédula o NIT*, ` +
+  `o el número de tu *orden de servicio* (ej: #8400). ` +
+  `— SU HERRAMIENTA CST`;
+
 // Estados con equipo aún en el taller (no finalizados)
 const ESTADOS_ACTIVOS =
   `'pendiente_revision','revisada','cotizada','autorizada','reparada'`;
@@ -66,18 +74,91 @@ async function findClienteByPhone(conn, senderPhone, tenantId) {
     if (rows[0]) return rows[0];
   }
 
-  // Fallback LID: cuando el senderPhone es un JID LID (ej: "81186212806850"),
-  // buscamos el cliente via el pendiente de autorización que guardamos con ese JID.
+  // Fallback 1 — mapping persistente LID → teléfono:
+  // wa-handler.js (Phase 3) guarda en b2c_wa_lid_mapping cuando identifica
+  // al cliente por heurística. Persiste en BD, sobrevive reinicios del servidor.
+  const [[lidMapping]] = await conn.execute(
+    `SELECT wa_phone FROM b2c_wa_lid_mapping WHERE wa_lid = ? AND tenant_id = ? LIMIT 1`,
+    [senderPhone, tenantId]
+  );
+  if (lidMapping?.wa_phone) {
+    const realPhone10 = normalizePhone(lidMapping.wa_phone);
+    if (realPhone10.length >= 9) {
+      const [rows] = await conn.execute(
+        `SELECT c.uid_cliente, c.cli_razon_social, c.cli_contacto, c.cli_identificacion
+         FROM b2c_cliente c
+         WHERE c.tenant_id = ?
+           AND (
+             REPLACE(REPLACE(REPLACE(c.cli_telefono,      ' ', ''), '-', ''), '+57', '') LIKE ?
+             OR REPLACE(REPLACE(REPLACE(c.cli_tel_contacto,' ', ''), '-', ''), '+57', '') LIKE ?
+           )
+         LIMIT 1`,
+        [tenantId, `%${realPhone10}`, `%${realPhone10}`]
+      );
+      if (rows[0]) return rows[0];
+    }
+  }
+
+  // Fallback 2 — pendiente activo (wa_phone exacto O wa_lid):
+  // Cubre el caso donde el pendiente aún existe y wa_lid fue guardado
+  // por getLidForPhone (al enviar la cotización) o por Phase 3.
   const [byLid] = await conn.execute(
     `SELECT c.uid_cliente, c.cli_razon_social, c.cli_contacto, c.cli_identificacion
      FROM b2c_wa_autorizacion_pendiente wap
      JOIN b2c_orden o ON o.uid_orden = wap.uid_orden
      JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente AND c.tenant_id = ?
-     WHERE wap.wa_phone = ? AND wap.tenant_id = ?
+     WHERE (wap.wa_phone = ? OR wap.wa_lid = ?) AND wap.tenant_id = ?
      LIMIT 1`,
-    [tenantId, senderPhone, tenantId]
+    [tenantId, senderPhone, senderPhone, tenantId]
   );
   return byLid[0] || null;
+}
+
+/**
+ * Intenta identificar al cliente extrayendo un número de cédula/NIT
+ * o un número de orden del texto libre del mensaje.
+ * Se usa como fallback cuando findClienteByPhone no encuentra nada.
+ *
+ * @returns {object|null} fila de b2c_cliente, incluyendo cli_telefono
+ */
+async function findClienteByTexto(conn, texto, tenantId) {
+  // Limpiar puntos y guiones para normalizar cédulas como "9.862.087-1" → "98620871"
+  const textLimpio = String(texto || '').replace(/[.\-]/g, ' ');
+
+  // 1. Cédula / NIT: secuencia de 6-12 dígitos consecutivos
+  const cedulaMatch = textLimpio.match(/\b(\d{6,12})\b/);
+  if (cedulaMatch) {
+    const cedula = cedulaMatch[1];
+    const [[row]] = await conn.execute(
+      `SELECT c.uid_cliente, c.cli_razon_social, c.cli_contacto,
+              c.cli_identificacion, c.cli_telefono
+       FROM b2c_cliente c
+       WHERE c.tenant_id = ?
+         AND REPLACE(REPLACE(c.cli_identificacion, '.', ''), '-', '') = ?
+       LIMIT 1`,
+      [tenantId, cedula]
+    );
+    if (row) return row;
+  }
+
+  // 2. Número de orden: "#8400" o "orden 8400" o "pedido 8400"
+  const ordenMatch = texto.match(/(?:#(\d{2,6})|(?:orden|pedido)\s*#?\s*(\d{2,6}))/i);
+  if (ordenMatch) {
+    const consecutivo = parseInt(ordenMatch[1] || ordenMatch[2], 10);
+    const [[row]] = await conn.execute(
+      `SELECT c.uid_cliente, c.cli_razon_social, c.cli_contacto,
+              c.cli_identificacion, c.cli_telefono
+       FROM b2c_orden o
+       JOIN b2c_cliente c
+            ON c.uid_cliente = o.uid_cliente AND c.tenant_id = o.tenant_id
+       WHERE o.ord_consecutivo = ? AND o.tenant_id = ?
+       LIMIT 1`,
+      [consecutivo, tenantId]
+    );
+    if (row) return row;
+  }
+
+  return null;
 }
 
 // ── buildContextoCliente ──────────────────────────────────────────────────────
@@ -89,8 +170,30 @@ async function findClienteByPhone(conn, senderPhone, tenantId) {
  * @returns {object|null}
  *   { cliente, ordenesActivas, historial, cotizacionPendiente }
  */
-async function buildContextoCliente(conn, senderPhone, tenantId) {
-  const cliente = await findClienteByPhone(conn, senderPhone, tenantId);
+async function buildContextoCliente(conn, senderPhone, tenantId, textoCliente = '') {
+  let cliente = await findClienteByPhone(conn, senderPhone, tenantId);
+
+  if (!cliente && textoCliente) {
+    cliente = await findClienteByTexto(conn, textoCliente, tenantId);
+    // Si encontrado por texto (cédula u orden) y el senderPhone parece un LID
+    // (no es un móvil colombiano), guardar el mapping LID → teléfono en BD
+    // para que el siguiente mensaje se resuelva por findClienteByPhone directamente.
+    if (cliente?.cli_telefono) {
+      const digits = String(cliente.cli_telefono).replace(/\D/g, '').slice(-10);
+      if (digits.length === 10 && digits.startsWith('3')) {
+        const realPhone = '57' + digits;
+        if (realPhone !== senderPhone) {
+          conn.execute(
+            `INSERT INTO b2c_wa_lid_mapping (tenant_id, wa_lid, wa_phone)
+             VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE wa_phone = VALUES(wa_phone)`,
+            [tenantId, senderPhone, realPhone]
+          ).catch(() => {});
+        }
+      }
+    }
+  }
+
   if (!cliente) return null;
 
   const nombre = cliente.cli_razon_social || cliente.cli_contacto || 'Cliente';
@@ -155,17 +258,17 @@ async function buildContextoCliente(conn, senderPhone, tenantId) {
     [cliente.uid_cliente, tenantId]
   );
 
-  // Cotización WA pendiente de autorizar para este número
+  // Cotización WA pendiente de autorizar para este número (teléfono real O LID)
   const [[cotizPendiente]] = await conn.execute(
     `SELECT wap.uid_orden, o.ord_consecutivo, co.total
      FROM b2c_wa_autorizacion_pendiente wap
      JOIN b2c_orden o ON o.uid_orden = wap.uid_orden
      LEFT JOIN b2c_cotizacion_orden co
             ON CAST(co.uid_orden AS CHAR) = CAST(wap.uid_orden AS CHAR)
-     WHERE wap.wa_phone = ?
+     WHERE (wap.wa_phone = ? OR wap.wa_lid = ?)
        AND wap.estado IN ('esperando_opcion','esperando_maquinas')
      LIMIT 1`,
-    [senderPhone]
+    [senderPhone, senderPhone]
   );
 
   return {
@@ -281,7 +384,16 @@ async function responderConIA(conn, senderPhone, tenantId, textoCliente) {
     [senderPhone, tenantId]
   );
 
-  // 2. Leer historial reciente
+  // 2. Construir contexto del cliente — primero por teléfono/LID, luego por texto
+  const contexto = await buildContextoCliente(conn, senderPhone, tenantId, textoCliente);
+
+  // Si no se pudo identificar al cliente, responder con mensaje predefinido
+  // sin consumir tokens de Claude ni guardar historial.
+  if (!contexto) {
+    return MSG_NO_IDENTIFICADO;
+  }
+
+  // 3. Leer historial reciente
   const [histMsgs] = await conn.execute(
     `SELECT rol, contenido
      FROM b2c_wa_conversacion
@@ -291,11 +403,10 @@ async function responderConIA(conn, senderPhone, tenantId, textoCliente) {
     [senderPhone, tenantId]
   );
 
-  // 3. Construir contexto del cliente desde BD
-  const contexto = await buildContextoCliente(conn, senderPhone, tenantId);
+  // 4. System prompt con contexto del cliente
   const systemPrompt = buildSystemPrompt(formatContexto(contexto));
 
-  // 4. Armar messages: historial + mensaje actual
+  // 5. Armar messages: historial + mensaje actual
   //    Si el último mensaje del historial es 'user' (par incompleto por crash previo),
   //    descartarlo para evitar dos 'user' consecutivos que Claude rechazaría.
   const histFiltrado = histMsgs.map(m => ({ role: m.rol, content: m.contenido }));
@@ -304,7 +415,7 @@ async function responderConIA(conn, senderPhone, tenantId, textoCliente) {
   }
   const messages = [...histFiltrado, { role: 'user', content: textoCliente }];
 
-  // 5. Llamar Claude con timeout 15s
+  // 6. Llamar Claude con timeout 15s
   let respuesta;
   let exitoIA = false;
   try {
@@ -325,7 +436,7 @@ async function responderConIA(conn, senderPhone, tenantId, textoCliente) {
     respuesta = FALLBACK_MSG;
   }
 
-  // 6. Persistir intercambio en historial solo si Claude respondió correctamente
+  // 7. Persistir intercambio en historial solo si Claude respondió correctamente
   if (exitoIA) {
     await conn.execute(
       `INSERT INTO b2c_wa_conversacion (tenant_id, wa_phone, rol, contenido) VALUES (?, ?, 'user', ?)`,

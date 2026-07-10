@@ -802,6 +802,27 @@ async function ensureAlegraColumns() {
   }
 }
 
+async function ensureWaLidMapping() {
+  const conn = await db.getConnection();
+  try {
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_wa_lid_mapping (
+        tenant_id  INT         NOT NULL DEFAULT 1,
+        wa_lid     VARCHAR(50) NOT NULL,
+        wa_phone   VARCHAR(30) NOT NULL,
+        created_at TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (tenant_id, wa_lid),
+        INDEX idx_wlm_phone (tenant_id, wa_phone)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log('✅ Tabla b2c_wa_lid_mapping verificada/creada');
+  } catch (e) {
+    console.warn('⚠️ No pude crear b2c_wa_lid_mapping:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function ensureWaLidColumn() {
   const conn = await db.getConnection();
   try {
@@ -850,6 +871,7 @@ async function runMigrations() {
   await ensureAlegraColumns();
   await ensureWaAgenteTablas();
   await ensureWaLidColumn();
+  await ensureWaLidMapping();
   console.log('Migraciones completadas');
 }
 
