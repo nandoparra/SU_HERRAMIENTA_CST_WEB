@@ -408,9 +408,32 @@ async function enviarListaRepuestos(conn, uid_orden, tenantId = 1) {
   await sendWAMessage(tenantId, `${phone}@c.us`, msg);
 }
 
+// Retorna true si la hora UTC actual (o utcHour dado) está dentro del horario
+// configurado para el agente (comparando en hora Colombia = UTC-5).
+// La franja es [horaInicio, horaFin) — inicio inclusivo, fin exclusivo.
+// Horarios nocturnos (horaFin < horaInicio) no están soportados.
+function _isAgenteHorarioActivo(horaInicio, horaFin, utcHour = new Date().getUTCHours()) {
+  const colHour = ((utcHour - 5) + 24) % 24;
+  return colHour >= horaInicio && colHour < horaFin;
+}
+
 // senderPhone: número JID sin @domain — clave para historial en BD
 // senderJid: JID completo ("...@lid" o "...@s.whatsapp.net") — usado para enviar
 async function handleAgente(conn, senderPhone, tenantId, text, senderJid) {
+  // Gate P0-1: verificar que el agente esté habilitado y dentro del horario
+  const [[tenantConfig]] = await conn.execute(
+    `SELECT ten_agente_wa, ten_agente_wa_hora_inicio, ten_agente_wa_hora_fin FROM b2c_tenant WHERE uid_tenant = ?`,
+    [tenantId]
+  );
+  if (!tenantConfig?.ten_agente_wa) {
+    log.debug('🤖 wa-agente: deshabilitado para este tenant — ignorando mensaje');
+    return;
+  }
+  if (!_isAgenteHorarioActivo(tenantConfig.ten_agente_wa_hora_inicio, tenantConfig.ten_agente_wa_hora_fin)) {
+    log.debug('🤖 wa-agente: fuera de horario de atención — ignorando mensaje');
+    return;
+  }
+
   try {
     log.info(`🤖 wa-agente: procesando mensaje de ****${senderPhone.slice(-4)}`);
     const respuesta = await responderConIA(conn, senderPhone, tenantId, text);
@@ -433,4 +456,4 @@ async function handleAgente(conn, senderPhone, tenantId, text, senderJid) {
   }
 }
 
-module.exports = {};
+module.exports = { _isAgenteHorarioActivo };
