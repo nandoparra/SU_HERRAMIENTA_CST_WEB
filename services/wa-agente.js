@@ -7,7 +7,7 @@ const log = require('../utils/logger');
 // Usar Haiku para el agente WA: conversacional, rápido y bajo costo
 const WA_AGENTE_MODEL       = process.env.WA_AGENTE_MODEL || 'claude-haiku-4-5-20251001';
 const WA_AGENTE_TIMEOUT_MS  = 15_000;
-const WA_AGENTE_MAX_HISTORIAL = 10;
+const WA_AGENTE_MAX_HISTORIAL = 20;
 
 const TALLER_PHONE = (() => {
   const raw = String(process.env.PARTS_WHATSAPP_NUMBER || '3104650437').replace(/\D/g, '');
@@ -410,11 +410,13 @@ async function responderConIA(conn, senderPhone, tenantId, textoCliente) {
 
   // 3. Leer historial reciente
   const [histMsgs] = await conn.execute(
-    `SELECT rol, contenido
-     FROM b2c_wa_conversacion
-     WHERE wa_phone = ? AND tenant_id = ?
-     ORDER BY uid_mensaje ASC
-     LIMIT ${WA_AGENTE_MAX_HISTORIAL}`,
+    `SELECT rol, contenido FROM (
+       SELECT rol, contenido, uid_mensaje
+       FROM b2c_wa_conversacion
+       WHERE wa_phone = ? AND tenant_id = ?
+       ORDER BY uid_mensaje DESC
+       LIMIT ${WA_AGENTE_MAX_HISTORIAL}
+     ) t ORDER BY t.uid_mensaje ASC`,
     [senderPhone, tenantId]
   );
 
