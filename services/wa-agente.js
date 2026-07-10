@@ -74,28 +74,39 @@ async function findClienteByPhone(conn, senderPhone, tenantId) {
     if (rows[0]) return rows[0];
   }
 
-  // Fallback 1 — mapping persistente LID → teléfono:
-  // wa-handler.js (Phase 3) guarda en b2c_wa_lid_mapping cuando identifica
-  // al cliente por heurística. Persiste en BD, sobrevive reinicios del servidor.
+  // Fallback 1 — mapping persistente LID → teléfono o uid_cliente:
+  // Guardado en b2c_wa_lid_mapping por Phase 3 o por buildContextoCliente cuando
+  // el cliente se identificó por cédula. uid_cliente permite encontrar al cliente
+  // aunque cli_telefono no sea un móvil colombiano válido.
   const [[lidMapping]] = await conn.execute(
-    `SELECT wa_phone FROM b2c_wa_lid_mapping WHERE wa_lid = ? AND tenant_id = ? LIMIT 1`,
+    `SELECT wa_phone, uid_cliente FROM b2c_wa_lid_mapping WHERE wa_lid = ? AND tenant_id = ? LIMIT 1`,
     [senderPhone, tenantId]
   );
-  if (lidMapping?.wa_phone) {
-    const realPhone10 = normalizePhone(lidMapping.wa_phone);
-    if (realPhone10.length >= 9) {
-      const [rows] = await conn.execute(
-        `SELECT c.uid_cliente, c.cli_razon_social, c.cli_contacto, c.cli_identificacion
-         FROM b2c_cliente c
-         WHERE c.tenant_id = ?
-           AND (
-             REPLACE(REPLACE(REPLACE(c.cli_telefono,      ' ', ''), '-', ''), '+57', '') LIKE ?
-             OR REPLACE(REPLACE(REPLACE(c.cli_tel_contacto,' ', ''), '-', ''), '+57', '') LIKE ?
-           )
-         LIMIT 1`,
-        [tenantId, `%${realPhone10}`, `%${realPhone10}`]
+  if (lidMapping) {
+    if (lidMapping.wa_phone) {
+      const realPhone10 = normalizePhone(lidMapping.wa_phone);
+      if (realPhone10.length >= 9) {
+        const [rows] = await conn.execute(
+          `SELECT c.uid_cliente, c.cli_razon_social, c.cli_contacto, c.cli_identificacion
+           FROM b2c_cliente c
+           WHERE c.tenant_id = ?
+             AND (
+               REPLACE(REPLACE(REPLACE(c.cli_telefono,      ' ', ''), '-', ''), '+57', '') LIKE ?
+               OR REPLACE(REPLACE(REPLACE(c.cli_tel_contacto,' ', ''), '-', ''), '+57', '') LIKE ?
+             )
+           LIMIT 1`,
+          [tenantId, `%${realPhone10}`, `%${realPhone10}`]
+        );
+        if (rows[0]) return rows[0];
+      }
+    }
+    if (lidMapping.uid_cliente) {
+      const [[row]] = await conn.execute(
+        `SELECT uid_cliente, cli_razon_social, cli_contacto, cli_identificacion
+         FROM b2c_cliente WHERE uid_cliente = ? AND tenant_id = ?`,
+        [lidMapping.uid_cliente, tenantId]
       );
-      if (rows[0]) return rows[0];
+      if (row) return row;
     }
   }
 
@@ -178,19 +189,19 @@ async function buildContextoCliente(conn, senderPhone, tenantId, textoCliente = 
     // Si encontrado por texto (cédula u orden) y el senderPhone parece un LID
     // (no es un móvil colombiano), guardar el mapping LID → teléfono en BD
     // para que el siguiente mensaje se resuelva por findClienteByPhone directamente.
-    if (cliente?.cli_telefono) {
-      const digits = String(cliente.cli_telefono).replace(/\D/g, '').slice(-10);
-      if (digits.length === 10 && digits.startsWith('3')) {
-        const realPhone = '57' + digits;
-        if (realPhone !== senderPhone) {
-          conn.execute(
-            `INSERT INTO b2c_wa_lid_mapping (tenant_id, wa_lid, wa_phone)
-             VALUES (?, ?, ?)
-             ON DUPLICATE KEY UPDATE wa_phone = VALUES(wa_phone)`,
-            [tenantId, senderPhone, realPhone]
-          ).catch(() => {});
-        }
-      }
+    // Guardar mapping LID → (teléfono + uid_cliente) para mensajes futuros.
+    // uid_cliente permite identificar al cliente aunque cli_telefono no esté disponible.
+    if (cliente) {
+      const digits = String(cliente.cli_telefono || '').replace(/\D/g, '').slice(-10);
+      const realPhone = (digits.length === 10 && digits.startsWith('3'))
+        ? '57' + digits
+        : null;
+      conn.execute(
+        `INSERT INTO b2c_wa_lid_mapping (tenant_id, wa_lid, wa_phone, uid_cliente)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE wa_phone = VALUES(wa_phone), uid_cliente = VALUES(uid_cliente)`,
+        [tenantId, senderPhone, realPhone, cliente.uid_cliente]
+      ).catch(() => {});
     }
   }
 
@@ -216,7 +227,7 @@ async function buildContextoCliente(conn, senderPhone, tenantId, textoCliente = 
   // Detalle de máquinas por orden activa
   const ordenesConDetalle = await Promise.all(ordenes.map(async (o) => {
     const [maquinas] = await conn.execute(
-      `SELECT h.her_nombre, h.her_marca, ho.her_estado, cm.subtotal
+      `SELECT h.her_nombre, h.her_marca, ho.her_estado, ho.hor_observaciones, cm.subtotal
        FROM b2c_herramienta_orden ho
        JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
        LEFT JOIN b2c_cotizacion_maquina cm
@@ -235,11 +246,12 @@ async function buildContextoCliente(conn, senderPhone, tenantId, textoCliente = 
       consecutivo: o.ord_consecutivo,
       fecha:       fechaLeg,
       maquinas:    maquinas.map(m => ({
-        her_nombre:  m.her_nombre,
-        her_marca:   m.her_marca,
-        her_estado:  m.her_estado,
-        estadoLabel: ESTADOS_LABEL[m.her_estado] || m.her_estado,
-        subtotal:    m.subtotal != null ? Number(m.subtotal) : null,
+        her_nombre:       m.her_nombre,
+        her_marca:        m.her_marca,
+        her_estado:       m.her_estado,
+        estadoLabel:      ESTADOS_LABEL[m.her_estado] || m.her_estado,
+        hor_observaciones: m.hor_observaciones || null,
+        subtotal:         m.subtotal != null ? Number(m.subtotal) : null,
       })),
     };
   }));
@@ -315,6 +327,9 @@ function formatContexto(contexto) {
           ? ` — Cotización: $${Number(m.subtotal).toLocaleString('es-CO')}`
           : '';
         lines.push(`  • ${m.her_nombre}${marca}: ${m.estadoLabel}${cot}`);
+        if (m.hor_observaciones) {
+          lines.push(`    Diagnóstico técnico: "${m.hor_observaciones}"`);
+        }
       }
     }
   } else {

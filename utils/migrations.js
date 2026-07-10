@@ -844,6 +844,27 @@ async function ensureWaLidColumn() {
   }
 }
 
+async function ensureWaLidMappingUidCliente() {
+  const conn = await db.getConnection();
+  try {
+    try {
+      await conn.execute(
+        `ALTER TABLE b2c_wa_lid_mapping ADD COLUMN uid_cliente INT NULL`
+      );
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    try {
+      await conn.execute(
+        `ALTER TABLE b2c_wa_lid_mapping MODIFY COLUMN wa_phone VARCHAR(30) NULL`
+      );
+    } catch (e) { /* MODIFY idempotente — ignorar si ya es NULL */ }
+    console.log('✅ b2c_wa_lid_mapping: uid_cliente + wa_phone nullable verificados');
+  } catch (e) {
+    console.warn('⚠️ No pude actualizar b2c_wa_lid_mapping:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -872,6 +893,7 @@ async function runMigrations() {
   await ensureWaAgenteTablas();
   await ensureWaLidColumn();
   await ensureWaLidMapping();
+  await ensureWaLidMappingUidCliente();
   console.log('Migraciones completadas');
 }
 
