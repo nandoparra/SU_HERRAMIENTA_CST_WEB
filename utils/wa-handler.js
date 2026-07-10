@@ -11,6 +11,22 @@ const { registerMessageHandler, sendWAMessage, isReady, getLidPhone, setLidPhone
 const log = require('./logger');
 const { responderConIA } = require('../services/wa-agente');
 
+// P1-1: Cola de serialización por clave (normalmente `${tenantId}:${senderPhone}`).
+// Garantiza que dos mensajes del mismo número no se procesen en paralelo,
+// evitando race conditions en historial y autorizaciones pendientes.
+// NOTA: asume instancia única de Node.js (Railway single-dyno). En arquitecturas
+// multi-instancia se necesitaría un lock distribuido (Redis, etc.).
+const _queue = new Map();
+
+function _enqueue(key, fn) {
+  const prev = _queue.get(key) ?? Promise.resolve();
+  const next = prev.then(fn).finally(() => {
+    if (_queue.get(key) === next) _queue.delete(key);
+  });
+  _queue.set(key, next);
+  return next;
+}
+
 function formatCOP(amount) {
   return `$${Number(amount || 0).toLocaleString('es-CO')}`;
 }
@@ -36,6 +52,9 @@ registerMessageHandler(async (tenantId, msg) => {
 
   log.debug(`📨 wa-handler: mensaje de ****${senderPhone.slice(-4)} — [contenido omitido]`);
 
+  // P1-1: Serializar procesamiento por número para evitar race conditions
+  // cuando el cliente envía dos mensajes rápidos antes de que el primero termine.
+  return _enqueue(`${tenantId}:${senderPhone}`, async () => {
   let conn;
   try {
     conn = await db.getConnection();
@@ -165,6 +184,7 @@ registerMessageHandler(async (tenantId, msg) => {
   } finally {
     if (conn) conn.release();
   }
+  }); // fin _enqueue
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -456,4 +476,4 @@ async function handleAgente(conn, senderPhone, tenantId, text, senderJid) {
   }
 }
 
-module.exports = { _isAgenteHorarioActivo };
+module.exports = { _isAgenteHorarioActivo, _enqueue, _queue };
