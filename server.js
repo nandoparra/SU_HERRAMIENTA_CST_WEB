@@ -18,7 +18,7 @@ const session = require('express-session');
 
 const db      = require('./utils/db');
 const MySQLSessionStore = require('./utils/session-store');
-const { runMigrations } = require('./utils/migrations');
+const { runMigrations, archivarConversacionesAntiguas } = require('./utils/migrations');
 const { initTenantClient } = require('./utils/whatsapp-client');
 require('./utils/wa-handler'); // Listener de mensajes entrantes (autorización por WA)
 const apiKey  = require('./middleware/apiKey');
@@ -210,6 +210,7 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {
   log.info({ port: PORT }, '✅ Servidor corriendo');
   await runMigrations();
+  await archivarConversacionesAntiguas();
   // Delay configurable para que el contenedor anterior (Railway) termine su Chromium
   // antes de que el nuevo lo arranque en el mismo directorio del Volume.
   const waDelay = Number(process.env.WA_INIT_DELAY_MS ?? 20_000);

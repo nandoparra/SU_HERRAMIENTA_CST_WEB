@@ -606,14 +606,6 @@ async function responderConIA(conn, senderPhone, tenantId, textoCliente) {
     // encontrará al cliente via Fallback 1b en el siguiente paso.
   }
 
-  // 1. Lazy cleanup: borrar historial con más de 24h
-  await conn.execute(
-    `DELETE FROM b2c_wa_conversacion
-     WHERE wa_phone = ? AND tenant_id = ?
-       AND created_at < DATE_SUB(NOW(), INTERVAL 24 HOUR)`,
-    [senderPhone, tenantId]
-  );
-
   // 2. Construir contexto del cliente
   const contexto = await buildContextoCliente(conn, senderPhone, tenantId, textoCliente);
 
