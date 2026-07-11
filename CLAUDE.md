@@ -30,8 +30,14 @@ utils/schema.js                    Helpers BD + resolveOrder + getTechnicianWher
 utils/ia.js                        Wrapper Anthropic SDK — generateText(), getClient(), withTimeout(promise, ms)
                                      └─ timeout configurable: CLAUDE_TIMEOUT_MS (texto, default 30s), CLAUDE_VISION_TIMEOUT_MS (visión, default 60s)
 utils/whatsapp-client.js           Pool multi-tenant + parche LID + SIGTERM graceful shutdown
-utils/wa-handler.js                Listener mensajes entrantes WA — flujo autorización cotizaciones
+                                     └─ contacts.upsert: log por contacto en log.debug (no log.info) para no saturar Railway
+utils/wa-handler.js                Listener mensajes entrantes WA — flujo autorización cotizaciones + gate agente IA
                                      └─ resuelve LID vía msg.getContact() antes de buscar pendiente
+                                     └─ handleAgente() — gate ten_agente_wa + horario Colombia → responderConIA()
+services/wa-agente.js              Agente IA para mensajes WA entrantes de clientes no identificados
+                                     └─ buildContextoCliente() — 3 fallbacks de identificación + confirmación
+                                     └─ responderConIA() — máquina de estados + Claude + historial b2c_wa_conversacion
+                                     └─ normalizePhone(), maskName() — helpers PII
 utils/pdf-generator.js             Generación PDFs (quote, maintenance, orden de servicio)
 utils/session-store.js             MySQLSessionStore — sesiones MySQL persistentes (tabla app_sessions, cleanup cada 15min)
 utils/uploads.js                   { UPLOADS_DIR, checkMagicBytes } — ruta base de uploads + validación magic bytes
@@ -52,13 +58,14 @@ routes/orders-notificaciones.js    3 endpoints WA manuales (requireInterno)
                                      └─ POST /orders/:id/notify-parts — lista repuestos al encargado
                                      └─ POST /orders/:id/notify-ready — notifica cliente máquinas reparadas
                                      └─ POST /orders/:id/notify-delivered — confirma entrega al cliente
-routes/orders-fotos.js             6 endpoints fotos + archivos (requireInterno)
+routes/orders-fotos.js             7 endpoints fotos + archivos + entrega (requireInterno)
                                      └─ POST /orders/:id/fotos-recepcion/:uid — subir foto recepción post-creación
                                      └─ DELETE /orders/fotos-recepcion/:uid — eliminar foto recepción
                                      └─ POST /orders/:id/fotos-trabajo/:uid — subir foto de trabajo
                                      └─ DELETE /orders/fotos-trabajo/:uid — eliminar foto de trabajo
                                      └─ POST /orders/:id/factura-maquina/:uid — subir PDF factura garantía por máquina
                                      └─ POST /orders/:id/agregar-maquina — agregar máquina a orden existente
+                                     └─ POST /orders/equipment/:uid/entregar — entrega con datos + firma PNG (multer firmas-entrega/)
 routes/orders-cliente.js           3 endpoints portal cliente (NO requireInterno — validan user.tipo === 'C' internamente)
                                      └─ IMPORTANTE: montado ANTES de orders.js en server.js
                                      └─ GET /cliente/mis-ordenes — órdenes del cliente con historial+cotización+informes
@@ -381,13 +388,21 @@ req.session.user = {
 | `b2c_cotizacion_item` | Ítems/repuestos por máquina |
 | `b2c_herramienta_status_log` | Historial cambios de estado por máquina |
 | `b2c_informe_mantenimiento` | Registro de informes PDF generados por máquina |
-| `b2c_wa_autorizacion_pendiente` | Conversaciones WA activas de autorización |
+| `b2c_wa_autorizacion_pendiente` | Conversaciones WA activas de autorización (1/2/3/4) |
+| `b2c_wa_conversacion` | Historial mensajes agente IA ↔ cliente (uid_mensaje, tenant_id, wa_phone, rol, contenido) |
+| `b2c_wa_lid_mapping` | Mapeo persistente LID → (wa_phone + uid_cliente) por tenant |
+| `b2c_wa_estado_identificacion` | Estado máquina de identificación por número (normal/esperando_cedula/esperando_confirmacion); TTL 30min; max 5 intentos/30min |
 
 ### Columnas agregadas al ERP (auto-migradas en server.js al arrancar)
 - `b2c_herramienta_orden.her_estado` VARCHAR(32) DEFAULT 'pendiente_revision'
 - `b2c_herramienta_orden.hor_es_garantia` TINYINT(1) DEFAULT 0 — máquina en garantía del fabricante
 - `b2c_herramienta_orden.hor_garantia_vence` DATE NULL — fecha vencimiento garantía por máquina
 - `b2c_herramienta_orden.hor_garantia_factura` VARCHAR(255) NULL — filename PDF factura por máquina
+- `b2c_herramienta_orden.hor_entrega_nombre` VARCHAR(150) NULL — nombre de quien recogió la máquina
+- `b2c_herramienta_orden.hor_entrega_telefono` VARCHAR(20) NULL — teléfono de quien recogió
+- `b2c_herramienta_orden.hor_entrega_cedula` VARCHAR(30) NULL — cédula de quien recogió (opcional)
+- `b2c_herramienta_orden.hor_entrega_firma` VARCHAR(255) NULL — filename PNG de firma (en uploads/firmas-entrega/)
+- `b2c_herramienta_orden.hor_entrega_fecha` DATETIME NULL — timestamp de la entrega
 - `b2c_foto_herramienta_orden.fho_tipo` VARCHAR(20) DEFAULT 'recepcion'
 - `b2c_orden.ord_tipo` VARCHAR(20) DEFAULT 'normal' — valores: 'normal' | 'garantia' (auto si ≥1 máquina con hor_es_garantia=1)
 - `b2c_orden.ord_factura` VARCHAR(255) NULL — factura nivel orden (legacy, solo órdenes antiguas)
@@ -869,6 +884,9 @@ Arquitectura: esquema compartido con `tenant_id` en todas las tablas.
 | `ten_estado` | ENUM | `activo` \| `suspendido` \| `prueba` |
 | `ten_plan` | VARCHAR(20) | `mensual` \| `anual` |
 | `ten_vence` | DATE NULL | Fecha vencimiento suscripción |
+| `ten_agente_wa` | TINYINT(1) DEFAULT 0 | Agente IA WA habilitado para este tenant |
+| `ten_agente_wa_hora_inicio` | TINYINT DEFAULT 7 | Hora Colombia inicio atención (inclusiva) |
+| `ten_agente_wa_hora_fin` | TINYINT DEFAULT 20 | Hora Colombia fin atención (exclusiva) — default cubre hasta 19:59 |
 
 ### Tenant por defecto
 - `uid_tenant=1`, `ten_slug='suherramienta'`, `ten_slug_locked=1`, `ten_estado='activo'`
@@ -899,7 +917,9 @@ Cada tabla: `tenant_id INT NOT NULL DEFAULT 1` + `INDEX idx_tenant(tenant_id)`.
 - Acceso: `/superadmin` — sesión independiente (no usa `req.session.user`)
 - Login con `SUPERADMIN_SECRET` env (requerido — error si no está en producción)
 - Rate limit: 5 intentos / 15 minutos
-- **CRUD tenants**: crear, editar nombre/slug/colores/WA, toggle estado
+- **CRUD tenants**: crear, editar nombre/slug/colores/WA, toggle estado, toggle addon_contabilidad, toggle agente WA + horario Colombia
+- **IMPORTANTE**: GET /superadmin/api/tenants incluye `addon_contabilidad`, `ten_agente_wa`, `ten_agente_wa_hora_inicio`, `ten_agente_wa_hora_fin` en el SELECT — sin esto, abrir y guardar reseteaba addon_contabilidad a 0
+- Para activar el agente WA de un tenant: editar tenant en superadmin → checkbox "Agente WhatsApp IA" + horario (ej: 7–21)
 - **Gestión usuarios por tenant** (implementado 2026-03-21):
   - `GET  /superadmin/api/tenants/:id/usuarios` — lista usuarios del tenant
   - `POST /superadmin/api/tenants/:id/usuarios` — crea usuario (bcrypt, tipo A/F/T)
@@ -962,6 +982,7 @@ const UPLOADS_DIR = process.env.UPLOADS_PATH || path.join(__dirname, '..', 'publ
 | `fotos-recepcion/` | Fotos de recepción Y trabajo (mismo dir, diferenciadas por `fho_tipo`) |
 | `informes-mantenimiento/` | PDFs de informes generados |
 | `facturas-garantia/` | PDFs de facturas de garantía |
+| `firmas-entrega/` | PNGs de firmas capturadas al entregar una máquina al cliente |
 
 **En Railway**: Volume montado en `/data`. `UPLOADS_PATH=/data/uploads`, `WA_AUTH_PATH=/data/.wwebjs_auth`.
 **En local**: usa `public/uploads` (en .gitignore).
@@ -1291,6 +1312,103 @@ los tenants del pool antes de `process.exit(0)`.
 | 4C | Split `dashboard.js` (mayor riesgo) | Pendiente |
 | 5 | Tests de integración con MySQL Docker en GitHub Actions | Pendiente |
 | 6 | Migraciones robustas | Pendiente |
+
+---
+
+## Agente WhatsApp IA — services/wa-agente.js
+
+Responde automáticamente mensajes WA entrantes de clientes. Implementado en main (commits 2026-07).
+
+### Activación por tenant
+- `ten_agente_wa = 1` en `b2c_tenant` — activar desde panel superadmin (checkbox "Agente WhatsApp IA")
+- `ten_agente_wa_hora_inicio` / `ten_agente_wa_hora_fin` — horario Colombia (UTC-5); default 7–20 (exclusivo); recomendado 7–21
+- Si `ten_agente_wa = 0` (default) el agente silenciosamente ignora todos los mensajes
+
+### Gate en wa-handler.js
+`handleAgente(conn, senderPhone, tenantId, text, senderJid)`:
+1. SELECT `ten_agente_wa`, `ten_agente_wa_hora_inicio`, `ten_agente_wa_hora_fin` FROM b2c_tenant
+2. Si `ten_agente_wa = 0` → return silencioso
+3. `_isAgenteHorarioActivo(horaInicio, horaFin)` — `colHour = ((utcHour - 5) + 24) % 24`; franja `[horaInicio, horaFin)` — si fuera → return silencioso
+4. Llama `responderConIA()` + `sendWAMessage()`
+
+### Serialización por número (P1-1)
+`_enqueue(key, fn)` en `wa-handler.js` — cola por `${tenantId}:${senderPhone}`. Dos mensajes del mismo número se procesan en orden, no en paralelo. Evita race conditions en historial y autorizaciones.
+
+### Flujo en responderConIA()
+```
+0. getEstadoIdent — lee b2c_wa_estado_identificacion
+0a. Si esperando_confirmacion + no expirado → handleConfirmacion → retorna mensaje o continúa
+1. DELETE lazy cleanup (estados expirados >30min)
+2. buildContextoCliente — 3 fallbacks de identificación
+2a. Si confirmacionPendiente → upsertEstado(esperando_confirmacion) → pregunta "¿Eres [nombre]?"
+2b. Si null → handleNoIdentificado → flujo pide cédula
+3. Si estado !== 'normal' → resetEstadoIdent
+4. SELECT historial (últimos 20 DESC, reordenados ASC)
+5. buildSystemPrompt con contexto del cliente + órdenes activas
+6. Claude call con withTimeout(15s)
+7. INSERT user (siempre — trazabilidad P1-2) + INSERT assistant (solo si exitoIA)
+```
+
+### Máquina de estados — b2c_wa_estado_identificacion
+| estado | Disparador | Acción |
+|--------|-----------|--------|
+| `normal` | (default) | Sin estado guardado — flujo de identificación |
+| `esperando_cedula` | Primer mensaje de número desconocido | Pide cédula al cliente |
+| `esperando_confirmacion` | Fallback 3 encontró cliente por texto | Pregunta "¿Eres [nombre enmascarado]?" |
+
+- TTL: 30 minutos (`ESTADO_EXPIRY_MS`) — expirado → reset a `normal`
+- Límite: 5 intentos de cédula incorrecta por ventana de 30min — muestra mensaje de bloqueo
+- `maskName(n)`: si `n.length <= 4` muestra completo; si no `n.slice(0,4) + '***'`
+
+### buildContextoCliente — fallbacks de identificación
+1. **Fallback 1**: `b2c_cliente` WHERE `cli_telefono` contiene `senderPhone` (10 dígitos)
+2. **Fallback 1b**: `b2c_wa_lid_mapping` WHERE `wa_lid = senderPhone` → `uid_cliente`
+3. **Fallback 2**: `b2c_wa_autorizacion_pendiente` WHERE `wa_phone = senderPhone` → `uid_orden` → `uid_cliente`
+4. **Fallback 3** (texto libre): busca número de cédula en el texto del mensaje → `b2c_cliente` WHERE `cli_identificacion`
+   - Si encontrado → retorna `{ confirmacionPendiente: true, uid_cliente, cliente: {nombre: masked} }` (NO guarda mapping todavía)
+   - Mapping se guarda en `b2c_wa_lid_mapping` solo después de que el cliente confirme con "sí"
+
+### Tablas relacionadas
+- `b2c_wa_conversacion` — historial (uid_mensaje AI, tenant_id, wa_phone, rol 'user'/'assistant', contenido TEXT, created_at)
+- `b2c_wa_lid_mapping` — (uid_mapping AI, tenant_id, wa_lid VARCHAR, wa_phone VARCHAR, uid_cliente INT NULL)
+- `b2c_wa_estado_identificacion` — (uid_estado AI, tenant_id, wa_sender, estado, estado_desde, uid_cliente_pendiente, intentos_id, intentos_reset); UNIQUE KEY (tenant_id, wa_sender)
+
+### Log flood fix (whatsapp-client.js)
+`contacts.upsert` loga cada LID en `log.debug` (no `log.info`). Con miles de contactos, `log.info` por contacto saturaba Railway (500 logs/s → 1072 mensajes dropped). El resumen `total/con_lid/sin_lid` sigue en `log.info`.
+
+---
+
+## Entrega de máquinas con firma
+
+Al cambiar el estado de una máquina a "Entregada" en el dashboard, en lugar de aplicar el cambio directamente se abre un modal obligatorio.
+
+### Flujo en el frontend (dashboard.js)
+- `ord_cambiarEstado()` intercepta `nuevo === 'entregada'` → revierte el selector → llama `ord_mostrarModalEntrega(uid, uidOrden, sel, prev)`
+- Modal con: **Nombre** (obligatorio), **Teléfono** (obligatorio), **Cédula** (opcional), canvas de firma
+- Signature pad: mouse + touch, `canvas.toBlob('image/png')` al confirmar
+- Validaciones previas al submit: nombre vacío → error; teléfono vacío → error; canvas sin trazos (`_entFirmoAlgo = false`) → error
+- Envío: `multipart/form-data` a `POST /api/orders/equipment/:uid/entregar` (sin Content-Type header — browser lo pone con boundary)
+- Al éxito: actualiza badge en UI, recarga detalle de la orden con `ord_verDetalle()`
+
+### Endpoint POST /orders/equipment/:uid/entregar (orders-fotos.js)
+- `multer.diskStorage` → `UPLOADS_DIR/firmas-entrega/firma_<uid>_<timestamp>.png`
+- Valida: `entrega_nombre` (400 si falta), `entrega_telefono` (400 si falta), `req.file` (400 si falta)
+- `checkMagicBytes` valida PNG — borra archivo si no es imagen válida
+- UPDATE `b2c_herramienta_orden` SET `her_estado='entregada'` + 5 columnas de entrega + `hor_entrega_fecha=NOW()`
+- INSERT `b2c_herramienta_status_log`
+- WA: envía plantilla de confirmación de entrega al cliente (misma que `notify-delivered`), fallo silencioso
+- `logAudit` con `accion='estado_cambiado'`, `datosDespues: { estado: 'entregada', entrega_nombre }`
+
+**IMPORTANTE**: el `PATCH /equipment-order/:uid/status` existente NO se modifica — sigue siendo el endpoint para todos los demás estados. El nuevo endpoint es exclusivo para la transición a `entregada`.
+
+### Visualización en detalle de la máquina
+- `GET /orders/:id/detalle` incluye los 5 campos `hor_entrega_*` en el SELECT
+- Si `her_estado === 'entregada' && hor_entrega_nombre`: muestra bloque verde con nombre, teléfono, cédula, fecha y `<img src="/uploads/firmas-entrega/<filename>">`
+- Las firmas se sirven vía el mismo `requireLogin + express.static(UPLOADS_DIR)` que ya existe en server.js
+
+### Nota sobre notify-delivered
+- El botón verde manual "Confirmar entrega por WA" en el dashboard (`POST /orders/:id/notify-delivered`) sigue disponible para reenvíos manuales
+- El nuevo endpoint `/entregar` también envía WA automáticamente — no hay pérdida de notificación
 
 ---
 
