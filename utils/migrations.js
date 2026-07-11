@@ -893,6 +893,31 @@ async function ensureWaEstadoIdentificacion() {
   }
 }
 
+async function ensureRateLimitColumns() {
+  const conn = await db.getConnection();
+  try {
+    // Columnas para rate limiting del agente WA (máximo 20 msgs/hora por número).
+    // Viven en b2c_wa_estado_identificacion junto a los demás contadores efímeros
+    // por wa_sender. El valor de msgs_hora_count se topa en RATE_CAP (22) vía
+    // lógica de aplicación — ver checkRateLimit() en services/wa-agente.js.
+    try {
+      await conn.execute(
+        `ALTER TABLE b2c_wa_estado_identificacion ADD COLUMN msgs_hora_count TINYINT UNSIGNED NOT NULL DEFAULT 0`
+      );
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    try {
+      await conn.execute(
+        `ALTER TABLE b2c_wa_estado_identificacion ADD COLUMN msgs_hora_desde DATETIME NULL`
+      );
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    console.log('✅ Columnas rate limit agente WA verificadas');
+  } catch (e) {
+    console.warn('⚠️ No pude agregar columnas rate limit WA:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function ensureEntregaColumns() {
   const conn = await db.getConnection();
   try {
@@ -945,6 +970,7 @@ async function runMigrations() {
   await ensureWaLidMapping();
   await ensureWaLidMappingUidCliente();
   await ensureWaEstadoIdentificacion();
+  await ensureRateLimitColumns();
   await ensureEntregaColumns();
   console.log('Migraciones completadas');
 }

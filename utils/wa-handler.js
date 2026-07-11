@@ -9,7 +9,7 @@
 const db = require('./db');
 const { registerMessageHandler, sendWAMessage, isReady, getLidPhone, setLidPhone } = require('./whatsapp-client');
 const log = require('./logger');
-const { responderConIA } = require('../services/wa-agente');
+const { responderConIA, checkRateLimit } = require('../services/wa-agente');
 
 // P1-1: Cola de serialización por clave (normalmente `${tenantId}:${senderPhone}`).
 // Garantiza que dos mensajes del mismo número no se procesen en paralelo,
@@ -451,6 +451,28 @@ async function handleAgente(conn, senderPhone, tenantId, text, senderJid) {
   }
   if (!_isAgenteHorarioActivo(tenantConfig.ten_agente_wa_hora_inicio, tenantConfig.ten_agente_wa_hora_fin)) {
     log.debug('🤖 wa-agente: fuera de horario de atención — ignorando mensaje');
+    return;
+  }
+
+  // Rate limit P2-1: máximo 20 mensajes/hora por número, antes de gastar tokens.
+  // DEPENDENCIA CRÍTICA → P1-1 (_enqueue, mismo archivo):
+  //   checkRateLimit hace read-compute-write sin transacción BD; es atómico SOLO
+  //   porque _enqueue serializa los mensajes de cada número. Si se elimina _enqueue
+  //   o el sistema escala a múltiples instancias sin lock distribuido, este rate
+  //   limit puede ser evadido con mensajes simultáneos del mismo número.
+  const rl = await checkRateLimit(conn, senderPhone, tenantId);
+  if (rl === 'silent') {
+    log.debug(`🚫 wa-agente: rate limit silent ****${senderPhone.slice(-4)}`);
+    return;
+  }
+  if (rl === 'notify') {
+    log.info(`🚫 wa-agente: rate limit alcanzado ****${senderPhone.slice(-4)} — enviando aviso`);
+    const tallerPhone = String(process.env.PARTS_WHATSAPP_NUMBER || '3104650437').replace(/\D/g, '').slice(-10);
+    await sendWAMessage(tenantId, senderJid,
+      `Has alcanzado el límite de mensajes del asistente por esta hora. ` +
+      `Para consultas urgentes comunícate directamente al *${tallerPhone}*. ` +
+      `El límite se reinicia automáticamente. — Asistente SU HERRAMIENTA`
+    );
     return;
   }
 

@@ -34,6 +34,11 @@ const ESTADOS_LABEL = {
 // TTL de estados de identificación y ventana de intentos: 30 minutos
 const ESTADO_EXPIRY_MS = 30 * 60 * 1000;
 
+// Rate limiting del agente: máximo 20 mensajes por hora por número
+const RATE_LIMIT     = 20;
+const RATE_WINDOW_MS = 60 * 60 * 1000;   // 1 hora
+const RATE_CAP       = RATE_LIMIT + 2;   // = 22 — el contador nunca supera este valor
+
 // ── Helpers de nombre y teléfono ──────────────────────────────────────────────
 
 /**
@@ -53,6 +58,56 @@ function normalizePhone(senderPhone) {
   const digits = String(senderPhone).replace(/\D/g, '');
   const sin57 = digits.startsWith('57') ? digits.slice(2) : digits;
   return sin57.slice(-10);
+}
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+
+/**
+ * Verifica y actualiza el rate limit por número de WA.
+ * Retorna: 'ok' | 'notify' | 'silent'
+ *
+ * Lógica de tope: el contador se estabiliza en RATE_CAP (22) y nunca crece más.
+ *   msgs 1-20:  'ok'     — procesar normalmente
+ *   msg 21:     'notify' — enviar aviso de límite una sola vez, luego no llamar a Claude
+ *   msgs 22+:   'silent' — ignorar sin responder ni gastar tokens
+ *
+ * DEPENDENCIA CRÍTICA → P1-1 (_enqueue en wa-handler.js):
+ *   Este check hace read-compute-write sin transacción BD. Es atómico SOLO porque
+ *   _enqueue serializa los mensajes de cada número (${tenantId}:${senderPhone}).
+ *   Si se elimina _enqueue, se mueve a arquitectura multi-instancia, o se añade
+ *   otro punto de entrada que no pase por _enqueue, este rate limit puede ser
+ *   evadido con mensajes simultáneos del mismo número sin que nadie lo note.
+ */
+async function checkRateLimit(conn, waPhone, tenantId) {
+  const [[row]] = await conn.execute(
+    `SELECT msgs_hora_count, msgs_hora_desde
+     FROM b2c_wa_estado_identificacion
+     WHERE tenant_id = ? AND wa_sender = ?`,
+    [tenantId, waPhone]
+  );
+
+  const now = Date.now();
+  const windowExpired = !row?.msgs_hora_desde ||
+    (now - new Date(row.msgs_hora_desde).getTime()) > RATE_WINDOW_MS;
+
+  const currentCount = windowExpired ? 0 : (row?.msgs_hora_count || 0);
+  // Si está en tope, no incrementar: el valor se estabiliza en RATE_CAP.
+  const newCount = currentCount >= RATE_CAP ? RATE_CAP : currentCount + 1;
+  const desde = windowExpired ? new Date() : new Date(row.msgs_hora_desde);
+
+  await conn.execute(
+    `INSERT INTO b2c_wa_estado_identificacion
+       (tenant_id, wa_sender, msgs_hora_count, msgs_hora_desde)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       msgs_hora_count = VALUES(msgs_hora_count),
+       msgs_hora_desde = VALUES(msgs_hora_desde)`,
+    [tenantId, waPhone, newCount, desde]
+  );
+
+  if (newCount <= RATE_LIMIT)          return 'ok';
+  if (newCount === RATE_LIMIT + 1)     return 'notify';
+  return 'silent';
 }
 
 // ── Estado de identificación (b2c_wa_estado_identificacion) ──────────────────
@@ -646,4 +701,4 @@ async function responderConIA(conn, senderPhone, tenantId, textoCliente) {
   return respuesta;
 }
 
-module.exports = { buildContextoCliente, normalizePhone, responderConIA };
+module.exports = { buildContextoCliente, normalizePhone, responderConIA, checkRateLimit };

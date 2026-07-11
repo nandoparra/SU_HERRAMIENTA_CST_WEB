@@ -1,5 +1,19 @@
 # Contexto del proyecto — universal-cotizaciones
 
+---
+
+## Workflow de desarrollo — regla permanente
+
+**Aplica a todos los cambios de código, sin excepción, sin necesidad de recordarlo.**
+
+1. **Rama nueva** para cada cambio: `git checkout -b feature/<nombre>` — nunca trabajar directo en `main`.
+2. **Tests antes que código de producción** — escribir el test file primero, luego el código que lo hace pasar.
+3. **Antes de proponer merge a main**, correr TODOS los tests del proyecto (`npm test`) — no solo los del cambio en curso — y reportar: qué se hizo (archivo por archivo, breve), resultado de tests (cuántos pasaron/fallaron), riesgos o limitaciones conocidas.
+4. **No hacer merge a main sin aprobación explícita del usuario.** "Todos los tests pasan" NO es luz verde automática.
+5. **Si algo falla, reportarlo sin ocultarlo** — no arreglarlo en silencio antes de reportar.
+
+---
+
 Sistema de cotizaciones y órdenes de servicio para **SU HERRAMIENTA CST** (taller de reparación de herramientas eléctricas, Pereira - Colombia).
 
 ---
@@ -1375,6 +1389,24 @@ Responde automáticamente mensajes WA entrantes de clientes. Implementado en mai
 
 ### Log flood fix (whatsapp-client.js)
 `contacts.upsert` loga cada LID en `log.debug` (no `log.info`). Con miles de contactos, `log.info` por contacto saturaba Railway (500 logs/s → 1072 mensajes dropped). El resumen `total/con_lid/sin_lid` sigue en `log.info`.
+
+### Rate limiting — `checkRateLimit()` en `services/wa-agente.js`
+Protege contra abuso de API (gasto ilimitado de tokens) cuando números desconocidos envían mensajes al agente.
+
+| Valor | Descripción |
+|-------|-------------|
+| `RATE_LIMIT = 20` | Mensajes permitidos por ventana de 1 hora |
+| `RATE_CAP = 22` | Tope del contador en BD — nunca crece más allá de este valor |
+| Retorno `'ok'` | Mensajes 1–20: procesar normalmente |
+| Retorno `'notify'` | Mensaje 21: enviar aviso único, no llamar a Claude |
+| Retorno `'silent'` | Mensajes 22+: ignorar sin gastar tokens ni responder |
+
+**Dónde aplica:** en `handleAgente()` (`utils/wa-handler.js`), DESPUÉS del gate de habilitación y horario, ANTES de `responderConIA`. El flujo de autorización (1/2/3/4 con pendiente activo) nunca pasa por `handleAgente` → no es afectado por el rate limit.
+
+**Almacenamiento:** columnas `msgs_hora_count TINYINT UNSIGNED` + `msgs_hora_desde DATETIME` en `b2c_wa_estado_identificacion` (migración `ensureRateLimitColumns`). Persiste en BD → sobrevive restarts del contenedor de Railway.
+
+**DEPENDENCIA CRÍTICA — P1-1 (`_enqueue`):**
+`checkRateLimit` hace read-compute-write sin transacción BD. Es atómico SOLO porque `_enqueue(${tenantId}:${senderPhone})` en `wa-handler.js` serializa los mensajes de cada número. Si se elimina `_enqueue` o el sistema escala a múltiples instancias sin lock distribuido, el rate limit puede ser evadido con mensajes simultáneos del mismo número sin que nadie lo note. Ver comentario en `handleAgente`.
 
 ---
 
