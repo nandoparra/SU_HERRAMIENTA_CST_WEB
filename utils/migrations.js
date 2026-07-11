@@ -865,6 +865,34 @@ async function ensureWaLidMappingUidCliente() {
   }
 }
 
+async function ensureWaEstadoIdentificacion() {
+  const conn = await db.getConnection();
+  try {
+    // Estado efímero de conversación por wa_sender (LID o teléfono).
+    // Separado de b2c_wa_lid_mapping (identidad persistente) — responsabilidades distintas.
+    // Limitación conocida: el contador de intentos es por wa_sender; alguien con
+    // múltiples SIMs/cuentas WA puede evadirlo iniciando desde otro número.
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_wa_estado_identificacion (
+        uid_estado              INT           NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        tenant_id               INT           NOT NULL,
+        wa_sender               VARCHAR(50)   NOT NULL,
+        estado                  VARCHAR(30)   NOT NULL DEFAULT 'normal',
+        estado_desde            DATETIME      NULL,
+        uid_cliente_pendiente   INT           NULL,
+        intentos_id             TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        intentos_reset          DATETIME      NULL,
+        UNIQUE KEY uk_sender (tenant_id, wa_sender)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log('✅ Tabla b2c_wa_estado_identificacion verificada/creada');
+  } catch (e) {
+    console.warn('⚠️ No pude crear b2c_wa_estado_identificacion:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -894,6 +922,7 @@ async function runMigrations() {
   await ensureWaLidColumn();
   await ensureWaLidMapping();
   await ensureWaLidMappingUidCliente();
+  await ensureWaEstadoIdentificacion();
   console.log('Migraciones completadas');
 }
 

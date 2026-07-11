@@ -12,6 +12,7 @@
  *   pueden cambiar el comportamiento modificando ese objeto.
  *
  * Orden de SELECTs en responderConIA(conn, '573104650437', 1, texto):
+ *   0.  SELECT b2c_wa_estado_identificacion    (getEstadoIdent — P0-2/P1-3)
  *   [DML] DELETE lazy cleanup                  (no consume cola)
  *   1.  SELECT b2c_cliente                     (findClienteByPhone primaria)
  *   2.  SELECT b2c_orden                       (órdenes activas)
@@ -87,10 +88,13 @@ function makeConn(queue) {
   };
 }
 
-// Cola base: SELECTs 1–5 con cliente y orden disponibles, historial vacío.
+// Cola base: SELECTs 0–6 con cliente y orden disponibles, historial vacío.
+// El slot 0 es el nuevo SELECT de getEstadoIdent (P0-2/P1-3).
 // El slot 6 (historial conversación) se inyecta por cada test.
 function baseQueue(historialRows = []) {
   return [
+    // 0. getEstadoIdent — estado de identificación (P0-2/P1-3) → 'normal'
+    [],
     // 1. findClienteByPhone — cliente encontrado directamente por teléfono
     [{ uid_cliente: 1, cli_razon_social: 'CLIENTE TEST', cli_contacto: null, cli_identificacion: '123' }],
     // 2. órdenes activas

@@ -100,49 +100,44 @@ console.log('\n=== Test 1: LID con uid_cliente en b2c_wa_lid_mapping (sin wa_pho
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 2 — Identificación por cédula guarda uid_cliente en b2c_wa_lid_mapping
-// Verifica que después de identificarse por texto el mapping se persiste
-// con uid_cliente (y wa_phone=null cuando cli_telefono no está disponible).
+// Test 2 — Identificación por cédula → confirmacionPendiente (P1-3)
+// Con el flujo P1-3, findClienteByTexto devuelve { confirmacionPendiente: true }
+// en lugar de contexto completo. El mapping LID→cliente se guarda DESPUÉS de
+// que el usuario confirme su identidad ("sí"), no de forma inmediata.
 // ─────────────────────────────────────────────────────────────────────────────
-console.log('\n=== Test 2: Identificación por cédula → guarda uid_cliente en mapping ===');
+console.log('\n=== Test 2: Identificación por cédula → confirmacionPendiente, sin mapping inmediato (P1-3) ===');
 (async () => {
   const LID = '220052750090281';
   const UID_CLIENTE = 42;
 
-  // Orden de SELECTs:
-  // 1. findClienteByPhone — búsqueda primaria → sin resultado
-  // 2. findClienteByPhone — Fallback 1 lid_mapping → sin mapping previo
-  // 3. findClienteByPhone — Fallback 2 pendiente → sin pendiente
-  // 4. findClienteByTexto — busca por cédula 1088274441 → Juan Gabriel (cli_telefono: null)
-  // [INSERT lid_mapping — DML, no consume cola]
-  // 5. SELECT órdenes activas
-  // 6. SELECT máquinas
-  // 7. SELECT historial
-  // 8. SELECT cotiz pendiente
+  // Orden de SELECTs en buildContextoCliente:
+  // 1. findClienteByPhone — búsqueda primaria → sin resultado (LID no es teléfono colombiano)
+  // 2. findClienteByPhone — Fallback 1: lid_mapping → sin mapping previo
+  // 3. findClienteByPhone — Fallback 2: autorizacion_pendiente → sin pendiente
+  // 4. findClienteByTexto — busca por cédula 1088274441 → Juan Gabriel encontrado
+  //    → early return { confirmacionPendiente: true } — NO continúa con órdenes ni historial
+  // NO hay INSERT a b2c_wa_lid_mapping — se guarda solo tras confirmar "sí"
   const conn = makeConn([
-    [],                                                                       // 1. phone search → nada
-    [],                                                                       // 2. lid_mapping → sin entrada
-    [],                                                                       // 3. pendiente → nada
-    [{ uid_cliente: UID_CLIENTE, cli_razon_social: 'JUAN GABRIEL SALAZAR', cli_contacto: null, cli_identificacion: '1088274441', cli_telefono: null }], // 4. por cédula
-    [{ uid_orden: 8414, ord_consecutivo: 8414, ord_fecha: '20260710' }],     // 5. órdenes
-    [{ her_nombre: 'Taladro', her_marca: 'Makita', her_estado: 'autorizada', hor_observaciones: 'Motor quemado', subtotal: null }], // 6. máquinas
-    [],                                                                       // 7. historial
-    [],                                                                       // 8. cotiz pendiente
+    [],                                                                                       // 1. phone search → nada
+    [],                                                                                       // 2. lid_mapping → sin entrada
+    [],                                                                                       // 3. pendiente WA → nada
+    [{ uid_cliente: UID_CLIENTE, cli_razon_social: 'JUAN GABRIEL SALAZAR',                   // 4. por cédula → encontrado
+       cli_contacto: null, cli_identificacion: '1088274441', cli_telefono: null }],
   ]);
 
   const contexto = await buildContextoCliente(conn, LID, 1, 'mi cédula es 1088274441');
-  await new Promise(r => setTimeout(r, 20)); // dejar ejecutar fire-and-forget
 
-  assert('buildContextoCliente retorna contexto', contexto !== null);
-  assert('Cliente identificado por cédula', contexto?.cliente?.nombre === 'JUAN GABRIEL SALAZAR');
+  assert('buildContextoCliente retorna objeto (no null)', contexto !== null);
+  assert('confirmacionPendiente === true',               contexto?.confirmacionPendiente === true);
+  assert('uid_cliente es 42',                            contexto?.uid_cliente === UID_CLIENTE);
+  assert('nombre enmascarado "JUAN***"',                 contexto?.cliente?.nombre === 'JUAN***');
+  assert('identificacion expuesta para referencia',      contexto?.cliente?.identificacion === '1088274441');
+  assert('NO hay ordenesActivas en la respuesta',        contexto?.ordenesActivas === undefined);
 
-  const insertCall = conn.calls.find(c =>
+  const insertMappingCall = conn.calls.find(c =>
     c.sql.startsWith('INSERT') && c.sql.includes('b2c_wa_lid_mapping')
   );
-  assert('INSERT a b2c_wa_lid_mapping ejecutado', !!insertCall);
-  assert('INSERT incluye LID como wa_lid',       insertCall?.params?.includes(LID));
-  assert('INSERT incluye uid_cliente=42',        insertCall?.params?.includes(UID_CLIENTE));
-  assert('INSERT tiene wa_phone=null (cli_telefono no disponible)', insertCall?.params?.includes(null));
+  assert('NO hay INSERT a b2c_wa_lid_mapping (se guarda tras confirmación)', !insertMappingCall);
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
