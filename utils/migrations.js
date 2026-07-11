@@ -918,6 +918,72 @@ async function ensureRateLimitColumns() {
   }
 }
 
+async function ensureConversacionArchivo() {
+  const conn = await db.getConnection();
+  try {
+    // Mismo esquema que b2c_wa_conversacion pero uid_mensaje no es AUTO_INCREMENT
+    // porque el PK viene de la tabla fuente.
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_wa_conversacion_archivo (
+        uid_mensaje  BIGINT       NOT NULL PRIMARY KEY,
+        tenant_id    INT          NOT NULL DEFAULT 1,
+        wa_phone     VARCHAR(30)  NOT NULL,
+        rol          ENUM('user','assistant') NOT NULL,
+        contenido    TEXT         NOT NULL,
+        created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_wca_phone (tenant_id, wa_phone),
+        INDEX idx_wca_ts    (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log('✅ Tabla b2c_wa_conversacion_archivo verificada/creada');
+  } catch (e) {
+    console.warn('⚠️ No pude crear b2c_wa_conversacion_archivo:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Lógica de archivado de conversaciones WA antiguas (>90 días).
+ * Exportada para testing — recibe conn para que los tests puedan usar un mock.
+ * Corre en una transacción: INSERT IGNORE en archivo → DELETE de activa.
+ * Si falla, hace rollback y re-lanza para que el caller pueda loguearlo.
+ */
+async function _doArchivar(conn) {
+  try {
+    await conn.beginTransaction();
+    await conn.execute(`
+      INSERT IGNORE INTO b2c_wa_conversacion_archivo
+        (uid_mensaje, tenant_id, wa_phone, rol, contenido, created_at)
+      SELECT uid_mensaje, tenant_id, wa_phone, rol, contenido, created_at
+      FROM b2c_wa_conversacion
+      WHERE created_at < DATE_SUB(NOW(), INTERVAL 90 DAY)
+    `);
+    const [del] = await conn.execute(`
+      DELETE FROM b2c_wa_conversacion
+      WHERE created_at < DATE_SUB(NOW(), INTERVAL 90 DAY)
+    `);
+    await conn.commit();
+    if (del.affectedRows > 0) {
+      console.log(`✅ Archivadas ${del.affectedRows} conversaciones WA (>90 días)`);
+    }
+  } catch (e) {
+    await conn.rollback().catch(() => {});
+    throw e;
+  }
+}
+
+async function archivarConversacionesAntiguas() {
+  const conn = await db.getConnection();
+  try {
+    await _doArchivar(conn);
+  } catch (e) {
+    console.warn('⚠️ Error al archivar conversaciones WA:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function ensureEntregaColumns() {
   const conn = await db.getConnection();
   try {
@@ -971,8 +1037,9 @@ async function runMigrations() {
   await ensureWaLidMappingUidCliente();
   await ensureWaEstadoIdentificacion();
   await ensureRateLimitColumns();
+  await ensureConversacionArchivo();
   await ensureEntregaColumns();
   console.log('Migraciones completadas');
 }
 
-module.exports = { runMigrations };
+module.exports = { runMigrations, archivarConversacionesAntiguas, _doArchivar };
