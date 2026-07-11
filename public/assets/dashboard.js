@@ -5379,6 +5379,52 @@ async function wac_verDetalle(token) {
   }
 }
 
+// ── pwd_must_change — cambio obligatorio de contraseña ────────────────────────
+function pwd_mostrarModal() {
+  const el = document.getElementById('pwdChangeOverlay');
+  if (el) { el.style.display = 'flex'; }
+}
+
+async function pwd_confirmarCambio() {
+  const actual    = document.getElementById('pwdActual')?.value    || '';
+  const nueva     = document.getElementById('pwdNueva')?.value     || '';
+  const confirmar = document.getElementById('pwdConfirmar')?.value || '';
+  const errEl     = document.getElementById('pwdError');
+  const btn       = document.getElementById('pwdBtnConfirmar');
+
+  errEl.style.display = 'none';
+
+  if (!actual)             { errEl.textContent = 'Ingrese su contraseña actual.';                 errEl.style.display=''; return; }
+  if (nueva.length < 8)   { errEl.textContent = 'La nueva contraseña debe tener al menos 8 caracteres.'; errEl.style.display=''; return; }
+  if (nueva !== confirmar) { errEl.textContent = 'Las contraseñas no coinciden.';                 errEl.style.display=''; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+
+  try {
+    const r = await fetch('/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword: actual, newPassword: nueva }),
+    });
+    const data = await r.json();
+    if (!r.ok || !data.success) {
+      errEl.textContent = data.error || 'Error al cambiar la contraseña.';
+      errEl.style.display = '';
+      return;
+    }
+    // Contraseña cambiada — ocultar modal y continuar normalmente
+    document.getElementById('pwdChangeOverlay').style.display = 'none';
+    showToast('Contraseña actualizada correctamente.', 'success');
+  } catch (e) {
+    errEl.textContent = 'Error de conexión. Intente nuevamente.';
+    errEl.style.display = '';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Cambiar contraseña';
+  }
+}
+
 // ── Session init ──────────────────────────────────────────────────────────────
 (async function() {
   const me = await fetch('/me').then(r=>r.json()).catch(()=>({}));
@@ -5412,6 +5458,12 @@ async function wac_verDetalle(token) {
         if (navC) navC.style.display = 'none';
       }
     }
+  }
+
+  // Forzar cambio de contraseña si el flag está activo
+  if (me.user.pwd_must_change) {
+    pwd_mostrarModal();
+    return; // No navegar al dashboard hasta que cambie la contraseña
   }
 
   // Hash-based routing

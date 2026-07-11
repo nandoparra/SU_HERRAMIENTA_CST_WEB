@@ -59,8 +59,20 @@ router.post('/orders/:id/fotos-recepcion/:uid_herramienta_orden', uploadFoto.sin
   try {
     if (!req.file) return res.status(400).json({ error: 'No se recibió imagen' });
     await checkMagicBytes(req.file.path, ['image/']);
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
+      const [[maqCheck]] = await conn.execute(
+        `SELECT ho.uid_herramienta_orden
+         FROM b2c_herramienta_orden ho
+         JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
+         WHERE ho.uid_herramienta_orden = ? AND o.tenant_id = ?`,
+        [req.params.uid_herramienta_orden, tenantId]
+      );
+      if (!maqCheck) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(404).json({ error: 'Máquina no encontrada' });
+      }
       await conn.execute(
         `INSERT INTO b2c_foto_herramienta_orden (uid_herramienta_orden, fho_archivo, fho_nombre, fho_tipo)
          VALUES (?, ?, ?, 'recepcion')`,
@@ -85,17 +97,18 @@ router.post('/orders/:id/fotos-recepcion/:uid_herramienta_orden', uploadFoto.sin
 // ── Eliminar foto de recepción ────────────────────────────────────────────────
 router.delete('/orders/fotos-recepcion/:uid_foto', async (req, res) => {
   try {
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [[foto]] = await conn.execute(
         `SELECT fho_archivo FROM b2c_foto_herramienta_orden
-         WHERE uid_foto_herramienta_orden = ? AND fho_tipo = 'recepcion'`,
-        [req.params.uid_foto]
+         WHERE uid_foto_herramienta_orden = ? AND fho_tipo = 'recepcion' AND tenant_id = ?`,
+        [req.params.uid_foto, tenantId]
       );
       if (!foto) return res.status(404).json({ error: 'Foto no encontrada' });
       await conn.execute(
-        `DELETE FROM b2c_foto_herramienta_orden WHERE uid_foto_herramienta_orden = ?`,
-        [req.params.uid_foto]
+        `DELETE FROM b2c_foto_herramienta_orden WHERE uid_foto_herramienta_orden = ? AND tenant_id = ?`,
+        [req.params.uid_foto, tenantId]
       );
       try { fs.unlinkSync(path.join(UPLOADS_DIR, 'fotos-recepcion', foto.fho_archivo)); } catch {}
       res.json({ success: true });
@@ -113,8 +126,20 @@ router.post('/orders/:id/fotos-trabajo/:uid_herramienta_orden', uploadFoto.singl
   try {
     if (!req.file) return res.status(400).json({ error: 'No se recibió imagen' });
     await checkMagicBytes(req.file.path, ['image/']);
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
+      const [[maqCheck]] = await conn.execute(
+        `SELECT ho.uid_herramienta_orden
+         FROM b2c_herramienta_orden ho
+         JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
+         WHERE ho.uid_herramienta_orden = ? AND o.tenant_id = ?`,
+        [req.params.uid_herramienta_orden, tenantId]
+      );
+      if (!maqCheck) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(404).json({ error: 'Máquina no encontrada' });
+      }
       await conn.execute(
         `INSERT INTO b2c_foto_herramienta_orden (uid_herramienta_orden, fho_archivo, fho_nombre, fho_tipo)
          VALUES (?, ?, ?, 'trabajo')`,
@@ -139,17 +164,18 @@ router.post('/orders/:id/fotos-trabajo/:uid_herramienta_orden', uploadFoto.singl
 // ── Eliminar foto del trabajo ─────────────────────────────────────────────────
 router.delete('/orders/fotos-trabajo/:uid_foto', async (req, res) => {
   try {
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       const [[foto]] = await conn.execute(
         `SELECT fho_archivo FROM b2c_foto_herramienta_orden
-         WHERE uid_foto_herramienta_orden = ? AND fho_tipo = 'trabajo'`,
-        [req.params.uid_foto]
+         WHERE uid_foto_herramienta_orden = ? AND fho_tipo = 'trabajo' AND tenant_id = ?`,
+        [req.params.uid_foto, tenantId]
       );
       if (!foto) return res.status(404).json({ error: 'Foto no encontrada' });
       await conn.execute(
-        `DELETE FROM b2c_foto_herramienta_orden WHERE uid_foto_herramienta_orden = ?`,
-        [req.params.uid_foto]
+        `DELETE FROM b2c_foto_herramienta_orden WHERE uid_foto_herramienta_orden = ? AND tenant_id = ?`,
+        [req.params.uid_foto, tenantId]
       );
       try { fs.unlinkSync(path.join(UPLOADS_DIR, 'fotos-recepcion', foto.fho_archivo)); } catch {}
       res.json({ success: true });

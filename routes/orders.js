@@ -379,6 +379,7 @@ router.patch('/equipment-order/:equipmentOrderId/assign-technician', async (req,
   try {
     const { technicianId } = req.body;
     const equipmentOrderId = String(req.params.equipmentOrderId);
+    const tenantId = getTenantId(req);
 
     const conn = await db.getConnection();
     try {
@@ -401,8 +402,8 @@ router.patch('/equipment-order/:equipmentOrderId/assign-technician', async (req,
       }
 
       const [result] = await conn.execute(
-        `UPDATE b2c_herramienta_orden SET \`${techCol}\` = ? WHERE uid_herramienta_orden = ?`,
-        [valueToStore, equipmentOrderId]
+        `UPDATE b2c_herramienta_orden SET \`${techCol}\` = ? WHERE uid_herramienta_orden = ? AND tenant_id = ?`,
+        [valueToStore, equipmentOrderId, tenantId]
       );
       res.json({ success: true, affectedRows: result.affectedRows });
     } finally {
@@ -419,9 +420,10 @@ router.patch('/orders/:orderId/assign-technician', async (req, res) => {
   try {
     const { technicianId } = req.body;
 
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
-      const order = await resolveOrder(conn, req.params.orderId);
+      const order = await resolveOrder(conn, req.params.orderId, tenantId);
       if (!order) return res.status(404).json({ success: false, error: 'Orden no encontrada' });
 
       const techCol = await getHerramientaOrdenTechColumn(conn);
@@ -469,10 +471,13 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
 
     const conn = await db.getConnection();
     try {
-      await conn.execute(
-        `UPDATE b2c_herramienta_orden SET her_estado = ? WHERE uid_herramienta_orden = ?`,
-        [status, equipmentOrderId]
+      const [updateResult] = await conn.execute(
+        `UPDATE b2c_herramienta_orden SET her_estado = ? WHERE uid_herramienta_orden = ? AND tenant_id = ?`,
+        [status, equipmentOrderId, tenantId]
       );
+      if (updateResult.affectedRows === 0) {
+        return res.status(404).json({ success: false, error: 'Máquina no encontrada' });
+      }
       await conn.execute(
         `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, ?, ?)`,
         [equipmentOrderId, status, tenantId]
@@ -523,11 +528,12 @@ router.patch('/equipment-order/:equipmentOrderId/observaciones', async (req, res
   try {
     const { observaciones } = req.body;
     const uid = String(req.params.equipmentOrderId);
+    const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
       await conn.execute(
-        `UPDATE b2c_herramienta_orden SET hor_observaciones = ? WHERE uid_herramienta_orden = ?`,
-        [observaciones ?? null, uid]
+        `UPDATE b2c_herramienta_orden SET hor_observaciones = ? WHERE uid_herramienta_orden = ? AND tenant_id = ?`,
+        [observaciones ?? null, uid, tenantId]
       );
       res.json({ success: true });
     } finally {
