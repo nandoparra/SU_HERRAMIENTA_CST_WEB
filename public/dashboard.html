@@ -164,6 +164,72 @@
   </div>
 </div>
 
+<!-- ── Modal entrega de máquina ─────────────────────────────────────────── -->
+<div id="entregaOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9000;overflow-y:auto;padding:24px 16px;">
+  <div style="background:#fff;border-radius:12px;max-width:520px;margin:0 auto;padding:28px 28px 24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 style="margin:0;font-size:18px;color:#1d3557;">Confirmar entrega</h3>
+      <button onclick="ord_cancelarEntrega()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1;">&times;</button>
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:5px;">
+        Nombre de quien recoge <span style="color:#e53e3e;">*</span>
+      </label>
+      <input id="entNombre" type="text" placeholder="Nombre completo"
+        style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-size:14px;outline:none;">
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+      <div>
+        <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:5px;">
+          Teléfono <span style="color:#e53e3e;">*</span>
+        </label>
+        <input id="entTelefono" type="tel" placeholder="Ej: 3104650437"
+          style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-size:14px;outline:none;">
+      </div>
+      <div>
+        <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:5px;">
+          Cédula <span style="font-size:11px;color:#9ca3af;font-weight:400;">(opcional)</span>
+        </label>
+        <input id="entCedula" type="text" placeholder="Ej: 1088274441"
+          style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-size:14px;outline:none;">
+      </div>
+    </div>
+
+    <div style="margin-bottom:6px;">
+      <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:5px;">
+        Firma del cliente <span style="color:#e53e3e;">*</span>
+      </label>
+      <div style="position:relative;border:1.5px solid #d1d5db;border-radius:7px;overflow:hidden;background:#fafafa;touch-action:none;">
+        <canvas id="entFirmaCanvas" width="464" height="170"
+          style="display:block;width:100%;height:170px;cursor:crosshair;touch-action:none;">
+        </canvas>
+        <span id="entFirmaHint" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#c0c0c0;font-size:13px;pointer-events:none;user-select:none;">
+          Firme aquí con el dedo o mouse
+        </span>
+      </div>
+      <button onclick="ord_limpiarFirma()"
+        style="margin-top:6px;background:none;border:1px solid #d1d5db;border-radius:5px;padding:4px 12px;font-size:12px;color:#6b7280;cursor:pointer;">
+        ✕ Limpiar firma
+      </button>
+    </div>
+
+    <div id="entError" style="display:none;color:#e53e3e;font-size:13px;margin-bottom:10px;padding:8px 12px;background:#fff5f5;border-radius:6px;border:1px solid #fed7d7;"></div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">
+      <button onclick="ord_cancelarEntrega()"
+        style="padding:9px 20px;border:1.5px solid #d1d5db;border-radius:7px;background:#fff;color:#374151;font-size:14px;cursor:pointer;">
+        Cancelar
+      </button>
+      <button id="entBtnConfirmar" onclick="ord_confirmarEntrega()"
+        style="padding:9px 22px;border:none;border-radius:7px;background:#009688;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">
+        ✅ Confirmar entrega
+      </button>
+    </div>
+  </div>
+</div>
+
 <script src="/assets/dashboard.js"></script>
 </body>
 </html>

@@ -9,6 +9,9 @@ const fs     = require('fs');
 const { resolveOrder } = require('../utils/schema');
 const { requireInterno } = require('../middleware/auth');
 const { UPLOADS_DIR, checkMagicBytes } = require('../utils/uploads');
+const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
+const { parseColombianPhones } = require('../utils/phones');
+const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
 
 router.use(requireInterno);
@@ -236,6 +239,123 @@ router.post('/orders/:orderId/agregar-maquina', async (req, res) => {
     }
   } catch (e) {
     log.error({ err: e }, 'Error agregando máquina a orden:');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// ── Entregar máquina: captura datos + firma, cambia estado, envía WA ──────────
+const firmaStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(UPLOADS_DIR, 'firmas-entrega');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, `firma_${req.params.uid}_${Date.now()}.png`);
+  },
+});
+const uploadFirma = multer({
+  storage: firmaStorage,
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    file.mimetype === 'image/png' ? cb(null, true) : cb(new Error('La firma debe ser PNG'));
+  },
+});
+
+router.post('/orders/equipment/:uid/entregar', uploadFirma.single('firma'), async (req, res) => {
+  try {
+    const tenantId = getTenantId(req);
+    const uid = String(req.params.uid);
+    const { entrega_nombre, entrega_telefono, entrega_cedula } = req.body;
+
+    if (!entrega_nombre?.trim()) {
+      if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(400).json({ error: 'El nombre de quien recoge es obligatorio' });
+    }
+    if (!entrega_telefono?.trim()) {
+      if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(400).json({ error: 'El teléfono de quien recoge es obligatorio' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'La firma es obligatoria' });
+    }
+    await checkMagicBytes(req.file.path, ['image/png']);
+
+    const conn = await db.getConnection();
+    try {
+      // Verificar que la máquina pertenece a este tenant
+      const [[maqRow]] = await conn.execute(
+        `SELECT ho.uid_herramienta_orden, ho.uid_orden, ho.her_estado,
+                h.her_nombre, h.her_marca,
+                c.cli_razon_social, c.cli_telefono,
+                o.ord_consecutivo
+         FROM b2c_herramienta_orden ho
+         JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+         JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
+         JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+         WHERE ho.uid_herramienta_orden = ? AND o.tenant_id = ?`,
+        [uid, tenantId]
+      );
+      if (!maqRow) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(404).json({ error: 'Máquina no encontrada' });
+      }
+
+      await conn.execute(
+        `UPDATE b2c_herramienta_orden
+         SET her_estado = 'entregada',
+             hor_entrega_nombre   = ?,
+             hor_entrega_telefono = ?,
+             hor_entrega_cedula   = ?,
+             hor_entrega_firma    = ?,
+             hor_entrega_fecha    = NOW()
+         WHERE uid_herramienta_orden = ?`,
+        [entrega_nombre.trim(), entrega_telefono.trim(), entrega_cedula?.trim() || null, req.file.filename, uid]
+      );
+      await conn.execute(
+        `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, 'entregada', ?)`,
+        [uid, tenantId]
+      );
+
+      // WA: notificar entrega al cliente (misma plantilla que notify-delivered, fallo silencioso)
+      if (isReady(tenantId)) {
+        try {
+          const [entregadas] = await conn.execute(
+            `SELECT h.her_nombre, h.her_marca
+             FROM b2c_herramienta_orden ho
+             JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+             WHERE ho.uid_orden = ? AND ho.her_estado = 'entregada'
+             ORDER BY ho.uid_herramienta_orden`,
+            [maqRow.uid_orden]
+          );
+          const nombre = maqRow.cli_razon_social || 'cliente';
+          const lista = entregadas.map(m => `  • ${[m.her_nombre, m.her_marca].filter(Boolean).join(' ')}`).join('\n');
+          const msg =
+            `Hola ${nombre}, confirmamos la entrega de las siguientes herramientas:\n\n` +
+            `${lista}\n\n` +
+            `¡Gracias por confiar en nosotros!\n— SU HERRAMIENTA CST`;
+          const chatIds = parseColombianPhones(maqRow.cli_telefono);
+          for (const chatId of chatIds) {
+            sendWAMessage(tenantId, chatId, msg).catch(e => log.warn({ err: e.message }, 'WA entrega: fallo silencioso'));
+          }
+        } catch (e) {
+          log.warn({ err: e.message }, 'WA entrega: error preparando notificación');
+        }
+      }
+
+      await logAudit(db, {
+        tenantId, userId: req.session?.user?.id,
+        accion: 'estado_cambiado', entidad: 'herramienta_orden', uidEntidad: uid,
+        datosDespues: { estado: 'entregada', entrega_nombre: entrega_nombre.trim() },
+        ip: req.ip,
+      });
+
+      res.json({ success: true, status: 'entregada', firma: req.file.filename });
+    } finally {
+      conn.release();
+    }
+  } catch (e) {
+    log.error({ err: e }, 'Error registrando entrega:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

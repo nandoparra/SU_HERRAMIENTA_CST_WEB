@@ -893,6 +893,28 @@ async function ensureWaEstadoIdentificacion() {
   }
 }
 
+async function ensureEntregaColumns() {
+  const conn = await db.getConnection();
+  try {
+    const cols = [
+      [`ALTER TABLE b2c_herramienta_orden ADD COLUMN hor_entrega_nombre   VARCHAR(150) NULL`],
+      [`ALTER TABLE b2c_herramienta_orden ADD COLUMN hor_entrega_cedula   VARCHAR(30)  NULL`],
+      [`ALTER TABLE b2c_herramienta_orden ADD COLUMN hor_entrega_telefono VARCHAR(20)  NULL`],
+      [`ALTER TABLE b2c_herramienta_orden ADD COLUMN hor_entrega_firma    VARCHAR(255) NULL`],
+      [`ALTER TABLE b2c_herramienta_orden ADD COLUMN hor_entrega_fecha    DATETIME     NULL`],
+    ];
+    for (const [sql] of cols) {
+      try { await conn.execute(sql); }
+      catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    }
+    console.log('✅ Columnas de entrega en b2c_herramienta_orden verificadas');
+  } catch (e) {
+    console.warn('⚠️ No pude agregar columnas de entrega:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -923,6 +945,7 @@ async function runMigrations() {
   await ensureWaLidMapping();
   await ensureWaLidMappingUidCliente();
   await ensureWaEstadoIdentificacion();
+  await ensureEntregaColumns();
   console.log('Migraciones completadas');
 }
 

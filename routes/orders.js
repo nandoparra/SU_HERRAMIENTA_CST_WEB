@@ -562,6 +562,8 @@ router.get('/orders/:orderId/detalle', ordersLimiter, async (req, res) => {
       const [maquinas] = await conn.execute(
         `SELECT ho.uid_herramienta_orden, ho.her_estado, ho.hor_observaciones,
                 ho.hor_es_garantia, ho.hor_garantia_vence, ho.hor_garantia_factura,
+                ho.hor_entrega_nombre, ho.hor_entrega_telefono, ho.hor_entrega_cedula,
+                ho.hor_entrega_firma, ho.hor_entrega_fecha,
                 h.uid_herramienta, h.her_nombre, h.her_marca, h.her_serial, h.her_referencia
          FROM b2c_herramienta_orden ho
          JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta

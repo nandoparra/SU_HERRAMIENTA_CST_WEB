@@ -634,6 +634,17 @@ Views.ordenes = {
               <div class="informes-title">📋 Informes de mantenimiento</div>${informesHtml}
             </div>
             ${cotHtml}
+            ${m.her_estado === 'entregada' && m.hor_entrega_nombre ? `
+            <div style="margin-top:12px;padding:12px 14px;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0;">
+              <div style="font-size:12px;font-weight:700;color:#166534;margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px;">📦 Datos de entrega</div>
+              <div style="font-size:13px;color:#15803d;display:flex;flex-wrap:wrap;gap:6px 18px;margin-bottom:8px;">
+                <span><strong>Recibió:</strong> ${esc(m.hor_entrega_nombre)}</span>
+                <span><strong>Tel:</strong> ${esc(m.hor_entrega_telefono||'—')}</span>
+                ${m.hor_entrega_cedula ? `<span><strong>Cédula:</strong> ${esc(m.hor_entrega_cedula)}</span>` : ''}
+                ${m.hor_entrega_fecha ? `<span><strong>Fecha:</strong> ${new Date(m.hor_entrega_fecha).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>` : ''}
+              </div>
+              ${m.hor_entrega_firma ? `<div style="margin-top:6px;"><div style="font-size:11px;color:#166534;margin-bottom:4px;font-weight:600;">Firma:</div><img src="/uploads/firmas-entrega/${esc(m.hor_entrega_firma)}" alt="firma" style="max-width:280px;border:1px solid #86efac;border-radius:5px;background:#fff;display:block;"></div>` : ''}
+            </div>` : ''}
           </div>`;
       }).join('');
 
@@ -689,6 +700,12 @@ Views.ordenes = {
     };
     window.ord_cambiarEstado = async (uid, uidOrden, sel) => {
       const nuevo = sel.value; const prev = sel.dataset.prev||nuevo;
+      // Entregar requiere captura de datos y firma — abre modal dedicado
+      if (nuevo === 'entregada') {
+        sel.value = prev; // revertir selector visualmente mientras se llena el modal
+        ord_mostrarModalEntrega(uid, uidOrden, sel, prev);
+        return;
+      }
       sel.disabled = true;
       try {
         const r = await fetch(`${API}/equipment-order/${uid}/status`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:nuevo})});
@@ -697,7 +714,6 @@ Views.ordenes = {
           sel.dataset.prev = nuevo;
           const b = document.getElementById(`badge-${uid}`);
           if (b) { b.className='badge b-'+nuevo; b.textContent=ELBL[nuevo]||nuevo; }
-          // WA automático según estado
           if (nuevo === 'autorizada') {
             try {
               const rp = await fetch(`${API}/orders/${uidOrden}/notify-parts`,{method:'POST'}).then(r=>r.json());
@@ -705,11 +721,6 @@ Views.ordenes = {
             } catch(e) { showToast('⚠️ WA repuestos: '+e.message); }
           } else if (nuevo === 'reparada') {
             showToast('✅ Estado actualizado — WA enviado automáticamente al cliente');
-          } else if (nuevo === 'entregada') {
-            try {
-              const rd = await fetch(`${API}/orders/${uidOrden}/notify-delivered`,{method:'POST'}).then(r=>r.json());
-              showToast(rd.success ? '✅ Entrega confirmada por WA al cliente' : '⚠️ '+(rd.error||'Error'));
-            } catch(e) { showToast('⚠️ WA entrega: '+e.message); }
           }
         } else { alert('Error: '+(d.error||'desconocido')); sel.value=prev; }
       } catch(e) { alert(e.message); sel.value=prev; }
@@ -5272,3 +5283,140 @@ async function sol_cambiarEstado(uid, estado) {
   // Badge solicitudes pendientes (solo personal interno)
   if (!isTecnico()) sol_checkPending();
 })();
+
+// ─── Modal de entrega con firma ───────────────────────────────────────────────
+// Estado del modal (uid/uidOrden/sel/prev del selector que abrió el modal)
+let _entUid = null, _entUidOrden = null, _entSel = null, _entPrev = null;
+let _entFirmoAlgo = false;
+let _entDrawing = false;
+let _entLastX = 0, _entLastY = 0;
+
+function ord_mostrarModalEntrega(uid, uidOrden, sel, prev) {
+  _entUid = uid; _entUidOrden = uidOrden; _entSel = sel; _entPrev = prev;
+  document.getElementById('entNombre').value   = '';
+  document.getElementById('entTelefono').value = '';
+  document.getElementById('entCedula').value   = '';
+  document.getElementById('entError').style.display = 'none';
+  document.getElementById('entBtnConfirmar').disabled = false;
+  ord_limpiarFirma();
+  document.getElementById('entregaOverlay').style.display = 'block';
+  setTimeout(() => document.getElementById('entNombre').focus(), 80);
+  _ent_initCanvas();
+}
+
+function ord_cancelarEntrega() {
+  document.getElementById('entregaOverlay').style.display = 'none';
+  if (_entSel) { _entSel.value = _entPrev; _entSel.disabled = false; }
+  _entUid = _entUidOrden = _entSel = _entPrev = null;
+}
+
+function ord_limpiarFirma() {
+  _entFirmoAlgo = false;
+  const canvas = document.getElementById('entFirmaCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  document.getElementById('entFirmaHint').style.display = 'flex';
+}
+
+function _ent_initCanvas() {
+  const canvas = document.getElementById('entFirmaCanvas');
+  if (!canvas || canvas._entInited) return;
+  canvas._entInited = true;
+  const ctx = canvas.getContext('2d');
+
+  function getPos(e) {
+    const r = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / r.width;
+    const scaleY = canvas.height / r.height;
+    const src = e.touches ? e.touches[0] : e;
+    return { x: (src.clientX - r.left) * scaleX, y: (src.clientY - r.top) * scaleY };
+  }
+
+  function startDraw(e) {
+    e.preventDefault();
+    _entDrawing = true;
+    const p = getPos(e);
+    _entLastX = p.x; _entLastY = p.y;
+    document.getElementById('entFirmaHint').style.display = 'none';
+    _entFirmoAlgo = true;
+  }
+  function draw(e) {
+    if (!_entDrawing) return;
+    e.preventDefault();
+    const p = getPos(e);
+    ctx.beginPath();
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.moveTo(_entLastX, _entLastY);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    _entLastX = p.x; _entLastY = p.y;
+  }
+  function stopDraw() { _entDrawing = false; }
+
+  canvas.addEventListener('mousedown',  startDraw);
+  canvas.addEventListener('mousemove',  draw);
+  canvas.addEventListener('mouseup',    stopDraw);
+  canvas.addEventListener('mouseleave', stopDraw);
+  canvas.addEventListener('touchstart', startDraw, { passive: false });
+  canvas.addEventListener('touchmove',  draw,      { passive: false });
+  canvas.addEventListener('touchend',   stopDraw);
+}
+
+function _ent_showError(msg) {
+  const el = document.getElementById('entError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+async function ord_confirmarEntrega() {
+  const nombre   = document.getElementById('entNombre').value.trim();
+  const telefono = document.getElementById('entTelefono').value.trim();
+  const cedula   = document.getElementById('entCedula').value.trim();
+  document.getElementById('entError').style.display = 'none';
+
+  if (!nombre)    { _ent_showError('El nombre de quien recoge es obligatorio.'); document.getElementById('entNombre').focus(); return; }
+  if (!telefono)  { _ent_showError('El teléfono de quien recoge es obligatorio.'); document.getElementById('entTelefono').focus(); return; }
+  if (!_entFirmoAlgo) { _ent_showError('La firma es obligatoria. Por favor firme en el recuadro.'); return; }
+
+  const btn = document.getElementById('entBtnConfirmar');
+  btn.disabled = true;
+  btn.textContent = '⏳ Guardando...';
+
+  try {
+    const canvas = document.getElementById('entFirmaCanvas');
+    const firmaBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+
+    const fd = new FormData();
+    fd.append('entrega_nombre',   nombre);
+    fd.append('entrega_telefono', telefono);
+    if (cedula) fd.append('entrega_cedula', cedula);
+    fd.append('firma', firmaBlob, 'firma.png');
+
+    const r = await fetch(`${API}/orders/equipment/${_entUid}/entregar`, { method: 'POST', body: fd });
+    const d = await r.json();
+
+    if (d.success) {
+      document.getElementById('entregaOverlay').style.display = 'none';
+      // Actualizar badge y selector en la UI
+      const badge = document.getElementById(`badge-${_entUid}`);
+      if (badge) { badge.className = 'badge b-entregada'; badge.textContent = 'Entregada'; }
+      if (_entSel) { _entSel.value = 'entregada'; _entSel.dataset.prev = 'entregada'; _entSel.disabled = false; }
+      showToast('✅ Entrega registrada — WA enviado al cliente');
+      // Recargar detalle para mostrar datos y firma
+      if (_entUidOrden) ord_verDetalle(_entUidOrden);
+      _entUid = _entUidOrden = _entSel = _entPrev = null;
+    } else {
+      _ent_showError(d.error || 'Error registrando la entrega');
+      btn.disabled = false;
+      btn.textContent = '✅ Confirmar entrega';
+    }
+  } catch(e) {
+    _ent_showError('Error de conexión: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = '✅ Confirmar entrega';
+  }
+}
