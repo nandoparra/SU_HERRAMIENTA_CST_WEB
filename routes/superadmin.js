@@ -73,7 +73,9 @@ router.get('/tenants', requireSuperadmin, async (req, res) => {
       `SELECT uid_tenant, ten_nombre, ten_slug, ten_slug_locked,
               ten_dominio_custom, ten_logo, ten_color_primary, ten_color_accent,
               ten_wa_number, ten_wa_parts_number, ten_estado, ten_plan,
-              ten_vence, ten_created_at
+              ten_vence, ten_created_at,
+              addon_contabilidad,
+              ten_agente_wa, ten_agente_wa_hora_inicio, ten_agente_wa_hora_fin
        FROM b2c_tenant
        ORDER BY uid_tenant`
     );
@@ -136,6 +138,7 @@ router.patch('/tenants/:id', requireSuperadmin, async (req, res) => {
     'ten_wa_number', 'ten_wa_parts_number',
     'ten_estado', 'ten_plan', 'ten_vence',
     'addon_contabilidad',
+    'ten_agente_wa', 'ten_agente_wa_hora_inicio', 'ten_agente_wa_hora_fin',
   ];
 
   const conn = await db.getConnection();

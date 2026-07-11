@@ -226,10 +226,26 @@
       </div>
       <div class="full" style="border-top:1px solid #e2e8f0;padding-top:14px;margin-top:4px;">
         <p style="font-size:12px;font-weight:700;color:#64748b;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px;">Módulos / Addons</p>
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px;">
           <input type="checkbox" id="f_addon_contabilidad" style="width:16px;height:16px;cursor:pointer;accent-color:#7c3aed;">
           <span style="font-size:14px;">Módulo Contable con IA <small style="color:#64748b;">(egresos, Claude Vision, estado de resultados)</small></span>
         </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+          <input type="checkbox" id="f_agente_wa" style="width:16px;height:16px;cursor:pointer;accent-color:#16a34a;">
+          <span style="font-size:14px;">Agente WhatsApp IA <small style="color:#64748b;">(responde clientes automáticamente)</small></span>
+        </label>
+        <div id="f_agente_wa_horario" style="margin-top:10px;padding:10px 14px;background:#f0fdf4;border-radius:6px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <span style="font-size:13px;color:#166534;font-weight:600;">Horario de atención (hora Colombia):</span>
+          <label style="font-size:13px;color:#15803d;display:flex;align-items:center;gap:6px;">
+            Desde
+            <input type="number" id="f_hora_inicio" min="0" max="23" style="width:60px;padding:4px 6px;border:1px solid #86efac;border-radius:4px;font-size:13px;">h
+          </label>
+          <label style="font-size:13px;color:#15803d;display:flex;align-items:center;gap:6px;">
+            Hasta
+            <input type="number" id="f_hora_fin" min="0" max="24" style="width:60px;padding:4px 6px;border:1px solid #86efac;border-radius:4px;font-size:13px;">h (exclusivo)
+          </label>
+          <small style="color:#64748b;font-size:11px;">Ej: 7 – 21 atiende de 7:00 a 20:59</small>
+        </div>
       </div>
     </div>
     <div class="modal-actions">

@@ -86,7 +86,7 @@ async function createTenantClient(tenantId) {
           const phone = phoneJid.replace(/@[a-z.]+$/, '');
           info._lidToPhone.set(lidJid, phone);
           info._lidToPhone.set(lidJid.split('@')[0], phone);
-          log.info(`[WA] contacts LID: ****${lidJid.split('@')[0].slice(-4)} → ****${phone.slice(-4)}`);
+          log.debug(`[WA] contacts LID: ****${lidJid.split('@')[0].slice(-4)} → ****${phone.slice(-4)}`);
         }
       } else {
         withoutLid++;
