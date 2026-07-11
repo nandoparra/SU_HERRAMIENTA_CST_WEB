@@ -140,6 +140,7 @@ app.use('/api', require('./routes/ventas'));
 app.use('/api', require('./routes/financiero'));
 app.use('/api', require('./routes/contable'));
 app.use('/api', require('./routes/solicitudes-taller'));
+app.use('/api', require('./routes/wa-conversaciones'));
 app.use('/api', require('./routes/alegra'));
 
 // Health — solo usuarios internos autenticados
