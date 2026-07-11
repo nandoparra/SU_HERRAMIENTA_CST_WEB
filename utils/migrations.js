@@ -965,7 +965,9 @@ async function _doArchivar(conn) {
     `);
     await conn.commit();
     if (del.affectedRows > 0) {
-      console.log(`✅ Archivadas ${del.affectedRows} conversaciones WA (>90 días)`);
+      console.log(`✅ [Archivo WA] Archivadas ${del.affectedRows} conversaciones (>90 días)`);
+    } else {
+      console.log('[Archivo WA] Sin conversaciones >90 días — nada que archivar');
     }
   } catch (e) {
     await conn.rollback().catch(() => {});
@@ -974,6 +976,7 @@ async function _doArchivar(conn) {
 }
 
 async function archivarConversacionesAntiguas() {
+  console.log('[Archivo WA] Iniciando archivado de conversaciones antiguas...');
   const conn = await db.getConnection();
   try {
     await _doArchivar(conn);
