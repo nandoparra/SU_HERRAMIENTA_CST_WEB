@@ -140,7 +140,7 @@ const VIEW_LABELS = {
   inicio:'Inicio', ordenes:'Órdenes', cotizaciones:'Cotizaciones',
   clientes:'Clientes', funcionarios:'Funcionarios', inventario:'Inventario',
   recibos:'Recibos', ventas:'Ventas', finanzas:'Finanzas', contable:'Contable',
-  solicitudesTaller:'Recogidas',
+  solicitudesTaller:'Recogidas', waConversaciones:'Conversaciones WA Agente',
   nuevaOrden:'Nueva Orden',
   misOrdenes:'Mis Órdenes', buscarOrden:'Buscar Orden'
 };
@@ -5237,6 +5237,146 @@ async function sol_cambiarEstado(uid, estado) {
   }).then(x => x.json()).catch(() => ({ error:'Error de red' }));
   if (r.success) { showToast('✅ Estado actualizado'); await sol_cargar(); sol_checkPending(); }
   else alert('Error: ' + (r.error || 'No se pudo actualizar'));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// VISTA: WA CONVERSACIONES — historial del agente IA con clientes
+// ════════════════════════════════════════════════════════════════════════════
+Views.waConversaciones = {
+  render() {
+    return `
+      <div style="max-width:820px;margin:0 auto;padding:20px 16px;">
+        <div style="margin-bottom:18px;">
+          <input id="wacSearch" type="text" placeholder="Buscar por nombre de cliente o número de teléfono..."
+            style="width:100%;box-sizing:border-box;padding:10px 14px;border:1.5px solid #d1d5db;
+                   border-radius:8px;font-size:14px;outline:none;"
+            oninput="wac_buscarDebounce()">
+        </div>
+        <div id="wacContent"></div>
+      </div>`;
+  },
+  init() { wac_cargar(); },
+};
+
+let _wacTimer = null;
+
+function wac_buscarDebounce() {
+  clearTimeout(_wacTimer);
+  _wacTimer = setTimeout(wac_cargar, 350);
+}
+
+function wac_fmtFecha(iso) {
+  if (!iso) return '';
+  const d   = new Date(iso);
+  const hoy = new Date();
+  if (d.toDateString() === hoy.toDateString()) {
+    return d.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+  }
+  return d.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: '2-digit' }) +
+    ' ' + d.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+}
+
+async function wac_cargar() {
+  const q   = (document.getElementById('wacSearch')?.value || '').trim();
+  const cnt = document.getElementById('wacContent');
+  if (!cnt) return;
+  cnt.innerHTML = '<p style="color:#9ca3af;font-size:14px;text-align:center;padding:30px 0;">Cargando...</p>';
+  try {
+    const url  = `${API}/wa/conversaciones${q ? `?q=${encodeURIComponent(q)}` : ''}`;
+    const data = await fetch(url).then(r => r.json());
+    if (!Array.isArray(data) || data.length === 0) {
+      cnt.innerHTML = `<p style="color:#9ca3af;font-size:14px;text-align:center;padding:40px 0;">
+        ${q ? 'Sin resultados para esa búsqueda.' : 'No hay conversaciones registradas todavía.'}</p>`;
+      return;
+    }
+    cnt.innerHTML = data.map(c => `
+      <div onclick="wac_verDetalle('${esc(c.token)}')"
+        style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;
+               margin-bottom:10px;cursor:pointer;transition:box-shadow .15s;"
+        onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,.1)'"
+        onmouseout="this.style.boxShadow='none'">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+          <div style="min-width:0;">
+            <div style="font-size:14px;font-weight:600;color:#1d3557;">${esc(c.wa_phone_masked)}</div>
+            <div style="font-size:12px;margin-top:2px;color:${c.nombre_cliente ? '#4b5563' : '#9ca3af'};">
+              ${c.nombre_cliente ? esc(c.nombre_cliente) : 'Cliente no identificado'}
+            </div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="font-size:11px;color:#9ca3af;">${wac_fmtFecha(c.ultimo_at)}</div>
+            <span style="display:inline-block;background:#e0e7ff;color:#3730a3;font-size:11px;
+                         padding:1px 8px;border-radius:10px;margin-top:3px;">
+              ${c.total_mensajes} msgs
+            </span>
+          </div>
+        </div>
+        <div style="margin-top:8px;font-size:13px;color:#6b7280;
+                    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          <span style="font-size:11px;padding:1px 6px;border-radius:4px;margin-right:6px;
+                       background:${c.ultimo_mensaje_rol === 'assistant' ? '#dbeafe' : '#f3f4f6'};
+                       color:${c.ultimo_mensaje_rol === 'assistant' ? '#1d4ed8' : '#6b7280'};">
+            ${c.ultimo_mensaje_rol === 'assistant' ? '🤖 Agente' : '👤 Cliente'}
+          </span>${esc(c.ultimo_mensaje || '')}
+        </div>
+      </div>`).join('');
+  } catch (e) {
+    cnt.innerHTML = '<p style="color:#e53e3e;font-size:14px;">Error cargando conversaciones.</p>';
+  }
+}
+
+async function wac_verDetalle(token) {
+  const cnt = document.getElementById('wacContent');
+  if (!cnt) return;
+  cnt.innerHTML = '<p style="color:#9ca3af;font-size:14px;text-align:center;padding:30px 0;">Cargando conversación...</p>';
+  try {
+    const data = await fetch(`${API}/wa/conversaciones/detalle/${encodeURIComponent(token)}`).then(r => r.json());
+    if (data.error) { cnt.innerHTML = `<p style="color:#e53e3e;">${esc(data.error)}</p>`; return; }
+
+    const clienteHtml = data.nombre_cliente
+      ? `<span style="font-weight:600;">${esc(data.nombre_cliente)}</span>` +
+        (data.cli_identificacion
+          ? ` <span style="color:#9ca3af;font-size:12px;">CC/NIT ${esc(data.cli_identificacion)}</span>`
+          : '')
+      : '<span style="color:#9ca3af;">Cliente no identificado</span>';
+
+    const mensajesHtml = (data.mensajes || []).map(m => {
+      const esAgente = m.rol === 'assistant';
+      return `
+        <div style="display:flex;justify-content:${esAgente ? 'flex-end' : 'flex-start'};margin-bottom:10px;">
+          <div style="max-width:72%;padding:10px 14px;font-size:13px;line-height:1.5;
+                      border-radius:${esAgente ? '14px 14px 4px 14px' : '14px 14px 14px 4px'};
+                      background:${esAgente ? '#dbeafe' : '#f3f4f6'};
+                      color:${esAgente ? '#1e3a5f' : '#374151'};">
+            <div style="white-space:pre-wrap;word-break:break-word;">${esc(m.contenido)}</div>
+            <div style="font-size:10px;margin-top:5px;text-align:right;
+                        color:${esAgente ? '#60a5fa' : '#9ca3af'};">
+              ${esAgente ? '🤖 Agente' : '👤 Cliente'} · ${wac_fmtFecha(m.created_at)}
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    cnt.innerHTML = `
+      <div>
+        <button onclick="wac_cargar()"
+          style="background:none;border:1px solid #d1d5db;border-radius:7px;padding:6px 14px;
+                 font-size:13px;cursor:pointer;color:#374151;margin-bottom:16px;">
+          ← Volver a la lista
+        </button>
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:14px;">
+          <div style="font-size:16px;font-weight:700;color:#1d3557;margin-bottom:4px;">
+            ${esc(data.wa_phone)}
+          </div>
+          <div style="font-size:13px;">${clienteHtml}</div>
+        </div>
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;
+                    max-height:65vh;overflow-y:auto;">
+          ${mensajesHtml || '<p style="color:#9ca3af;text-align:center;padding:20px 0;">Sin mensajes registrados.</p>'}
+        </div>
+      </div>`;
+  } catch (e) {
+    cnt.innerHTML = '<p style="color:#e53e3e;font-size:14px;">Error cargando la conversación.</p>';
+  }
 }
 
 // ── Session init ──────────────────────────────────────────────────────────────

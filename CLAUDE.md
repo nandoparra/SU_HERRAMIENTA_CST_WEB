@@ -1408,6 +1408,30 @@ Protege contra abuso de API (gasto ilimitado de tokens) cuando números desconoc
 **DEPENDENCIA CRÍTICA — P1-1 (`_enqueue`):**
 `checkRateLimit` hace read-compute-write sin transacción BD. Es atómico SOLO porque `_enqueue(${tenantId}:${senderPhone})` en `wa-handler.js` serializa los mensajes de cada número. Si se elimina `_enqueue` o el sistema escala a múltiples instancias sin lock distribuido, el rate limit puede ser evadido con mensajes simultáneos del mismo número sin que nadie lo note. Ver comentario en `handleAgente`.
 
+### Vista de conversaciones WA en el dashboard
+
+Vista de administrador para revisar el historial del agente IA con clientes. Acceso: admin-only (nav item "💬 WA Agente", `admin-only` class).
+
+**Endpoints** (`routes/wa-conversaciones.js`, montado en server.js bajo `/api`):
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/wa/conversaciones?q=` | Lista (una fila/número). Teléfono enmascarado en backend. LIMIT 50. |
+| GET | `/wa/conversaciones/detalle/:token` | Detalle completo — aquí sí aparece el teléfono completo. |
+
+**Seguridad de números de teléfono:**
+- Lista: backend envía `wa_phone_masked` (ej. `310****437`) + `token` (HMAC-SHA256 de `tenantId:phone` con `SESSION_SECRET`, 32 chars hex). El número completo **no aparece** en la respuesta de lista.
+- Detalle: el token se resuelve server-side (scan O(N) de phones del tenant, HMAC comparison). Solo aquí se expone el número completo — el admin lo ve deliberadamente al entrar a una conversación específica.
+- `utils/wa-conversaciones.js` exporta `maskPhone()`, `makeConversacionToken()`, `resolveConversacionToken()` — las tres son puras/testeables sin BD.
+
+**Búsqueda `?q=`:** LIKE sobre `wa_phone` (texto, no solo dígitos) y `cli_razon_social` (vía JOIN a `b2c_wa_lid_mapping` → `b2c_cliente`). Clientes no identificados no aparecen en búsquedas por nombre.
+
+**JOIN para identificar cliente:** `b2c_wa_lid_mapping.wa_phone` → `b2c_cliente`. Si no hay mapping, `nombre_cliente = null` → "Cliente no identificado" en la UI.
+
+**`b2c_wa_conversacion_archivo`:** NO incluida en esta vista (v1). Solo cubre la tabla activa. Agregar toggle `?archivo=1` en segunda vuelta si hace falta.
+
+**Límite conocido:** LIMIT 50 sin paginación — consistente con el patrón del proyecto (búsquedas de clientes: 30, órdenes: 50). Revisar si el volumen de conversaciones activas crece significativamente (>100 por tenant).
+
 ---
 
 ## Entrega de máquinas con firma
