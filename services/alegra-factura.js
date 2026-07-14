@@ -99,12 +99,18 @@ async function generarFactura({ orden, cliente, maquinas, paymentForm = 'CASH', 
 
   const items = maquinas
     .filter(m => Number(m.subtotal) > 0)
-    .map(m => ({
-      id: ALEGRA_SERVICIO_ID,
-      price: Number(m.subtotal),
-      quantity: 1,
-      description: [m.her_nombre, m.her_marca].filter(Boolean).join(' ') || 'Reparación',
-    }));
+    .map(m => {
+      const nombreMaquina = [m.her_nombre, m.her_marca].filter(Boolean).join(' ') || 'Reparación';
+      const descripcion   = m.descripcion_trabajo
+        ? `${nombreMaquina} — ${m.descripcion_trabajo}`
+        : nombreMaquina;
+      return {
+        id: ALEGRA_SERVICIO_ID,
+        price: Number(m.subtotal),
+        quantity: 1,
+        description: descripcion,
+      };
+    });
 
   if (!items.length) {
     const err = new Error('No hay máquinas con cotización para facturar');
@@ -112,17 +118,40 @@ async function generarFactura({ orden, cliente, maquinas, paymentForm = 'CASH', 
     throw err;
   }
 
-  const invoice = await alegraPost('/invoices', {
-    date: invoiceDate,
-    dueDate: invoiceDate,
-    client: { id: contactId },
-    items,
-    paymentForm,
-    paymentMethod,
-    status: 'open',
-    numberTemplate: { id: ALEGRA_TEMPLATE_ID },
-    observations: `Orden de servicio #${orden.ord_consecutivo}`,
-  });
+  let invoice;
+  try {
+    invoice = await alegraPost('/invoices', {
+      date: invoiceDate,
+      dueDate: invoiceDate,
+      client: { id: contactId },
+      items,
+      paymentForm,
+      paymentMethod,
+      status: 'open',
+      stamp: 'true',
+      numberTemplate: { id: ALEGRA_TEMPLATE_ID },
+      observations: `Orden de servicio #${orden.ord_consecutivo}`,
+    });
+  } catch (e) {
+    // Traducir errores comunes de timbrado DIAN a mensajes accionables
+    const msg = String(e.alegraBody?.message || e.message || '').toLowerCase();
+    if (msg.includes('numeraci') || msg.includes('agotad') || msg.includes('resoluci')) {
+      const err = new Error('La resolución de numeración DIAN está agotada — configura un nuevo rango en Alegra antes de continuar');
+      err.status = 422;
+      throw err;
+    }
+    if (msg.includes('dian') || msg.includes('timbre') || msg.includes('stamp')) {
+      const err = new Error(`Error de timbrado DIAN: ${e.alegraBody?.message || e.message}. Reintenta en unos minutos o emite manualmente desde Alegra`);
+      err.status = 502;
+      throw err;
+    }
+    if (msg.includes('habilitad') || msg.includes('no tiene') || msg.includes('electroni')) {
+      const err = new Error('La cuenta de Alegra no tiene facturación electrónica habilitada — actívala en Configuración → Facturación electrónica');
+      err.status = 422;
+      throw err;
+    }
+    throw e;
+  }
 
   return {
     alegraId: invoice.id,

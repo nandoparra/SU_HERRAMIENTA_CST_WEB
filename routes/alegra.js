@@ -75,7 +75,7 @@ router.post('/alegra/invoices/:orderId', async (req, res) => {
       }
 
       const [maquinas] = await conn.execute(
-        `SELECT h.her_nombre, h.her_marca, cm.subtotal
+        `SELECT h.her_nombre, h.her_marca, cm.subtotal, cm.descripcion_trabajo
          FROM b2c_herramienta_orden ho
          JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
          JOIN b2c_cotizacion_maquina cm

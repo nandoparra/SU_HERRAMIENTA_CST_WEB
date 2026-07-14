@@ -1143,6 +1143,7 @@ window.ord_abrirModalFactura = function(uidOrden) {
       </div>
     </div>
 
+    <div id="facturaModalError" style="display:none;margin:10px 0 0;padding:10px 12px;background:#fdecea;border:1px solid #e57373;border-radius:6px;color:#b71c1c;font-size:13px;line-height:1.5;"></div>
     <div class="modal-actions">
       <button class="btn btn-grey" onclick="document.getElementById('facturaModal').remove()">Cancelar</button>
       <button class="btn btn-teal" id="btnEnviarFactura" onclick="ord_enviarFactura(${uidOrden},this)">Generar en Alegra</button>
@@ -1155,6 +1156,8 @@ window.ord_enviarFactura = async function(uidOrden, btn) {
   const paymentForm   = document.getElementById('facFormaPago').value;
   const paymentMethod = document.getElementById('facMetodoPago').value;
   const date          = document.getElementById('facFecha').value;
+  const errDiv = document.getElementById('facturaModalError');
+  if (errDiv) errDiv.style.display = 'none';
   const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Generando...';
   try {
     const r = await fetch(`${API}/alegra/invoices/${uidOrden}`, {
@@ -1169,7 +1172,10 @@ window.ord_enviarFactura = async function(uidOrden, btn) {
     showToast('✅ Factura electrónica emitida en Alegra');
     ord_verDetalle(uidOrden);
   } catch (e) {
-    alert('⚠️ ' + e.message);
+    if (errDiv) {
+      errDiv.textContent = '⚠️ ' + e.message;
+      errDiv.style.display = 'block';
+    }
     btn.disabled = false; btn.textContent = orig;
   }
 };
