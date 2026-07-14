@@ -202,6 +202,7 @@ hotfix/logs-pii                PII fix wa-handler.js (Ley 1581) — MERGEADO 202
 hotfix/pdf-cotizacion          PDF cotización fixes + IVA por tenant — MERGEADO 2026-04-26
 feature/calidad-fase1-fase2    Sentry, GitHub Actions CI, CHANGELOG, getTenantId, ten_vence enforcement — MERGEADO 2026-05-21
 feature/calidad-fase3          Error middleware, timeout Claude, SSE streaming contable — MERGEADO 2026-05-21
+feature/fase1-seguridad        SEC-01..05 IDOR tenant isolation + pwd_must_change frontend — MERGEADO 2026-07-11
 ```
 
 ---
@@ -1048,6 +1049,45 @@ logAudit(req, accion, entidad, entidadId, detalle = {})
 - `utils/pdf-generator.js` línea 5: `const { UPLOADS_DIR } = require('./uploads')` (era `require('./uploads')` sin desestructurar — TypeError en producción al generar informes)
 - `middleware/auth.js`: `isApi` usa `req.originalUrl.startsWith('/api/')` (no `req.path` — el path pierde el prefijo `/api` cuando se monta bajo ese namespace)
 - `b2c_usuario.pwd_must_change TINYINT(1) DEFAULT 0` — migración auto; usuarios existentes quedan con `false`
+
+---
+
+## Seguridad — Fase 1 (feature/fase1-seguridad, mergeado a main 2026-07-11)
+
+Auditoría enfocada en IDOR multi-tenant y autenticación. Commit: `3464439`.
+**Tag de rollback**: `pre-fase1-seguridad-20260711` → `76ca159`
+
+### Hallazgos corregidos
+
+| ID | Severidad | Hallazgo | Archivo | Fix |
+|----|-----------|---------|---------|-----|
+| SEC-01 | CRÍTICO | IDOR cambio de estado — WA falso al cliente equivocado | `routes/orders.js` | `AND tenant_id = ?` en UPDATE + early return si `affectedRows === 0` (bloquea WA) |
+| SEC-02 | ALTO | IDOR asignación técnico — 2 variantes sin filtro tenant | `routes/orders.js` | `AND tenant_id = ?` en assign-by-machine; `tenantId` pasado a `resolveOrder()` |
+| SEC-03 | ALTO | IDOR observaciones editables sin filtro tenant | `routes/orders.js` | `AND tenant_id = ?` en UPDATE `hor_observaciones` |
+| SEC-04 | CRÍTICO | IDOR `fs.unlinkSync` fotos sin verificar tenant — borrado irreversible | `routes/orders-fotos.js` | SELECT + DELETE con `AND tenant_id = ?` en ambas rutas de borrado |
+| SEC-05 | ALTO | IDOR upload fotos sin verificar propiedad de la máquina | `routes/orders-fotos.js` | SELECT de propiedad vía JOIN `b2c_orden` + `tenant_id` antes de INSERT |
+
+**Patrón de todos los fixes**: `affectedRows === 0` tras UPDATE con filtro tenant → 404 inmediato. Para SEC-04 el SELECT previo protege el `fs.unlinkSync` irreversible.
+
+### pwd_must_change — frontend completado
+
+- **Backend** (pre-existente en `middleware/auth.js`): bloquea llamadas API con 403 si `pwd_must_change=true`
+- **Frontend** (nuevo en `dashboard.html` + `dashboard.js`): modal bloqueante antes de `navigate()`
+  - IIFE de sesión verifica `me.user.pwd_must_change` → si `true`, muestra overlay, no entra al dashboard
+  - Campos: contraseña actual / nueva / confirmar → `POST /change-password` → desbloquea
+- **Producción 2026-07-11**: 2 cuentas tipo F activadas con `pwd_must_change=1`:
+  - uid=2 "Funcionario" (login: `fun`)
+  - uid=92 "MARGARITA ROSA ZAPATA" (login: `MZAPATA`)
+
+### Hallazgo nuevo — SEC-12 (backlog Fase 3/4, NO implementado en Fase 1)
+
+`usu_tipo='T'` (técnico) restringido **solo en el frontend** (sidebar oculto).
+`requireInterno` pasa A, F y T con permisos idénticos en el backend.
+Severidad: ALTO. Un técnico puede llamar cualquier endpoint interno autenticado.
+
+### Tests
+
+`tests/fase1-seguridad.test.js` — 20 tests unitarios (sin BD): SEC-01 (4), SEC-02 (3), SEC-03 (2), SEC-04 (4), SEC-05 (3), pwd_must_change (4). Todos pasan.
 
 ---
 
