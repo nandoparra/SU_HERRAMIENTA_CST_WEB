@@ -318,6 +318,19 @@ Rate limiting por usuario (session uid) con fallback IP:
    - `tests/phones.test.js` — 13 casos: null/vacío, móvil válido, prefijo 57, fijos descartados, separadores, deduplicación
    - `tests/uploads.test.js` — 5 casos: env override, magic bytes PNG/PDF aceptados, archivo inválido rechazado y borrado
    - **Bug encontrado**: `utils/uploads.js` usaba `fileTypeFromFile` (nombre de `file-type@17+`) en vez de `fromFile` (`file-type@16`). `checkMagicBytes` lanzaba TypeError silenciosamente desde siempre. Corregido.
+
+**Clasificación de tests — por qué algunos siempre fallan sin servidor**
+
+Hay dos tipos de test en `tests/`:
+
+| Tipo | Archivos | Requiere servidor | Siempre pasan en CI |
+|------|----------|-------------------|---------------------|
+| **Unitarios** | `dias-habiles`, `phones`, `uploads`, `fase1-seguridad`, `bulk-operaciones`, `wa-conversaciones` | No | ✅ |
+| **Integración** | `financiero-endpoints`, `ventas`, `hotfix-ventas-ux`, `sprint4-ui`, `sprint5-ui` | Sí (localhost:3001 + DB) | ❌ (fallan sin servidor) |
+
+Los tests de integración hacen `fetch('http://localhost:3001/...')`. Sin servidor → `ECONNREFUSED`.
+
+**Problema del rate limiter al correr `tests/*.test.js` en bloque**: el endpoint `/login` tiene límite de 10 intentos / 15 minutos en memoria. Al ejecutar todos los archivos juntos con `node --test tests/*.test.js`, varios archivos de integración intentan hacer login en secuencia. A partir del intento #11 el servidor responde `429` — los archivos que ejecutan después del límite fallan aunque el servidor esté corriendo. Solución: reiniciar el servidor (limpia el limiter en memoria) antes de correr los tests de integración, o correrlos individualmente (`node --test tests/ventas.test.js`).
 2. **isolation-test.js Sección 8** — 4 casos IDOR SEC-018: T1 no puede GET/POST cotización de máquina T2 (cross-tenant), T2 sí puede (happy path), T1 orderId+T2 machineId cross-order bloqueado.
 3. **services/quote-machine.js** (nuevo) — extrae lógica del `POST /quotes/machine` (~80 líneas, 6 queries, 1 transacción). Firma: `saveMachineQuote(params, { conn, tenantId }) → { subtotal, orderSubtotal, total }`. Lanza `Error` con `.status=403` si la máquina no pertenece a la orden. Handler en `routes/quote.js` queda en ~20 líneas.
 
@@ -980,7 +993,7 @@ node smoke-test.js --admin <login> --pass <clave> \
 | 13 | Logout |
 
 **Rate limiter**: si se acumulan intentos fallidos de login, el servidor puede responder 429.
-Reiniciar el servidor limpia el rate limiter en memoria.
+Reiniciar el servidor limpia el rate limiter en memoria. Ver también la nota "Clasificación de tests" en Sprint 6 — el mismo problema afecta a `npm test` en bloque cuando varios archivos de integración comparten el límite de intentos de login.
 
 ---
 

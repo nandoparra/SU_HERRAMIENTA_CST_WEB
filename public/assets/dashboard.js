@@ -514,6 +514,9 @@ Views.ordenes = {
       document.getElementById('ordPanel')?.classList.remove('immersive');
     };
     window.ord_verDetalle = async (uid) => {
+      // Limpiar selección bulk al navegar a otro detalle
+      const bar = document.getElementById('bulkBar');
+      if (bar) bar.style.display = 'none';
       document.querySelectorAll('#ordResults .result-card').forEach(el => {
         el.classList.toggle('active', el.onclick?.toString().includes(`(${uid})`));
       });
@@ -580,7 +583,10 @@ Views.ordenes = {
         return `
           <div class="maq-card">
             <div class="maq-top">
-              <div>
+              <input type="checkbox" class="maq-check" data-uid="${m.uid_herramienta_orden}" data-estado="${m.her_estado||'pendiente_revision'}"
+                style="width:18px;height:18px;cursor:pointer;accent-color:#1d3557;margin-right:8px;flex-shrink:0;margin-top:2px;"
+                onchange="ord_toggleBulkBar()">
+              <div style="flex:1;min-width:0;">
                 <div class="maq-nombre">${esc(m.her_nombre||'-')}</div>
                 ${sub?`<div class="maq-sub">${esc(sub)}</div>`:''}
                 ${garantiaBadge}
@@ -5482,18 +5488,105 @@ async function pwd_confirmarCambio() {
   if (!isTecnico()) sol_checkPending();
 })();
 
+// ─── Operaciones masivas de máquinas ──────────────────────────────────────────
+
+const _BULK_PERMITIDOS = {
+  A: ['revisada', 'cotizada', 'autorizada', 'no_autorizada', 'reparada'],
+  F: ['revisada', 'cotizada', 'autorizada', 'no_autorizada', 'reparada'],
+  T: ['revisada'],
+};
+
+window.ord_toggleBulkBar = function() {
+  const checked = [...document.querySelectorAll('#ordRight .maq-check:checked')];
+  const bar = document.getElementById('bulkBar');
+  if (!bar) return;
+  if (!checked.length) { bar.style.display = 'none'; return; }
+
+  bar.style.display = 'flex';
+  const n = checked.length;
+  document.getElementById('bulkCount').textContent = `${n} máquina${n > 1 ? 's' : ''} seleccionada${n > 1 ? 's' : ''}`;
+
+  const tipo = _currentUser?.tipo;
+  const permitidos = _BULK_PERMITIDOS[tipo] || [];
+  const sel = document.getElementById('bulkEstadoSel');
+  if (sel) sel.innerHTML = permitidos.map(s => `<option value="${s}">${TEC_ELBL[s] || s}</option>`).join('');
+
+  const entregarBtn = document.getElementById('bulkEntregarBtn');
+  if (entregarBtn) entregarBtn.style.display = (tipo === 'T') ? 'none' : '';
+};
+
+window.ord_bulkDeselect = function() {
+  document.querySelectorAll('#ordRight .maq-check').forEach(cb => { cb.checked = false; });
+  const bar = document.getElementById('bulkBar');
+  if (bar) bar.style.display = 'none';
+};
+
+window.ord_bulkCambiarEstado = async function(btn) {
+  const checked = [...document.querySelectorAll('#ordRight .maq-check:checked')];
+  if (!checked.length) return;
+  const uids = checked.map(cb => Number(cb.dataset.uid));
+  const status = document.getElementById('bulkEstadoSel')?.value;
+  if (!status) return;
+  const orden = window._ordDetalleActual?.orden;
+  if (!orden) return;
+
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Aplicando...';
+  try {
+    const r = await fetch(`${API}/orders/${orden.uid_orden}/equipment/bulk-status`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uids, status }),
+    }).then(r => r.json());
+
+    if (r.updated !== undefined) {
+      let msg = `✅ ${r.updated} máquina${r.updated !== 1 ? 's' : ''} → "${TEC_ELBL[status] || status}"`;
+      if (r.skipped > 0) msg += ` (${r.skipped} omitida${r.skipped !== 1 ? 's' : ''} — estado no válido para esta transición)`;
+      showToast(msg);
+      if (status === 'autorizada' && r.updated > 0) {
+        fetch(`${API}/orders/${orden.uid_orden}/notify-parts`, { method: 'POST' })
+          .then(r => r.json())
+          .then(rp => { if (rp.success) showToast('✅ Lista repuestos enviada al encargado'); })
+          .catch(() => {});
+      }
+      ord_bulkDeselect();
+      ord_verDetalle(orden.uid_orden);
+    } else {
+      showToast('⚠️ ' + (r.error || 'Error desconocido'));
+    }
+  } catch(e) { showToast('⚠️ Error: ' + e.message); }
+  btn.disabled = false; btn.textContent = orig;
+};
+
+window.ord_toggleMismoCliente = function() {
+  const checked = document.getElementById('entMismoCliente')?.checked;
+  if (!checked) return;
+  const orden = window._ordDetalleActual?.orden;
+  if (!orden) return;
+  // Pre-llenar con datos del cliente de la orden
+  const nombre = orden.cli_contacto || orden.cli_razon_social || '';
+  const tel = (orden.cli_telefono || '').split(/[\s,;\/]+/)[0].replace(/\D/g, '').replace(/^57/, '').slice(-10);
+  const cedula = orden.cli_identificacion || '';
+  document.getElementById('entNombre').value   = nombre;
+  document.getElementById('entTelefono').value = tel;
+  document.getElementById('entCedula').value   = cedula;
+};
+
 // ─── Modal de entrega con firma ───────────────────────────────────────────────
 // Estado del modal (uid/uidOrden/sel/prev del selector que abrió el modal)
 let _entUid = null, _entUidOrden = null, _entSel = null, _entPrev = null;
+let _entBulkMode = false, _entBulkUids = [];
 let _entFirmoAlgo = false;
 let _entDrawing = false;
 let _entLastX = 0, _entLastY = 0;
 
 function ord_mostrarModalEntrega(uid, uidOrden, sel, prev) {
+  _entBulkMode = false; _entBulkUids = [];
   _entUid = uid; _entUidOrden = uidOrden; _entSel = sel; _entPrev = prev;
   document.getElementById('entNombre').value   = '';
   document.getElementById('entTelefono').value = '';
   document.getElementById('entCedula').value   = '';
+  const mc = document.getElementById('entMismoCliente'); if (mc) mc.checked = false;
+  const titulo = document.getElementById('entTitulo'); if (titulo) titulo.textContent = 'Confirmar entrega';
   document.getElementById('entError').style.display = 'none';
   document.getElementById('entBtnConfirmar').disabled = false;
   ord_limpiarFirma();
@@ -5502,10 +5595,32 @@ function ord_mostrarModalEntrega(uid, uidOrden, sel, prev) {
   _ent_initCanvas();
 }
 
+window.ord_abrirModalEntregaBulk = function() {
+  const checked = [...document.querySelectorAll('#ordRight .maq-check:checked')];
+  if (!checked.length) return;
+  _entBulkMode = true;
+  _entBulkUids = checked.map(cb => Number(cb.dataset.uid));
+  _entUid = _entUidOrden = _entSel = _entPrev = null;
+  document.getElementById('entNombre').value   = '';
+  document.getElementById('entTelefono').value = '';
+  document.getElementById('entCedula').value   = '';
+  const mc = document.getElementById('entMismoCliente'); if (mc) mc.checked = false;
+  const titulo = document.getElementById('entTitulo');
+  if (titulo) titulo.textContent = `Confirmar entrega (${_entBulkUids.length} máquina${_entBulkUids.length > 1 ? 's' : ''})`;
+  document.getElementById('entError').style.display = 'none';
+  document.getElementById('entBtnConfirmar').disabled = false;
+  ord_limpiarFirma();
+  document.getElementById('entregaOverlay').style.display = 'block';
+  setTimeout(() => document.getElementById('entNombre').focus(), 80);
+  _ent_initCanvas();
+};
+
 function ord_cancelarEntrega() {
   document.getElementById('entregaOverlay').style.display = 'none';
   if (_entSel) { _entSel.value = _entPrev; _entSel.disabled = false; }
+  _entBulkMode = false; _entBulkUids = [];
   _entUid = _entUidOrden = _entSel = _entPrev = null;
+  const titulo = document.getElementById('entTitulo'); if (titulo) titulo.textContent = 'Confirmar entrega';
 }
 
 function ord_limpiarFirma() {
@@ -5594,23 +5709,46 @@ async function ord_confirmarEntrega() {
     if (cedula) fd.append('entrega_cedula', cedula);
     fd.append('firma', firmaBlob, 'firma.png');
 
-    const r = await fetch(`${API}/orders/equipment/${_entUid}/entregar`, { method: 'POST', body: fd });
-    const d = await r.json();
+    if (_entBulkMode) {
+      // ── Entrega masiva ──
+      const orden = window._ordDetalleActual?.orden;
+      if (!orden) { _ent_showError('Error interno: no hay orden activa.'); btn.disabled=false; btn.textContent='✅ Confirmar entrega'; return; }
+      fd.append('uids', JSON.stringify(_entBulkUids));
 
-    if (d.success) {
-      document.getElementById('entregaOverlay').style.display = 'none';
-      // Actualizar badge y selector en la UI
-      const badge = document.getElementById(`badge-${_entUid}`);
-      if (badge) { badge.className = 'badge b-entregada'; badge.textContent = 'Entregada'; }
-      if (_entSel) { _entSel.value = 'entregada'; _entSel.dataset.prev = 'entregada'; _entSel.disabled = false; }
-      showToast('✅ Entrega registrada — WA enviado al cliente');
-      // Recargar detalle para mostrar datos y firma
-      if (_entUidOrden) ord_verDetalle(_entUidOrden);
-      _entUid = _entUidOrden = _entSel = _entPrev = null;
+      const r = await fetch(`${API}/orders/${orden.uid_orden}/equipment/bulk-entregar`, { method: 'POST', body: fd });
+      const d = await r.json();
+
+      if (d.updated !== undefined) {
+        document.getElementById('entregaOverlay').style.display = 'none';
+        const titulo = document.getElementById('entTitulo'); if (titulo) titulo.textContent = 'Confirmar entrega';
+        let msg = `✅ ${d.updated} máquina${d.updated !== 1 ? 's' : ''} entregada${d.updated !== 1 ? 's' : ''} — WA enviado al cliente`;
+        if (d.skipped > 0) msg += ` (${d.skipped} omitida${d.skipped !== 1 ? 's' : ''} — no estaban en estado reparada)`;
+        showToast(msg);
+        const uidOrden = orden.uid_orden;
+        _entBulkMode = false; _entBulkUids = [];
+        ord_bulkDeselect();
+        ord_verDetalle(uidOrden);
+      } else {
+        _ent_showError(d.error || 'Error registrando la entrega');
+        btn.disabled = false; btn.textContent = '✅ Confirmar entrega';
+      }
     } else {
-      _ent_showError(d.error || 'Error registrando la entrega');
-      btn.disabled = false;
-      btn.textContent = '✅ Confirmar entrega';
+      // ── Entrega individual ──
+      const r = await fetch(`${API}/orders/equipment/${_entUid}/entregar`, { method: 'POST', body: fd });
+      const d = await r.json();
+
+      if (d.success) {
+        document.getElementById('entregaOverlay').style.display = 'none';
+        const badge = document.getElementById(`badge-${_entUid}`);
+        if (badge) { badge.className = 'badge b-entregada'; badge.textContent = 'Entregada'; }
+        if (_entSel) { _entSel.value = 'entregada'; _entSel.dataset.prev = 'entregada'; _entSel.disabled = false; }
+        showToast('✅ Entrega registrada — WA enviado al cliente');
+        if (_entUidOrden) ord_verDetalle(_entUidOrden);
+        _entUid = _entUidOrden = _entSel = _entPrev = null;
+      } else {
+        _ent_showError(d.error || 'Error registrando la entrega');
+        btn.disabled = false; btn.textContent = '✅ Confirmar entrega';
+      }
     }
   } catch(e) {
     _ent_showError('Error de conexión: ' + e.message);

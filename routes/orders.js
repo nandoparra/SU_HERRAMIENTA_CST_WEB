@@ -15,6 +15,7 @@ const rateLimit = require('express-rate-limit');
 const { requireInterno } = require('../middleware/auth');
 const log = require('../utils/logger');
 const { logAudit } = require('../utils/audit');
+const { BULK_ESTADOS_PERMITIDOS, ESTADOS_ORIGEN_VALIDOS } = require('../utils/bulk-estados');
 
 const keyByUser = (req) => String(req.session?.user?.id || req.ip);
 
@@ -523,6 +524,130 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
   }
 });
 
+// Cambiar estado de múltiples máquinas de una orden en una sola operación
+router.patch('/orders/:orderId/equipment/bulk-status', async (req, res) => {
+  try {
+    const { uids, status } = req.body;
+    const tipo = req.session?.user?.tipo;
+    const tenantId = getTenantId(req);
+
+    // 1. Validar inputs
+    if (!Array.isArray(uids) || uids.length === 0)
+      return res.status(400).json({ error: 'uids debe ser un array no vacío' });
+    if (!status || !ESTADOS_VALIDOS.includes(status))
+      return res.status(400).json({ error: `Estado inválido. Valores permitidos: ${ESTADOS_VALIDOS.join(', ')}` });
+
+    // 2. Validar rol en backend — evita herencia de SEC-12
+    const permitidos = BULK_ESTADOS_PERMITIDOS[tipo] || [];
+    if (!permitidos.includes(status))
+      return res.status(403).json({ error: `El rol '${tipo}' no puede cambiar máquinas a estado '${status}'` });
+
+    const origenesValidos = ESTADOS_ORIGEN_VALIDOS[status];
+    if (!origenesValidos)
+      return res.status(400).json({ error: `'${status}' no tiene transición masiva definida` });
+
+    // Sanitizar uids: solo enteros positivos
+    const safeUids = uids.map(u => Number(u)).filter(u => Number.isInteger(u) && u > 0);
+    if (safeUids.length !== uids.length)
+      return res.status(400).json({ error: 'uids deben ser enteros positivos' });
+
+    const conn = await db.getConnection();
+    try {
+      // 3. Verificar que la orden pertenece al tenant
+      const order = await resolveOrder(conn, req.params.orderId, tenantId);
+      if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
+
+      // 4. Ownership check: todos los uids deben pertenecer a esta orden y tenant
+      const ph = safeUids.map(() => '?').join(',');
+      const [[{ count }]] = await conn.execute(
+        `SELECT COUNT(*) AS count
+         FROM b2c_herramienta_orden
+         WHERE uid_herramienta_orden IN (${ph}) AND uid_orden = ? AND tenant_id = ?`,
+        [...safeUids, order.uid_orden, tenantId]
+      );
+      if (Number(count) !== safeUids.length)
+        return res.status(404).json({ error: 'Una o más máquinas no pertenecen a esta orden' });
+
+      // 5. Encontrar elegibles: solo las que están en el estado de origen válido
+      //    Previene retrocesos y transiciones inválidas — skipped es información, no silencio
+      const originPH = origenesValidos.map(() => '?').join(',');
+      const [eligibleRows] = await conn.execute(
+        `SELECT uid_herramienta_orden
+         FROM b2c_herramienta_orden
+         WHERE uid_herramienta_orden IN (${ph}) AND tenant_id = ? AND her_estado IN (${originPH})`,
+        [...safeUids, tenantId, ...origenesValidos]
+      );
+      const eligibleIds = eligibleRows.map(r => r.uid_herramienta_orden);
+      const updated = eligibleIds.length;
+      const skipped = safeUids.length - updated;
+
+      if (eligibleIds.length > 0) {
+        // 6. UPDATE solo los elegibles (tenant_id en WHERE como defensa en profundidad)
+        const eligPH = eligibleIds.map(() => '?').join(',');
+        await conn.execute(
+          `UPDATE b2c_herramienta_orden SET her_estado = ?
+           WHERE uid_herramienta_orden IN (${eligPH}) AND tenant_id = ?`,
+          [status, ...eligibleIds, tenantId]
+        );
+
+        // 7. Status log por cada máquina actualizada
+        for (const id of eligibleIds) {
+          await conn.execute(
+            `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, ?, ?)`,
+            [id, status, tenantId]
+          );
+        }
+
+        // 8. WA para 'reparada' — un solo mensaje consolidado
+        if (status === 'reparada' && isReady(tenantId)) {
+          try {
+            const [maqRows] = await conn.execute(
+              `SELECT h.her_nombre, h.her_marca, c.cli_telefono, c.cli_razon_social, c.cli_contacto, o.ord_consecutivo
+               FROM b2c_herramienta_orden ho
+               JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+               JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
+               JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+               WHERE ho.uid_herramienta_orden IN (${eligPH})`,
+              eligibleIds
+            );
+            if (maqRows.length) {
+              const chatIds = parseColombianPhones(maqRows[0].cli_telefono);
+              const nombre = maqRows[0].cli_razon_social || maqRows[0].cli_contacto || 'cliente';
+              const lista = maqRows.map(m => `  • ${[m.her_nombre, m.her_marca].filter(Boolean).join(' ')}`).join('\n');
+              const msg = maqRows.length === 1
+                ? `Hola ${nombre}, le informamos que su *${lista.trim().replace(/^\s*•\s*/, '')}* de la orden *#${maqRows[0].ord_consecutivo}* está *reparada y lista para recoger* 🔧\n\n📍 Calle 21 No 10 02, Pereira\n📞 3104650437\n— SU HERRAMIENTA CST`
+                : `Hola ${nombre}, le informamos que los siguientes equipos de la orden *#${maqRows[0].ord_consecutivo}* están *reparados y listos para recoger* 🔧\n\n${lista}\n\n📍 Calle 21 No 10 02, Pereira\n📞 3104650437\n— SU HERRAMIENTA CST`;
+              for (const chatId of chatIds) {
+                sendWAMessage(tenantId, chatId, msg).catch(e => log.error({ err: e.message }, 'Error WA bulk reparada:'));
+              }
+            }
+          } catch (e) {
+            log.error({ err: e.message }, 'Error WA bulk reparada:');
+          }
+        }
+
+        // 9. Audit log por cada máquina actualizada
+        const userId = req.session?.user?.id;
+        for (const id of eligibleIds) {
+          await logAudit(db, {
+            tenantId, userId,
+            accion: 'estado_cambiado', entidad: 'herramienta_orden', uidEntidad: id,
+            datosDespues: { estado: status, bulk: true },
+            ip: req.ip,
+          });
+        }
+      }
+
+      res.json({ updated, skipped });
+    } finally {
+      conn.release();
+    }
+  } catch (e) {
+    log.error({ err: e }, 'Error en bulk-status:');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 // Guardar observaciones del técnico en una máquina
 router.patch('/equipment-order/:equipmentOrderId/observaciones', async (req, res) => {
   try {
@@ -558,7 +683,8 @@ router.get('/orders/:orderId/detalle', ordersLimiter, async (req, res) => {
         `SELECT o.uid_orden, o.ord_consecutivo, o.ord_fecha, o.ord_estado,
                 o.ord_tipo, o.ord_factura, o.ord_garantia_vence,
                 o.ord_alegra_id, o.ord_alegra_url, o.ord_factura_estado,
-                c.uid_cliente, c.cli_razon_social, c.cli_identificacion, c.cli_telefono, c.cli_direccion
+                c.uid_cliente, c.cli_razon_social, c.cli_identificacion,
+                c.cli_telefono, c.cli_contacto, c.cli_direccion
          FROM b2c_orden o
          JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
          WHERE o.uid_orden = ?`,

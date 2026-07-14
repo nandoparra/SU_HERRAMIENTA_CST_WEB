@@ -13,6 +13,7 @@ const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
+const { ESTADOS_ORIGEN_VALIDOS } = require('../utils/bulk-estados');
 
 router.use(requireInterno);
 
@@ -382,6 +383,163 @@ router.post('/orders/equipment/:uid/entregar', uploadFirma.single('firma'), asyn
     }
   } catch (e) {
     log.error({ err: e }, 'Error registrando entrega:');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// ── Multer separado para firma bulk (usa orderId, no uid de máquina) ───────────
+const firmaStorageBulk = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(UPLOADS_DIR, 'firmas-entrega');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, `firma_orden${req.params.orderId}_${Date.now()}.png`);
+  },
+});
+const uploadFirmaBulk = multer({
+  storage: firmaStorageBulk,
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    file.mimetype === 'image/png' ? cb(null, true) : cb(new Error('La firma debe ser PNG'));
+  },
+});
+
+// ── Entregar múltiples máquinas: firma compartida, misma persona ──────────────
+router.post('/orders/:orderId/equipment/bulk-entregar', uploadFirmaBulk.single('firma'), async (req, res) => {
+  try {
+    const tenantId = getTenantId(req);
+    const { entrega_nombre, entrega_telefono, entrega_cedula } = req.body;
+
+    // Parsear uids — el frontend los envía como JSON string en FormData
+    let uids;
+    try { uids = JSON.parse(req.body.uids); } catch { uids = []; }
+
+    if (!Array.isArray(uids) || uids.length === 0) {
+      if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(400).json({ error: 'uids debe ser un array no vacío' });
+    }
+    if (!entrega_nombre?.trim()) {
+      if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(400).json({ error: 'El nombre de quien recoge es obligatorio' });
+    }
+    if (!entrega_telefono?.trim()) {
+      if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(400).json({ error: 'El teléfono de quien recoge es obligatorio' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'La firma es obligatoria' });
+    }
+    await checkMagicBytes(req.file.path, ['image/png']);
+
+    const safeUids = uids.map(u => Number(u)).filter(u => Number.isInteger(u) && u > 0);
+    if (safeUids.length !== uids.length) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(400).json({ error: 'uids deben ser enteros positivos' });
+    }
+
+    const conn = await db.getConnection();
+    try {
+      // Verificar orden y tenant
+      const order = await resolveOrder(conn, req.params.orderId, tenantId);
+      if (!order) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(404).json({ error: 'Orden no encontrada' });
+      }
+
+      // Ownership check: todos los uids deben pertenecer a esta orden y tenant
+      const ph = safeUids.map(() => '?').join(',');
+      const [[{ count }]] = await conn.execute(
+        `SELECT COUNT(*) AS count
+         FROM b2c_herramienta_orden
+         WHERE uid_herramienta_orden IN (${ph}) AND uid_orden = ? AND tenant_id = ?`,
+        [...safeUids, order.uid_orden, tenantId]
+      );
+      if (Number(count) !== safeUids.length) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(404).json({ error: 'Una o más máquinas no pertenecen a esta orden' });
+      }
+
+      // Elegibles: solo las en estado 'reparada' (ESTADOS_ORIGEN_VALIDOS['entregada'])
+      const origenesValidos = ESTADOS_ORIGEN_VALIDOS['entregada']; // ['reparada']
+      const [eligibleRows] = await conn.execute(
+        `SELECT ho.uid_herramienta_orden, h.her_nombre, h.her_marca,
+                c.cli_razon_social, c.cli_telefono, o.ord_consecutivo
+         FROM b2c_herramienta_orden ho
+         JOIN b2c_herramienta h ON h.uid_herramienta = ho.uid_herramienta
+         JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
+         JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+         WHERE ho.uid_herramienta_orden IN (${ph}) AND ho.tenant_id = ?
+           AND ho.her_estado IN (${origenesValidos.map(() => '?').join(',')})`,
+        [...safeUids, tenantId, ...origenesValidos]
+      );
+
+      const eligibleIds = eligibleRows.map(r => r.uid_herramienta_orden);
+      const updated = eligibleIds.length;
+      const skipped = safeUids.length - updated;
+
+      if (eligibleIds.length > 0) {
+        const firmaFilename = req.file.filename;
+        const eligPH = eligibleIds.map(() => '?').join(',');
+
+        // Firma guardada una vez — referenciada en todos los registros
+        await conn.execute(
+          `UPDATE b2c_herramienta_orden
+           SET her_estado = 'entregada',
+               hor_entrega_nombre   = ?,
+               hor_entrega_telefono = ?,
+               hor_entrega_cedula   = ?,
+               hor_entrega_firma    = ?,
+               hor_entrega_fecha    = NOW()
+           WHERE uid_herramienta_orden IN (${eligPH}) AND tenant_id = ?`,
+          [entrega_nombre.trim(), entrega_telefono.trim(), entrega_cedula?.trim() || null, firmaFilename, ...eligibleIds, tenantId]
+        );
+
+        for (const id of eligibleIds) {
+          await conn.execute(
+            `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, 'entregada', ?)`,
+            [id, tenantId]
+          );
+        }
+
+        // WA — un mensaje listando todas las máquinas entregadas
+        if (isReady(tenantId)) {
+          try {
+            const r0 = eligibleRows[0];
+            const nombre = r0.cli_razon_social || 'cliente';
+            const lista = eligibleRows.map(m => `  • ${[m.her_nombre, m.her_marca].filter(Boolean).join(' ')}`).join('\n');
+            const msg = `Hola ${nombre}, confirmamos la entrega de las siguientes herramientas:\n\n${lista}\n\n¡Gracias por confiar en nosotros!\n— SU HERRAMIENTA CST`;
+            const chatIds = parseColombianPhones(r0.cli_telefono);
+            for (const chatId of chatIds) {
+              sendWAMessage(tenantId, chatId, msg).catch(e => log.warn({ err: e.message }, 'WA bulk entrega: fallo silencioso'));
+            }
+          } catch (e) {
+            log.warn({ err: e.message }, 'WA bulk entrega: error preparando notificación');
+          }
+        }
+
+        const userId = req.session?.user?.id;
+        for (const id of eligibleIds) {
+          await logAudit(db, {
+            tenantId, userId,
+            accion: 'estado_cambiado', entidad: 'herramienta_orden', uidEntidad: id,
+            datosDespues: { estado: 'entregada', entrega_nombre: entrega_nombre.trim(), bulk: true },
+            ip: req.ip,
+          });
+        }
+      } else {
+        // Ninguna elegible — borrar firma subida (no se usará)
+        try { fs.unlinkSync(req.file.path); } catch {}
+      }
+
+      res.json({ updated, skipped, firma: updated > 0 ? req.file.filename : null });
+    } finally {
+      conn.release();
+    }
+  } catch (e) {
+    if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
+    log.error({ err: e }, 'Error en bulk-entregar:');
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
