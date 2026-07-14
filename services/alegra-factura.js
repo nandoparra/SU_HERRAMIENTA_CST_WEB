@@ -99,12 +99,18 @@ async function generarFactura({ orden, cliente, maquinas, paymentForm = 'CASH', 
 
   const items = maquinas
     .filter(m => Number(m.subtotal) > 0)
-    .map(m => ({
-      id: ALEGRA_SERVICIO_ID,
-      price: Number(m.subtotal),
-      quantity: 1,
-      description: [m.her_nombre, m.her_marca].filter(Boolean).join(' ') || 'Reparación',
-    }));
+    .map(m => {
+      const nombreMaquina = [m.her_nombre, m.her_marca].filter(Boolean).join(' ') || 'Reparación';
+      const descripcion   = m.descripcion_trabajo
+        ? `${nombreMaquina} — ${m.descripcion_trabajo}`
+        : nombreMaquina;
+      return {
+        id: ALEGRA_SERVICIO_ID,
+        price: Number(m.subtotal),
+        quantity: 1,
+        description: descripcion,
+      };
+    });
 
   if (!items.length) {
     const err = new Error('No hay máquinas con cotización para facturar');
