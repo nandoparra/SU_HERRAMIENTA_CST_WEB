@@ -529,6 +529,7 @@ Views.ordenes = {
       const data = await fetch(`${API}/orders/${uid}/detalle`).then(r=>r.json()).catch(e=>({error:e.message}));
       if (data.error) { right.innerHTML=`<div class="mobile-back" onclick="ord_back()">← Volver</div><div style="padding:20px;color:#e74c3c;">${data.error}</div>`; return; }
       window._ordDetalleActual = data;
+      window._bulkReloadFn = () => ord_verDetalle(uid);
       const {orden,maquinas,tieneCotizacion,cotOrden} = data;
 
       const maqHtml = maquinas.map(m => {
@@ -3147,6 +3148,8 @@ const TEC_ELBL = {
 };
 
 async function tec_verDetalle(uid, rightId, panelId) {
+  const bar = document.getElementById('bulkBar');
+  if (bar) bar.style.display = 'none';
   document.getElementById(panelId)?.classList.add('immersive');
   const right = document.getElementById(rightId);
   if (!right) return;
@@ -3167,6 +3170,9 @@ async function tec_verDetalle(uid, rightId, panelId) {
     right.innerHTML = backHtml + `<div style="padding:20px;color:#e74c3c;">${esc(det.error || 'Error al cargar la orden')}</div>`;
     return;
   }
+
+  window._ordDetalleActual = det;
+  window._bulkReloadFn = () => tec_verDetalle(uid, rightId, panelId);
 
   const { orden, maquinas } = det;
 
@@ -3199,9 +3205,14 @@ async function tec_verDetalle(uid, rightId, panelId) {
     return `
       <div class="maq-card">
         <div class="maq-top">
-          <div>
-            <div class="maq-nombre">${esc(m.her_nombre||'-')}</div>
-            ${sub ? `<div class="maq-sub">${esc(sub)}</div>` : ''}
+          <div style="display:flex;align-items:flex-start;gap:8px;">
+            ${m.her_estado === 'pendiente_revision' ? `<input type="checkbox" class="maq-check" data-uid="${m.uid_herramienta_orden}" data-estado="${m.her_estado}"
+              style="width:18px;height:18px;cursor:pointer;accent-color:#1d3557;flex-shrink:0;margin-top:3px;"
+              onchange="ord_toggleBulkBar()">` : ''}
+            <div>
+              <div class="maq-nombre">${esc(m.her_nombre||'-')}</div>
+              ${sub ? `<div class="maq-sub">${esc(sub)}</div>` : ''}
+            </div>
           </div>
           <span id="tec-badge-${m.uid_herramienta_orden}" class="${bc}">${lbl}</span>
         </div>
@@ -5497,7 +5508,7 @@ const _BULK_PERMITIDOS = {
 };
 
 window.ord_toggleBulkBar = function() {
-  const checked = [...document.querySelectorAll('#ordRight .maq-check:checked')];
+  const checked = [...document.querySelectorAll('.maq-check:checked')];
   const bar = document.getElementById('bulkBar');
   if (!bar) return;
   if (!checked.length) { bar.style.display = 'none'; return; }
@@ -5516,13 +5527,13 @@ window.ord_toggleBulkBar = function() {
 };
 
 window.ord_bulkDeselect = function() {
-  document.querySelectorAll('#ordRight .maq-check').forEach(cb => { cb.checked = false; });
+  document.querySelectorAll('.maq-check').forEach(cb => { cb.checked = false; });
   const bar = document.getElementById('bulkBar');
   if (bar) bar.style.display = 'none';
 };
 
 window.ord_bulkCambiarEstado = async function(btn) {
-  const checked = [...document.querySelectorAll('#ordRight .maq-check:checked')];
+  const checked = [...document.querySelectorAll('.maq-check:checked')];
   if (!checked.length) return;
   const uids = checked.map(cb => Number(cb.dataset.uid));
   const status = document.getElementById('bulkEstadoSel')?.value;
@@ -5549,7 +5560,7 @@ window.ord_bulkCambiarEstado = async function(btn) {
           .catch(() => {});
       }
       ord_bulkDeselect();
-      ord_verDetalle(orden.uid_orden);
+      (window._bulkReloadFn || (() => ord_verDetalle(orden.uid_orden)))();
     } else {
       showToast('⚠️ ' + (r.error || 'Error desconocido'));
     }
@@ -5596,7 +5607,7 @@ function ord_mostrarModalEntrega(uid, uidOrden, sel, prev) {
 }
 
 window.ord_abrirModalEntregaBulk = function() {
-  const checked = [...document.querySelectorAll('#ordRight .maq-check:checked')];
+  const checked = [...document.querySelectorAll('.maq-check:checked')];
   if (!checked.length) return;
   _entBulkMode = true;
   _entBulkUids = checked.map(cb => Number(cb.dataset.uid));
