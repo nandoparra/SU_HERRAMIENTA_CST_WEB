@@ -21,7 +21,8 @@ async function resolveTenant(hostname) {
       `SELECT uid_tenant, ten_nombre, ten_slug, ten_slug_locked,
               ten_color_primary, ten_color_accent, ten_logo,
               ten_wa_number, ten_wa_parts_number, ten_estado,
-              addon_contabilidad
+              addon_contabilidad,
+              ten_nit, ten_direccion, ten_telefono_empresa, ten_email, ten_website
        FROM b2c_tenant
        WHERE (ten_slug = ? OR ten_dominio_custom = ?)
          AND ten_estado != 'suspendido'
