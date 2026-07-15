@@ -182,7 +182,7 @@ router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireInterno,
       if (!machine) return res.status(404).json({ error: 'No hay cotizaci\u00f3n para esta m\u00e1quina.' });
 
       const observation = await generateText(buildMaintenancePrompt(machine, machine.descripcion_trabajo, items), 350);
-      const pdf = await generateMaintenancePDF({ order, machine, items, observation, photos });
+      const pdf = await generateMaintenancePDF({ order, machine, items, observation, photos, tenant: req.tenant });
       await saveInforme(conn, order.uid_orden, req.params.equipmentOrderId, pdf, order.ord_consecutivo);
       await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'informe_generado', entidad: 'herramienta_orden', uidEntidad: req.params.equipmentOrderId, datosDespues: { uid_orden: order.uid_orden }, ip: req.ip });
 
@@ -251,7 +251,7 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireIn
       if (!machine) return res.status(404).json({ error: 'No hay cotizaci\u00f3n para esta m\u00e1quina.' });
 
       const observation = await generateText(buildMaintenancePrompt(machine, machine.descripcion_trabajo, items), 350);
-      const pdf   = await generateMaintenancePDF({ order, machine, items, observation, photos });
+      const pdf   = await generateMaintenancePDF({ order, machine, items, observation, photos, tenant: req.tenant });
       await saveInforme(conn, order.uid_orden, req.params.equipmentOrderId, pdf, order.ord_consecutivo);
       await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'informe_generado', entidad: 'herramienta_orden', uidEntidad: req.params.equipmentOrderId, datosDespues: { uid_orden: order.uid_orden }, ip: req.ip });
 
@@ -357,6 +357,7 @@ router.get('/orders/:orderId/pdf/orden', requireInterno, async (req, res) => {
         orden:   { ord_consecutivo: ordenRow.ord_consecutivo, ord_fecha: ordenRow.ord_fecha },
         cliente: { cli_razon_social: ordenRow.cli_razon_social, cli_identificacion: ordenRow.cli_identificacion, cli_telefono: ordenRow.cli_telefono, cli_direccion: ordenRow.cli_direccion },
         maquinas,
+        tenant: req.tenant,
       });
 
       const fname = 'orden-' + ordenRow.ord_consecutivo + '.pdf';
@@ -406,6 +407,7 @@ router.post('/orders/:orderId/send-pdf/orden', requireInterno, async (req, res) 
         orden:   { ord_consecutivo: ordenRow.ord_consecutivo, ord_fecha: ordenRow.ord_fecha },
         cliente: { cli_razon_social: ordenRow.cli_razon_social, cli_identificacion: ordenRow.cli_identificacion, cli_telefono: ordenRow.cli_telefono, cli_direccion: ordenRow.cli_direccion },
         maquinas,
+        tenant: req.tenant,
       });
 
       const fname = 'orden-' + ordenRow.ord_consecutivo + '.pdf';
@@ -415,7 +417,8 @@ router.post('/orders/:orderId/send-pdf/orden', requireInterno, async (req, res) 
       try {
         await sendWAMessage(tenantId, phone, { document: pdf, mimetype: 'application/pdf', fileName: fname });
         const machineList = maquinas.map(m => `• ${m.her_nombre || 'Máquina'}${m.her_marca ? ' (' + m.her_marca + ')' : ''}`).join('\n');
-        const textMsg = `Hola, le saluda *Su Herramienta CST* 🔧\n\nHemos recibido su(s) equipo(s) para revisión. Orden #${ordenRow.ord_consecutivo}:\n\n${machineList}\n\nLe notificaremos cuando la revisión esté lista. ¡Gracias por confiar en nosotros!`;
+        const tenantName = req.tenant?.ten_nombre || 'Su Herramienta';
+        const textMsg = `Hola, le saluda *${tenantName}* 🔧\n\nHemos recibido su(s) equipo(s) para revisión. Orden #${ordenRow.ord_consecutivo}:\n\n${machineList}\n\nLe notificaremos cuando la revisión esté lista. ¡Gracias por confiar en nosotros!`;
         await sendWAMessage(tenantId, phone, textMsg);
       } catch (waErr) {
         log.warn({ err: waErr.message }, 'WA no disponible para envío PDF orden:');

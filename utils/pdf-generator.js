@@ -6,14 +6,22 @@ const { UPLOADS_DIR } = require('./uploads');
 
 const LOGO = path.join(__dirname, '..', 'public', 'assets', 'logo.png');
 
-const COMPANY = {
-  name:    'HERNANDO PARRA ZAPATA',
-  nit:     'NIT 9862087-1',
-  address: 'calle 21 No 10 02 - Pereira',
-  phone:   '3104650437',
-  website: 'www.suherramienta.com',
-  email:   'suherramientapereira@gmail.com',
-};
+/**
+ * Construye los datos de empresa para encabezados PDF a partir del tenant.
+ * Nunca cae a valores hardcodeados — usa placeholders visibles para campos
+ * no configurados, de modo que el admin sepa qué falta sin que los PDFs
+ * de un tenant muestren los datos de otro.
+ */
+function resolveCompany(tenant) {
+  return {
+    name:    tenant.ten_nombre           || '[Nombre del taller no configurado]',
+    nit:     tenant.ten_nit              || '[NIT no configurado]',
+    address: tenant.ten_direccion        || '[Dirección no configurada]',
+    phone:   tenant.ten_telefono_empresa || tenant.ten_wa_number || '[Teléfono no configurado]',
+    website: tenant.ten_website          || '',
+    email:   tenant.ten_email            || '',
+  };
+}
 
 const C = {
   dark:    '#1d3557',
@@ -82,13 +90,14 @@ function truncate(str, max) {
 }
 
 // ─── COTIZACIÓN PDF ───────────────────────────────────────────────────────────
-function generateQuotePDF({ order, machines, items, quoteNumber, tenant }) {
+function generateQuotePDF({ order, machines, items, quoteNumber, tenant = {} }) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     const doc = new PDFDocument({ size: 'A4', margin: 0, compress: true });
     doc.on('data', d => chunks.push(d));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
+    const co = resolveCompany(tenant);
 
     // IVA: por tenant si est\u00e1 disponible, fallback a env var (compat)
     const ivaResponsable = !!(tenant?.ten_iva_responsable);
@@ -139,8 +148,8 @@ function generateQuotePDF({ order, machines, items, quoteNumber, tenant }) {
     const infoX = MG + LOGO_FW + 5;
     const infoW = CW - LOGO_FW - 80;
     doc.save().font('Helvetica-Bold').fontSize(12).fillColor(C.dark)
-      .text(COMPANY.name, infoX, y + 4, { width: infoW, align: 'center' }).restore();
-    [COMPANY.nit, COMPANY.address, COMPANY.phone, COMPANY.website, COMPANY.email].forEach((line, i) => {
+      .text(co.name, infoX, y + 4, { width: infoW, align: 'center' }).restore();
+    [co.nit, co.address, co.phone, co.website, co.email].forEach((line, i) => {
       doc.save().font('Helvetica').fontSize(8).fillColor(C.blk)
         .text(line, infoX, y + 19 + i * 9.5, { width: infoW, align: 'center' }).restore();
     });
@@ -362,13 +371,14 @@ function generateQuotePDF({ order, machines, items, quoteNumber, tenant }) {
 }
 
 // ─── INFORME DE MANTENIMIENTO PDF ─────────────────────────────────────────────
-function generateMaintenancePDF({ order, machine, items, observation, proxMantenimiento, photos }) {
+function generateMaintenancePDF({ order, machine, items, observation, proxMantenimiento, photos, tenant = {} }) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     const doc = new PDFDocument({ size: 'A4', margin: 0, compress: true });
     doc.on('data', d => chunks.push(d));
     doc.on('end',  () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
+    const co = resolveCompany(tenant);
 
     const FOOT_H = 55;                     // altura reservada para el footer
     const SIG_H  = 50;                     // altura reservada para las firmas
@@ -392,8 +402,8 @@ function generateMaintenancePDF({ order, machine, items, observation, proxManten
     const infoX = MG + LOGO_FW + 5;
     const infoW = CW - LOGO_FW - 80;
     doc.save().font('Helvetica-Bold').fontSize(12).fillColor(C.dark)
-      .text(COMPANY.name, infoX, y + 4, { width: infoW, align: 'center' }).restore();
-    [COMPANY.nit, COMPANY.address, COMPANY.phone, COMPANY.website, COMPANY.email].forEach((line, i) => {
+      .text(co.name, infoX, y + 4, { width: infoW, align: 'center' }).restore();
+    [co.nit, co.address, co.phone, co.website, co.email].forEach((line, i) => {
       doc.save().font('Helvetica').fontSize(8).fillColor(C.blk)
         .text(line, infoX, y + 19 + i * 9.5, { width: infoW, align: 'center' }).restore();
     });
@@ -544,7 +554,7 @@ function generateMaintenancePDF({ order, machine, items, observation, proxManten
     // ── Footer (mismo que orden de servicio) ──────────────────────────────────
     const footY = A4H - FOOT_H;
     hLine(doc, MG, footY, MG + CW, C.dark, 0.8);
-    [COMPANY.email + '   Celular: ' + COMPANY.phone, COMPANY.address, COMPANY.website]
+    [co.email + '   Celular: ' + co.phone, co.address, co.website]
       .forEach((line, i) => {
         doc.save().font('Helvetica').fontSize(7.5).fillColor(C.gry)
           .text(line, MG, footY + 6 + i * 11, { width: CW, align: 'center' }).restore();
@@ -556,13 +566,14 @@ function generateMaintenancePDF({ order, machine, items, observation, proxManten
 
 // ─── ORDEN DE SERVICIO PDF ────────────────────────────────────────────────────
 // maquinas: array de { her_nombre, her_marca, her_serial, her_referencia, hor_observaciones }
-function generateOrdenServicioPDF({ orden, cliente, maquinas }) {
+function generateOrdenServicioPDF({ orden, cliente, maquinas, tenant = {} }) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     const doc = new PDFDocument({ size: 'A4', margin: 0, compress: true });
     doc.on('data', d => chunks.push(d));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
+    const co = resolveCompany(tenant);
 
     const parseOrdFecha = (raw) => {
       const m = String(raw || '').match(/^(\d{4})(\d{2})(\d{2})$/);
@@ -588,8 +599,8 @@ function generateOrdenServicioPDF({ orden, cliente, maquinas }) {
     const infoX = MG + LOGO_FW + 5;
     const infoW = CW - LOGO_FW - 80;
     doc.save().font('Helvetica-Bold').fontSize(12).fillColor(C.dark)
-      .text(COMPANY.name, infoX, y + 4, { width: infoW, align: 'center' }).restore();
-    [COMPANY.nit, COMPANY.address, COMPANY.phone, COMPANY.website, COMPANY.email].forEach((line, i) => {
+      .text(co.name, infoX, y + 4, { width: infoW, align: 'center' }).restore();
+    [co.nit, co.address, co.phone, co.website, co.email].forEach((line, i) => {
       doc.save().font('Helvetica').fontSize(8).fillColor(C.blk)
         .text(line, infoX, y + 19 + i * 9.5, { width: infoW, align: 'center' }).restore();
     });
@@ -691,7 +702,7 @@ function generateOrdenServicioPDF({ orden, cliente, maquinas }) {
     // ── Footer ────────────────────────────────────────────────────────────────
     const footY = A4H - 55;
     hLine(doc, MG, footY, MG + CW, C.dark, 0.8);
-    [COMPANY.email + '   Celular: ' + COMPANY.phone, COMPANY.address, COMPANY.website]
+    [co.email + '   Celular: ' + co.phone, co.address, co.website]
       .forEach((line, i) => {
         doc.save().font('Helvetica').fontSize(7.5).fillColor(C.gry)
           .text(line, MG, footY + 6 + i * 11, { width: CW, align: 'center' }).restore();
@@ -711,6 +722,7 @@ function generateReciboPDF({ recibo, tenant, cotizacion }) {
     doc.on('data', d => chunks.push(d));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
+    const co = resolveCompany(tenant);
 
     const LABEL_METODO = {
       efectivo:      'Efectivo',
@@ -755,8 +767,8 @@ function generateReciboPDF({ recibo, tenant, cotizacion }) {
     const infoX = MG + LOGO_FW + 5;
     const infoW = CW - LOGO_FW - 80;
     doc.save().font('Helvetica-Bold').fontSize(12).fillColor(C.dark)
-      .text(COMPANY.name, infoX, y + 4, { width: infoW, align: 'center' }).restore();
-    [COMPANY.nit, COMPANY.address, COMPANY.phone, COMPANY.website, COMPANY.email]
+      .text(co.name, infoX, y + 4, { width: infoW, align: 'center' }).restore();
+    [co.nit, co.address, co.phone, co.website, co.email]
       .forEach((line, i) => {
         doc.save().font('Helvetica').fontSize(8).fillColor(C.blk)
           .text(line, infoX, y + 19 + i * 9.5, { width: infoW, align: 'center' }).restore();
@@ -1079,7 +1091,7 @@ function generateReciboPDF({ recibo, tenant, cotizacion }) {
     doc.save().font('Helvetica-Bold').fontSize(8).fillColor(C.dark)
       .text('¡GRACIAS POR SU PAGO!', MG, footY + 6, { width: CW, align: 'center' }).restore();
     doc.save().font('Helvetica').fontSize(7.5).fillColor(C.gry)
-      .text(COMPANY.email + ' • ' + COMPANY.website, MG, footY + 18, { width: CW, align: 'center' }).restore();
+      .text(co.email + ' • ' + co.website, MG, footY + 18, { width: CW, align: 'center' }).restore();
 
     doc.end();
   });
@@ -1093,13 +1105,14 @@ function generateReciboPDF({ recibo, tenant, cotizacion }) {
  * @param {object}  [params.tenant] — fila b2c_tenant (para IVA)
  * @returns {Buffer}
  */
-function generateVentaPDF({ venta, items = [], tenant }) {
+function generateVentaPDF({ venta, items = [], tenant = {} }) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     const doc    = new PDFDocument({ size: 'A4', margin: MG, bufferPages: true });
     doc.on('data', c => chunks.push(c));
     doc.on('end',  () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
+    const co = resolveCompany(tenant);
 
     const SAFE_Y = A4H - 90;
     let y = MG;
@@ -1110,9 +1123,9 @@ function generateVentaPDF({ venta, items = [], tenant }) {
       doc.image(LOGO, MG, y, { width: 40, height: 40 });
     } catch (_) {}
     doc.save().font('Helvetica-Bold').fontSize(11).fillColor(C.dark)
-      .text(COMPANY.name, MG + 50, y, { lineBreak: false }).restore();
+      .text(co.name, MG + 50, y, { lineBreak: false }).restore();
     doc.save().font('Helvetica').fontSize(8.5).fillColor(C.gry)
-      .text([COMPANY.nit, COMPANY.address, COMPANY.phone].join(' • '), MG + 50, y + 14, { width: 320 }).restore();
+      .text([co.nit, co.address, co.phone].join(' • '), MG + 50, y + 14, { width: 320 }).restore();
 
     // doc type box
     fillRect(doc, MG + CW - 110, y, 110, 40, C.lightBg);
@@ -1256,10 +1269,10 @@ function generateVentaPDF({ venta, items = [], tenant }) {
     doc.save().font('Helvetica-Bold').fontSize(8).fillColor(C.dark)
       .text('¡GRACIAS POR SU COMPRA!', MG, footY + 6, { width: CW, align: 'center' }).restore();
     doc.save().font('Helvetica').fontSize(7.5).fillColor(C.gry)
-      .text(COMPANY.email + ' • ' + COMPANY.website, MG, footY + 18, { width: CW, align: 'center' }).restore();
+      .text(co.email + ' • ' + co.website, MG, footY + 18, { width: CW, align: 'center' }).restore();
 
     doc.end();
   });
 }
 
-module.exports = { generateQuotePDF, generateMaintenancePDF, generateOrdenServicioPDF, generateReciboPDF, generateVentaPDF };
+module.exports = { resolveCompany, generateQuotePDF, generateMaintenancePDF, generateOrdenServicioPDF, generateReciboPDF, generateVentaPDF };
