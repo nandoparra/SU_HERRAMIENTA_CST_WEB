@@ -1009,6 +1009,28 @@ async function ensureEntregaColumns() {
   }
 }
 
+async function ensureTenantEmpresaColumns() {
+  const conn = await db.getConnection();
+  try {
+    const cols = [
+      ['ten_nit',              'VARCHAR(30)  NULL'],
+      ['ten_direccion',        'VARCHAR(150) NULL'],
+      ['ten_telefono_empresa', 'VARCHAR(30)  NULL'],
+      ['ten_email',            'VARCHAR(100) NULL'],
+      ['ten_website',          'VARCHAR(100) NULL'],
+    ];
+    for (const [col, def] of cols) {
+      try { await conn.execute(`ALTER TABLE b2c_tenant ADD COLUMN ${col} ${def}`); }
+      catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    }
+    console.log('✅ Columnas empresa en b2c_tenant verificadas');
+  } catch (e) {
+    console.warn('⚠️ No pude agregar columnas empresa a b2c_tenant:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
 async function runMigrations() {
   console.log('Ejecutando migraciones BD...');
   await ensureSessionTable();
@@ -1042,6 +1064,7 @@ async function runMigrations() {
   await ensureRateLimitColumns();
   await ensureConversacionArchivo();
   await ensureEntregaColumns();
+  await ensureTenantEmpresaColumns();
   console.log('Migraciones completadas');
 }
 

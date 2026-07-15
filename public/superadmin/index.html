@@ -248,6 +248,32 @@
         </div>
       </div>
     </div>
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid #334155;">
+      <div style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Datos de empresa para PDFs</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <label style="font-size:13px;color:#cbd5e1;display:flex;flex-direction:column;gap:4px;">
+          NIT / Identificación
+          <input type="text" id="f_ten_nit" placeholder="Ej: NIT 900123456-7" style="padding:6px 8px;background:#1e293b;border:1px solid #475569;border-radius:4px;color:#f1f5f9;font-size:13px;">
+        </label>
+        <label style="font-size:13px;color:#cbd5e1;display:flex;flex-direction:column;gap:4px;">
+          Teléfono empresa (para PDFs)
+          <input type="text" id="f_ten_telefono_empresa" placeholder="Ej: 3001234567" style="padding:6px 8px;background:#1e293b;border:1px solid #475569;border-radius:4px;color:#f1f5f9;font-size:13px;">
+        </label>
+        <label style="font-size:13px;color:#cbd5e1;display:flex;flex-direction:column;gap:4px;grid-column:1/-1;">
+          Dirección
+          <input type="text" id="f_ten_direccion" placeholder="Ej: Calle 10 No 5-20, Pereira" style="padding:6px 8px;background:#1e293b;border:1px solid #475569;border-radius:4px;color:#f1f5f9;font-size:13px;">
+        </label>
+        <label style="font-size:13px;color:#cbd5e1;display:flex;flex-direction:column;gap:4px;">
+          Email
+          <input type="text" id="f_ten_email" placeholder="contacto@taller.com" style="padding:6px 8px;background:#1e293b;border:1px solid #475569;border-radius:4px;color:#f1f5f9;font-size:13px;">
+        </label>
+        <label style="font-size:13px;color:#cbd5e1;display:flex;flex-direction:column;gap:4px;">
+          Sitio web
+          <input type="text" id="f_ten_website" placeholder="www.mitaller.com" style="padding:6px 8px;background:#1e293b;border:1px solid #475569;border-radius:4px;color:#f1f5f9;font-size:13px;">
+        </label>
+      </div>
+      <small style="color:#64748b;font-size:11px;margin-top:6px;display:block;">Si algún campo queda vacío, el PDF mostrará un placeholder visible en lugar de datos de otro taller.</small>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-cancel" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" id="modalSaveBtn" onclick="saveModal()">Guardar</button>

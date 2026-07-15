@@ -119,6 +119,11 @@ function openCreate() {
   document.getElementById('f_agente_wa').checked = false;
   document.getElementById('f_hora_inicio').value = 7;
   document.getElementById('f_hora_fin').value    = 21;
+  document.getElementById('f_ten_nit').value              = '';
+  document.getElementById('f_ten_direccion').value        = '';
+  document.getElementById('f_ten_telefono_empresa').value = '';
+  document.getElementById('f_ten_email').value            = '';
+  document.getElementById('f_ten_website').value          = '';
   document.getElementById('f_slug').disabled  = false;
   document.getElementById('modalOverlay').classList.add('open');
 }
@@ -145,6 +150,11 @@ async function openEdit(id) {
     document.getElementById('f_agente_wa').checked          = !!t.ten_agente_wa;
     document.getElementById('f_hora_inicio').value          = t.ten_agente_wa_hora_inicio ?? 7;
     document.getElementById('f_hora_fin').value             = t.ten_agente_wa_hora_fin    ?? 21;
+    document.getElementById('f_ten_nit').value              = t.ten_nit              || '';
+    document.getElementById('f_ten_direccion').value        = t.ten_direccion        || '';
+    document.getElementById('f_ten_telefono_empresa').value = t.ten_telefono_empresa || '';
+    document.getElementById('f_ten_email').value            = t.ten_email            || '';
+    document.getElementById('f_ten_website').value          = t.ten_website          || '';
     document.getElementById('f_slug').disabled  = !!t.ten_slug_locked;
     document.getElementById('modalOverlay').classList.add('open');
   } catch (e) {
@@ -172,6 +182,11 @@ async function saveModal() {
     ten_agente_wa:               document.getElementById('f_agente_wa').checked ? 1 : 0,
     ten_agente_wa_hora_inicio:   Number(document.getElementById('f_hora_inicio').value) || 7,
     ten_agente_wa_hora_fin:      Number(document.getElementById('f_hora_fin').value)    || 21,
+    ten_nit:              document.getElementById('f_ten_nit').value.trim()              || null,
+    ten_direccion:        document.getElementById('f_ten_direccion').value.trim()        || null,
+    ten_telefono_empresa: document.getElementById('f_ten_telefono_empresa').value.trim() || null,
+    ten_email:            document.getElementById('f_ten_email').value.trim()            || null,
+    ten_website:          document.getElementById('f_ten_website').value.trim()          || null,
   };
 
   if (!body.ten_nombre) return showToast('El nombre es obligatorio', true);
