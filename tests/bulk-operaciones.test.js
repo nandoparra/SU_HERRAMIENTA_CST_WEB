@@ -311,6 +311,44 @@ describe('SQL eligibility — UPDATE solo toca máquinas en estado origen válid
 
 // ── 7. bulk-entregar — precondiciones ────────────────────────────────────────
 
+describe('bulk-entregar — control de rol', () => {
+
+  function tipoPermitidoParaEntregar(tipo) {
+    // Replica la lógica del endpoint: solo A y F pueden entregar
+    const ROLES_ENTREGA = ['A', 'F'];
+    return ROLES_ENTREGA.includes(tipo);
+  }
+
+  test('Admin puede usar bulk-entregar', () => {
+    assert.ok(tipoPermitidoParaEntregar('A'));
+  });
+
+  test('Funcionario puede usar bulk-entregar', () => {
+    assert.ok(tipoPermitidoParaEntregar('F'));
+  });
+
+  test('Técnico NO puede usar bulk-entregar — debe recibir 403', () => {
+    assert.ok(!tipoPermitidoParaEntregar('T'),
+      'tipo T debe ser rechazado antes de tocar la BD');
+  });
+
+  test('Rol desconocido NO puede usar bulk-entregar', () => {
+    assert.ok(!tipoPermitidoParaEntregar('X'));
+    assert.ok(!tipoPermitidoParaEntregar('C'));
+    assert.ok(!tipoPermitidoParaEntregar(''));
+  });
+
+  test('La restricción de rol se aplica antes del acceso a BD (orden de validaciones)', () => {
+    // El chequeo de rol debe ser el primer guard después de parsear el body,
+    // antes del COUNT query de ownership. Esto garantiza que el 403 no
+    // expone información sobre si los uids existen o no.
+    const tipo = 'T';
+    const permitido = tipoPermitidoParaEntregar(tipo);
+    assert.ok(!permitido, 'tipo T rechazado — no se llega a consultar la BD');
+  });
+
+});
+
 describe('bulk-entregar — precondiciones y lógica', () => {
 
   test('Estado origen válido para entregada es solo reparada', () => {

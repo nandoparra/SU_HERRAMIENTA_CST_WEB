@@ -410,6 +410,14 @@ const uploadFirmaBulk = multer({
 router.post('/orders/:orderId/equipment/bulk-entregar', uploadFirmaBulk.single('firma'), async (req, res) => {
   try {
     const tenantId = getTenantId(req);
+
+    // Chequeo de rol — solo A y F pueden entregar máquinas (cierra SEC-12 para este endpoint)
+    const tipo = req.session?.user?.tipo;
+    if (!['A', 'F'].includes(tipo)) {
+      if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(403).json({ error: 'Sin permisos para registrar entregas' });
+    }
+
     const { entrega_nombre, entrega_telefono, entrega_cedula } = req.body;
 
     // Parsear uids — el frontend los envía como JSON string en FormData
