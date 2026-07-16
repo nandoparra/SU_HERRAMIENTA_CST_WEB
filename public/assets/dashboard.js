@@ -5730,15 +5730,25 @@ async function ord_confirmarEntrega() {
       const d = await r.json();
 
       if (d.updated !== undefined) {
-        document.getElementById('entregaOverlay').style.display = 'none';
-        const titulo = document.getElementById('entTitulo'); if (titulo) titulo.textContent = 'Confirmar entrega';
-        let msg = `✅ ${d.updated} máquina${d.updated !== 1 ? 's' : ''} entregada${d.updated !== 1 ? 's' : ''} — WA enviado al cliente`;
-        if (d.skipped > 0) msg += ` (${d.skipped} omitida${d.skipped !== 1 ? 's' : ''} — no estaban en estado reparada)`;
-        showToast(msg);
-        const uidOrden = orden.uid_orden;
-        _entBulkMode = false; _entBulkUids = [];
-        ord_bulkDeselect();
-        ord_verDetalle(uidOrden);
+        if (d.updated > 0 && d.skipped === 0) {
+          // Éxito total — cerrar modal, toast limpio sin "WA enviado" (implícito)
+          document.getElementById('entregaOverlay').style.display = 'none';
+          const titulo = document.getElementById('entTitulo'); if (titulo) titulo.textContent = 'Confirmar entrega';
+          showToast(`✅ ${d.updated} máquina${d.updated !== 1 ? 's' : ''} entregada${d.updated !== 1 ? 's' : ''}`);
+          const uidOrden = orden.uid_orden;
+          _entBulkMode = false; _entBulkUids = [];
+          ord_bulkDeselect();
+          ord_verDetalle(uidOrden);
+        } else if (d.updated > 0 && d.skipped > 0) {
+          // Éxito parcial — modal permanece, aviso explícito para que el usuario lo confirme
+          _ent_showError(`⚠️ ${d.updated} máquina${d.updated !== 1 ? 's' : ''} entregada${d.updated !== 1 ? 's' : ''}, pero ${d.skipped} omitida${d.skipped !== 1 ? 's' : ''} porque no estaban en estado "reparada". Revisa su estado y reinténtalo.`);
+          btn.disabled = false; btn.textContent = '✅ Confirmar entrega';
+          ord_verDetalle(orden.uid_orden); // actualiza el detalle en segundo plano
+        } else {
+          // Nada entregado — modal permanece, error claro
+          _ent_showError(`Ninguna máquina fue entregada — las ${d.skipped} seleccionadas no estaban en estado "reparada". Cámbiales el estado primero.`);
+          btn.disabled = false; btn.textContent = '✅ Confirmar entrega';
+        }
       } else {
         _ent_showError(d.error || 'Error registrando la entrega');
         btn.disabled = false; btn.textContent = '✅ Confirmar entrega';
