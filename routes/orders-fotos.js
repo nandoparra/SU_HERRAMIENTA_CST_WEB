@@ -271,6 +271,14 @@ router.post('/orders/:orderId/agregar-maquina', async (req, res) => {
 });
 
 // ── Entregar máquina: captura datos + firma, cambia estado, envía WA ──────────
+
+// Filtro compartido por uploadFirma y uploadFirmaBulk — exportado para tests.
+// Nota: antes de 2026-07-16 uploadFirmaBulk tenía 'image\png' (backslash),
+// que en JS equivale a 'imagepng' y rechazaba SIEMPRE el archivo.
+function firmaMimeFilter(req, file, cb) {
+  file.mimetype === 'image/png' ? cb(null, true) : cb(new Error('La firma debe ser PNG'));
+}
+
 const firmaStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = path.join(UPLOADS_DIR, 'firmas-entrega');
@@ -284,9 +292,7 @@ const firmaStorage = multer.diskStorage({
 const uploadFirma = multer({
   storage: firmaStorage,
   limits: { fileSize: 2 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    file.mimetype === 'image/png' ? cb(null, true) : cb(new Error('La firma debe ser PNG'));
-  },
+  fileFilter: firmaMimeFilter,
 });
 
 router.post('/orders/equipment/:uid/entregar', uploadFirma.single('firma'), async (req, res) => {
@@ -553,3 +559,5 @@ router.post('/orders/:orderId/equipment/bulk-entregar', uploadFirmaBulk.single('
 });
 
 module.exports = router;
+module.exports._firmaMimeFilter = firmaMimeFilter;
+module.exports.uploadFirmaBulk  = uploadFirmaBulk;
