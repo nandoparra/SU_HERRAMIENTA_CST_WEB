@@ -7,6 +7,7 @@ const path     = require('path');
 const fs       = require('fs');
 const db       = require('../utils/db');
 const { getClient: getIAClient, withTimeout } = require('../utils/ia');
+const { logIaUso } = require('../utils/ia-uso');
 const Jimp = require('jimp');
 const { requireInterno, requireAddonContabilidad } = require('../middleware/auth');
 const { UPLOADS_DIR, checkMagicBytes } = require('../utils/uploads');
@@ -282,6 +283,17 @@ Si no puedes extraer un campo con certeza, usa null. Responde únicamente con el
       'Extracción IA'
     );
 
+    try {
+      logIaUso({
+        tenantId:     getTenantId(req),
+        funcion:      'extraccion_factura',
+        modelo:       process.env.CLAUDE_MODEL || 'claude-opus-4-6',
+        inputTokens:  response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+      });
+    } catch (logErr) {
+      log.warn({ err: logErr.message }, 'ia-uso: logging falló en extraccion_factura (no crítico)');
+    }
     const raw  = response.content[0]?.text?.trim() || '{}';
     const json = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
     let extraido;

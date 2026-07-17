@@ -591,4 +591,52 @@ router.get('/cotizaciones/pendientes', dashLimiter, async (req, res) => {
   }
 });
 
+// ── Uso IA — totales y costo estimado por función ────────────────────────────
+const { calcularCostoEstimadoUSD } = require('../utils/ia-uso');
+
+router.get('/ia/uso', dashLimiter, async (req, res) => {
+  const tenantId    = getTenantId(req);
+  const fechaDesde  = req.query.fecha_desde || null;
+  const fechaHasta  = req.query.fecha_hasta || null;
+  const conn = await db.getConnection();
+  try {
+    const params  = [tenantId];
+    let   where   = 'WHERE tenant_id = ?';
+    if (fechaDesde) { where += ' AND created_at >= ?'; params.push(fechaDesde + ' 00:00:00'); }
+    if (fechaHasta) { where += ' AND created_at <  ?'; params.push(fechaHasta + ' 23:59:59'); }
+
+    const [rows] = await conn.execute(
+      `SELECT funcion, modelo,
+              SUM(input_tokens)  AS total_input,
+              SUM(output_tokens) AS total_output,
+              COUNT(*)           AS llamadas,
+              MIN(created_at)    AS primera,
+              MAX(created_at)    AS ultima
+       FROM b2c_ia_uso_log
+       ${where}
+       GROUP BY funcion, modelo
+       ORDER BY funcion, modelo`,
+      params
+    );
+
+    const resultado = rows.map(r => ({
+      funcion:       r.funcion,
+      modelo:        r.modelo,
+      llamadas:      Number(r.llamadas),
+      total_input:   Number(r.total_input),
+      total_output:  Number(r.total_output),
+      costo_usd:     Number(calcularCostoEstimadoUSD(r.modelo, Number(r.total_input), Number(r.total_output)).toFixed(6)),
+      primera:       r.primera,
+      ultima:        r.ultima,
+    }));
+
+    res.json(resultado);
+  } catch (e) {
+    log.error({ err: e }, 'Error ia/uso');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
 module.exports = router;
