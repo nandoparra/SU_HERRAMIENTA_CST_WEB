@@ -1,5 +1,6 @@
 'use strict';
 const { getClient, withTimeout } = require('../utils/ia');
+const { logIaUso } = require('../utils/ia-uso');
 const log = require('../utils/logger');
 
 // ── Constantes ────────────────────────────────────────────────────────────────
@@ -506,7 +507,13 @@ Responde SOLO con la categoría. Sin explicación ni puntuación adicional.`,
       timeoutMs,
       'detectarIntentAutorizacion'
     );
-    return _parseIntentResponse(response.content[0]?.text);
+    const resultado = _parseIntentResponse(response.content[0]?.text);
+    try {
+      logIaUso({ tenantId: null, funcion: 'clasificador_autorizacion', modelo: WA_AGENTE_MODEL, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens });
+    } catch (logErr) {
+      log.warn({ err: logErr.message }, 'ia-uso: logging falló en detectarIntentAutorizacion (no crítico)');
+    }
+    return resultado;
   } catch (e) {
     log.warn({ err: e.message }, 'wa-agente: detectarIntentAutorizacion falló — usando AMBIGUA');
     return 'AMBIGUA';
@@ -743,6 +750,11 @@ async function responderConIA(conn, senderPhone, tenantId, textoCliente) {
     );
     respuesta = response.content[0].text.trim();
     exitoIA = true;
+    try {
+      logIaUso({ tenantId, funcion: 'agente_conversacional', modelo: WA_AGENTE_MODEL, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens });
+    } catch (logErr) {
+      log.warn({ err: logErr.message }, 'ia-uso: logging falló en responderConIA (no crítico)');
+    }
   } catch (e) {
     log.warn({ err: e.message }, '⚠️ wa-agente: Claude timeout o error — enviando fallback');
     respuesta = FALLBACK_MSG;

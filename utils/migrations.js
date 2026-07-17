@@ -1065,7 +1065,32 @@ async function runMigrations() {
   await ensureConversacionArchivo();
   await ensureEntregaColumns();
   await ensureTenantEmpresaColumns();
+  await ensureIaUsoLog();
   console.log('Migraciones completadas');
+}
+
+async function ensureIaUsoLog() {
+  const conn = await db.getConnection();
+  try {
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_ia_uso_log (
+        uid_uso       INT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id     INT NOT NULL DEFAULT 1,
+        funcion       VARCHAR(60) NOT NULL,
+        modelo        VARCHAR(60) NOT NULL,
+        input_tokens  INT NOT NULL,
+        output_tokens INT NOT NULL,
+        created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_tenant_fecha (tenant_id, created_at),
+        INDEX idx_funcion (funcion)
+      )
+    `);
+    console.log('✅ b2c_ia_uso_log verificada');
+  } catch (e) {
+    console.warn('⚠️ No pude crear b2c_ia_uso_log:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
 }
 
 module.exports = { runMigrations, archivarConversacionesAntiguas, _doArchivar };

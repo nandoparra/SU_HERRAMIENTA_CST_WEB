@@ -1,4 +1,5 @@
 const Anthropic = require('@anthropic-ai/sdk');
+const { logIaUso } = require('./ia-uso');
 
 // Timeout predeterminado para llamadas de texto. Para visión usar CLAUDE_VISION_TIMEOUT_MS.
 const AI_TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_MS) || 30_000;
@@ -26,12 +27,26 @@ function withTimeout(promise, ms, label = 'Llamada IA') {
   ]);
 }
 
-async function generateText(prompt, maxTokens = 450) {
+async function generateText(prompt, maxTokens = 450, { tenantId, funcion } = {}) {
+  const modelo   = process.env.CLAUDE_MODEL || 'claude-opus-4-6';
   const response = await getClient().beta.messages.create({
-    model: process.env.CLAUDE_MODEL || 'claude-opus-4-6',
+    model:     modelo,
     max_tokens: maxTokens,
-    messages: [{ role: 'user', content: prompt }],
+    messages:  [{ role: 'user', content: prompt }],
   });
+  if (tenantId != null && funcion) {
+    try {
+      logIaUso({
+        tenantId,
+        funcion,
+        modelo,
+        inputTokens:  response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+      });
+    } catch (_logErr) {
+      // fire-and-forget — nunca sube al caller
+    }
+  }
   return response.content[0].text;
 }
 

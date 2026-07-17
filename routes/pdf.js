@@ -181,7 +181,7 @@ router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireInterno,
       const { machine, items, photos } = await getMachineWithItems(conn, order.uid_orden, req.params.equipmentOrderId);
       if (!machine) return res.status(404).json({ error: 'No hay cotizaci\u00f3n para esta m\u00e1quina.' });
 
-      const observation = await generateText(buildMaintenancePrompt(machine, machine.descripcion_trabajo, items), 350);
+      const observation = await generateText(buildMaintenancePrompt(machine, machine.descripcion_trabajo, items), 350, { tenantId, funcion: 'informe_mantenimiento' });
       const pdf = await generateMaintenancePDF({ order, machine, items, observation, photos, tenant: req.tenant });
       await saveInforme(conn, order.uid_orden, req.params.equipmentOrderId, pdf, order.ord_consecutivo);
       await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'informe_generado', entidad: 'herramienta_orden', uidEntidad: req.params.equipmentOrderId, datosDespues: { uid_orden: order.uid_orden }, ip: req.ip });
@@ -250,7 +250,7 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireIn
       const { machine, items, photos } = await getMachineWithItems(conn, order.uid_orden, req.params.equipmentOrderId);
       if (!machine) return res.status(404).json({ error: 'No hay cotizaci\u00f3n para esta m\u00e1quina.' });
 
-      const observation = await generateText(buildMaintenancePrompt(machine, machine.descripcion_trabajo, items), 350);
+      const observation = await generateText(buildMaintenancePrompt(machine, machine.descripcion_trabajo, items), 350, { tenantId, funcion: 'informe_mantenimiento' });
       const pdf   = await generateMaintenancePDF({ order, machine, items, observation, photos, tenant: req.tenant });
       await saveInforme(conn, order.uid_orden, req.params.equipmentOrderId, pdf, order.ord_consecutivo);
       await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'informe_generado', entidad: 'herramienta_orden', uidEntidad: req.params.equipmentOrderId, datosDespues: { uid_orden: order.uid_orden }, ip: req.ip });
