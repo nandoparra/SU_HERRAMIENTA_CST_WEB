@@ -7,6 +7,7 @@ const fs         = require('fs');
 const bcrypt     = require('bcrypt');
 const rateLimit  = require('express-rate-limit');
 const db         = require('../utils/db');
+const { calcularCostoEstimadoUSD } = require('../utils/ia-uso');
 const { requireSuperadmin } = require('../middleware/requireSuperadmin');
 const { invalidateTenantCache } = require('../middleware/tenant');
 const { initTenantClient }      = require('../utils/whatsapp-client');
@@ -272,6 +273,54 @@ router.patch('/usuarios/:uid', requireSuperadmin, async (req, res) => {
       [...values, uid]
     );
     res.json({ success: true });
+  } finally {
+    conn.release();
+  }
+});
+
+// ── Consumo IA — desglose por tenant + función + modelo ──────────────────────
+
+router.get('/ia/uso', requireSuperadmin, async (req, res) => {
+  const fechaDesde = req.query.fecha_desde || null;
+  const fechaHasta = req.query.fecha_hasta || null;
+  const conn = await db.getConnection();
+  try {
+    const params = [];
+    let where = 'WHERE 1=1';
+    if (fechaDesde) { where += ' AND l.created_at >= ?'; params.push(fechaDesde + ' 00:00:00'); }
+    if (fechaHasta) { where += ' AND l.created_at <  ?'; params.push(fechaHasta + ' 23:59:59'); }
+
+    const [rows] = await conn.execute(
+      `SELECT l.tenant_id,
+              COALESCE(t.ten_nombre, CONCAT('Tenant #', l.tenant_id)) AS ten_nombre,
+              l.funcion,
+              l.modelo,
+              COUNT(*)             AS llamadas,
+              SUM(l.input_tokens)  AS total_input,
+              SUM(l.output_tokens) AS total_output
+       FROM b2c_ia_uso_log l
+       LEFT JOIN b2c_tenant t ON t.uid_tenant = l.tenant_id
+       ${where}
+       GROUP BY l.tenant_id, t.ten_nombre, l.funcion, l.modelo
+       ORDER BY l.tenant_id, l.funcion, l.modelo`,
+      params
+    );
+
+    const resultado = rows.map(r => ({
+      tenant_id:   Number(r.tenant_id),
+      ten_nombre:  r.ten_nombre,
+      funcion:     r.funcion,
+      modelo:      r.modelo,
+      llamadas:    Number(r.llamadas),
+      total_input: Number(r.total_input),
+      total_output: Number(r.total_output),
+      costo_usd:   Number(calcularCostoEstimadoUSD(r.modelo, Number(r.total_input), Number(r.total_output)).toFixed(6)),
+    }));
+
+    res.json(resultado);
+  } catch (e) {
+    log.error({ err: e }, 'Error superadmin ia/uso');
+    res.status(500).json({ error: 'Error interno del servidor' });
   } finally {
     conn.release();
   }

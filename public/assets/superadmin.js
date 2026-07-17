@@ -336,5 +336,99 @@ async function initWA(id) {
   }
 }
 
+// ── Consumo IA ────────────────────────────────────────────────────────────────
+function toggleIaUso() {
+  const panel = document.getElementById('iaUsoPanel');
+  if (panel.style.display === 'flex') {
+    panel.style.display = 'none';
+  } else {
+    panel.style.display = 'flex';
+    // Defaults: últimos 30 días
+    const hoy    = new Date().toISOString().slice(0, 10);
+    const hace30 = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+    if (!document.getElementById('iaDesde').value) document.getElementById('iaDesde').value = hace30;
+    if (!document.getElementById('iaHasta').value) document.getElementById('iaHasta').value = hoy;
+    loadIaUso();
+  }
+}
+
+function closeIaUso() {
+  document.getElementById('iaUsoPanel').style.display = 'none';
+}
+
+async function loadIaUso() {
+  const el     = document.getElementById('iaUsoContenido');
+  const desde  = document.getElementById('iaDesde')?.value  || '';
+  const hasta  = document.getElementById('iaHasta')?.value  || '';
+  el.innerHTML = '<p style="color:#64748b">Cargando...</p>';
+
+  try {
+    const params = new URLSearchParams();
+    if (desde) params.set('fecha_desde', desde);
+    if (hasta)  params.set('fecha_hasta', hasta);
+    const rows = await api('GET', `/ia/uso?${params}`);
+
+    if (!rows.length) {
+      el.innerHTML = '<p style="color:#64748b;">Sin registros en ese período.</p>';
+      return;
+    }
+
+    const fmtN   = n => Number(n).toLocaleString('es-CO');
+    const fmtUSD = n => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+
+    // Agrupar por tenant
+    const tenants = {};
+    for (const r of rows) {
+      if (!tenants[r.tenant_id]) tenants[r.tenant_id] = { nombre: r.ten_nombre, filas: [], subtotal: 0 };
+      tenants[r.tenant_id].filas.push(r);
+      tenants[r.tenant_id].subtotal += Number(r.costo_usd);
+    }
+
+    let html = '<div style="overflow-x:auto;">';
+    for (const tid of Object.keys(tenants).sort((a, b) => a - b)) {
+      const t = tenants[tid];
+      html += `
+        <div style="margin-bottom:20px;">
+          <div style="padding:8px 12px;background:#0f172a;border-radius:6px 6px 0 0;display:flex;align-items:center;gap:12px;">
+            <strong style="color:#a78bfa;font-size:13px;">Tenant #${esc(String(tid))} — ${esc(t.nombre)}</strong>
+            <span style="margin-left:auto;font-size:12px;color:#94a3b8;">Subtotal: <strong style="color:#6ee7b7;">${fmtUSD(t.subtotal)}</strong></span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead>
+              <tr style="background:#1e293b;">
+                <th style="padding:7px 10px;text-align:left;color:#64748b;font-weight:600;">Función</th>
+                <th style="padding:7px 10px;text-align:left;color:#64748b;font-weight:600;">Modelo</th>
+                <th style="padding:7px 10px;text-align:right;color:#64748b;font-weight:600;">Llamadas</th>
+                <th style="padding:7px 10px;text-align:right;color:#64748b;font-weight:600;">Tokens entrada</th>
+                <th style="padding:7px 10px;text-align:right;color:#64748b;font-weight:600;">Tokens salida</th>
+                <th style="padding:7px 10px;text-align:right;color:#64748b;font-weight:600;">Costo USD</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${t.filas.map((r, i) => `
+                <tr style="background:${i % 2 === 0 ? '#0f172a55' : ''};">
+                  <td style="padding:7px 10px;color:#e2e8f0;font-weight:500;">${esc(r.funcion)}</td>
+                  <td style="padding:7px 10px;color:#64748b;font-size:11px;">${esc(r.modelo)}</td>
+                  <td style="padding:7px 10px;text-align:right;color:#e2e8f0;">${fmtN(r.llamadas)}</td>
+                  <td style="padding:7px 10px;text-align:right;color:#94a3b8;">${fmtN(r.total_input)}</td>
+                  <td style="padding:7px 10px;text-align:right;color:#94a3b8;">${fmtN(r.total_output)}</td>
+                  <td style="padding:7px 10px;text-align:right;color:#6ee7b7;font-weight:600;">${fmtUSD(r.costo_usd)}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    const totalGeneral = Object.values(tenants).reduce((s, t) => s + t.subtotal, 0);
+    html += `<div style="text-align:right;padding:10px 12px;background:#064e3b;border-radius:6px;font-size:13px;font-weight:700;color:#6ee7b7;">
+      TOTAL GENERAL: ${fmtUSD(totalGeneral)}
+    </div></div>`;
+
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<p style="color:#f87171;">Error: ${esc(e.message)}</p>`;
+  }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 checkAuth();

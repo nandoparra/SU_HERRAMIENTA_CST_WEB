@@ -156,6 +156,7 @@
     <div class="toolbar">
       <h2>Tenants registrados</h2>
       <button class="btn btn-primary" onclick="openCreate()">+ Nuevo tenant</button>
+      <button class="btn" style="background:#0e7490;color:#fff;" onclick="toggleIaUso()">📊 Consumo IA</button>
     </div>
     <div class="table-wrap">
       <table id="tenantsTable">
@@ -339,6 +340,29 @@
       <button class="btn btn-cancel" onclick="closeLogo()">Cancelar</button>
       <button class="btn btn-primary" onclick="uploadLogo()">Subir</button>
     </div>
+  </div>
+</div>
+
+<!-- ── Panel Consumo IA ── -->
+<div id="iaUsoPanel" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;align-items:flex-start;justify-content:center;padding:24px;overflow-y:auto;">
+  <div style="background:#1e293b;border-radius:12px;padding:28px;width:100%;max-width:900px;margin:auto;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+      <h2 style="flex:1;font-size:16px;font-weight:700;color:#f1f5f9;">📊 Consumo IA — desglose por tenant</h2>
+      <button class="btn btn-cancel" onclick="closeIaUso()">✕ Cerrar</button>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px;">
+      <label style="font-size:12px;color:#94a3b8;display:flex;flex-direction:column;gap:4px;">Desde
+        <input type="date" id="iaDesde" style="padding:6px 8px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;">
+      </label>
+      <label style="font-size:12px;color:#94a3b8;display:flex;flex-direction:column;gap:4px;">Hasta
+        <input type="date" id="iaHasta" style="padding:6px 8px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;">
+      </label>
+      <button class="btn btn-primary" onclick="loadIaUso()">Actualizar</button>
+    </div>
+    <div id="iaUsoContenido" style="color:#94a3b8;font-size:13px;">Cargando...</div>
+    <p style="margin-top:14px;font-size:11px;color:#475569;">
+      Precios: Haiku $1.00/$5.00 · Opus $5.00/$25.00 por MTok (input/output). Costo estimado, sin descuentos de caché.
+    </p>
   </div>
 </div>
 
