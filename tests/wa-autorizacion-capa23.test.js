@@ -1,0 +1,306 @@
+'use strict';
+/**
+ * Tests para Capa 2 (detectarIntentAutorizacion) y Capa 3 (system prompt).
+ *
+ * Problema que cierra:
+ *   Con Capa 1 activa, mensajes como "1 autorizó la cotización", "sí autorizo",
+ *   "dale" caen al agente IA sin ningún filtro. El agente puede responder cualquier
+ *   cosa y la autorización queda sin efecto — o peor, el agente puede confirmar
+ *   erróneamente que "ya se autorizó" sin que el sistema lo registre.
+ *
+ * Capa 2:
+ *   detectarIntentAutorizacion(text) → 'SI_CLARO'|'NO_CLARO'|'AMBIGUA'|'NINGUNA'
+ *   SI_CLARO  → ejecutar como opción '1' (autorizar todo)
+ *   NO_CLARO  → ejecutar como opción '2' (no autorizar)
+ *   AMBIGUA   → pedir confirmación — nunca ejecutar
+ *   NINGUNA   → flujo normal del agente
+ *
+ * Capa 3:
+ *   buildSystemPrompt contiene prohibición explícita de confirmar autorizaciones.
+ *
+ * Audit log:
+ *   SI_CLARO y NO_CLARO dejan registro con texto original + categoría
+ *   para poder verificar exactamente qué escribió el cliente.
+ */
+
+const { test, describe } = require('node:test');
+const assert = require('node:assert/strict');
+
+// ── 1. _parseIntentResponse — puro, sin BD ni Claude ─────────────────────────
+
+describe('_parseIntentResponse — parser de respuesta Claude', () => {
+
+  let parseIntentResponse;
+
+  test('exporta _parseIntentResponse desde wa-agente.js', () => {
+    const mod = require('../services/wa-agente');
+    assert.ok(typeof mod._parseIntentResponse === 'function',
+      '_parseIntentResponse debe exportarse para ser testeable');
+    parseIntentResponse = mod._parseIntentResponse;
+  });
+
+  test('SI_CLARO → "SI_CLARO"', () => {
+    assert.strictEqual(parseIntentResponse('SI_CLARO'), 'SI_CLARO');
+  });
+
+  test('NO_CLARO → "NO_CLARO"', () => {
+    assert.strictEqual(parseIntentResponse('NO_CLARO'), 'NO_CLARO');
+  });
+
+  test('AMBIGUA → "AMBIGUA"', () => {
+    assert.strictEqual(parseIntentResponse('AMBIGUA'), 'AMBIGUA');
+  });
+
+  test('NINGUNA → "NINGUNA"', () => {
+    assert.strictEqual(parseIntentResponse('NINGUNA'), 'NINGUNA');
+  });
+
+  test('case insensitive: "si_claro" → "SI_CLARO"', () => {
+    assert.strictEqual(parseIntentResponse('si_claro'), 'SI_CLARO');
+  });
+
+  test('case insensitive: "no_claro" → "NO_CLARO"', () => {
+    assert.strictEqual(parseIntentResponse('no_claro'), 'NO_CLARO');
+  });
+
+  test('espacios alrededor ignorados: "  SI_CLARO  " → "SI_CLARO"', () => {
+    assert.strictEqual(parseIntentResponse('  SI_CLARO  '), 'SI_CLARO');
+  });
+
+  // Fallback seguro — cualquier respuesta inesperada de Claude
+  test('categoría desconocida → "AMBIGUA" (fallback seguro)', () => {
+    assert.strictEqual(parseIntentResponse('QUIZAS'), 'AMBIGUA');
+  });
+
+  test('respuesta con texto extra → "AMBIGUA" (Claude no siguió el formato)', () => {
+    assert.strictEqual(parseIntentResponse('SI_CLARO porque el cliente dijo...'), 'AMBIGUA');
+  });
+
+  test('cadena vacía → "AMBIGUA"', () => {
+    assert.strictEqual(parseIntentResponse(''), 'AMBIGUA');
+  });
+
+  test('null → "AMBIGUA"', () => {
+    assert.strictEqual(parseIntentResponse(null), 'AMBIGUA');
+  });
+
+  test('undefined → "AMBIGUA"', () => {
+    assert.strictEqual(parseIntentResponse(undefined), 'AMBIGUA');
+  });
+});
+
+// ── 2. _opcionForIntent — mapeo categoría → dígito de autorización ────────────
+
+describe('_opcionForIntent — mapeo intent → opción autorización', () => {
+
+  let opcionForIntent;
+
+  test('exporta _opcionForIntent desde wa-agente.js', () => {
+    const mod = require('../services/wa-agente');
+    assert.ok(typeof mod._opcionForIntent === 'function',
+      '_opcionForIntent debe exportarse');
+    opcionForIntent = mod._opcionForIntent;
+  });
+
+  test('SI_CLARO → "1" (autorizar todo)', () => {
+    assert.strictEqual(opcionForIntent('SI_CLARO'), '1');
+  });
+
+  test('NO_CLARO → "2" (no autorizar)', () => {
+    assert.strictEqual(opcionForIntent('NO_CLARO'), '2');
+  });
+
+  test('AMBIGUA → null (nunca ejecuta automaticamente)', () => {
+    assert.strictEqual(opcionForIntent('AMBIGUA'), null,
+      'AMBIGUA nunca debe producir una autorización automática');
+  });
+
+  test('NINGUNA → null (flujo normal del agente)', () => {
+    assert.strictEqual(opcionForIntent('NINGUNA'), null);
+  });
+
+  test('categoría desconocida → null (safe)', () => {
+    assert.strictEqual(opcionForIntent('QUIZAS'), null);
+  });
+
+  // Invariante crítica de seguridad
+  test('solo SI_CLARO y NO_CLARO producen acción de autorización', () => {
+    const ejecutan = ['SI_CLARO', 'NO_CLARO', 'AMBIGUA', 'NINGUNA']
+      .filter(i => opcionForIntent(i) !== null);
+    assert.deepStrictEqual(ejecutan, ['SI_CLARO', 'NO_CLARO'],
+      'Solo SI_CLARO y NO_CLARO deben disparar la autorización');
+  });
+});
+
+// ── 3. _buildIntentAuditPayload — estructura del audit log ───────────────────
+
+describe('_buildIntentAuditPayload — audit log para autorización por intent', () => {
+
+  let buildIntentAuditPayload;
+
+  test('exporta _buildIntentAuditPayload desde wa-agente.js', () => {
+    const mod = require('../services/wa-agente');
+    assert.ok(typeof mod._buildIntentAuditPayload === 'function',
+      '_buildIntentAuditPayload debe exportarse');
+    buildIntentAuditPayload = mod._buildIntentAuditPayload;
+  });
+
+  test('incluye textoOriginal', () => {
+    const payload = buildIntentAuditPayload('sí claro autorizo', 'SI_CLARO', 42);
+    assert.strictEqual(payload.textoOriginal, 'sí claro autorizo',
+      'El audit log debe conservar el texto exacto que escribió el cliente');
+  });
+
+  test('incluye la categoría asignada', () => {
+    const payload = buildIntentAuditPayload('no gracias', 'NO_CLARO', 42);
+    assert.strictEqual(payload.categoria, 'NO_CLARO');
+  });
+
+  test('incluye uid_orden para trazabilidad', () => {
+    const payload = buildIntentAuditPayload('dale', 'SI_CLARO', 99);
+    assert.strictEqual(payload.uid_orden, 99);
+  });
+
+  test('incluye marcador de via para identificar el canal', () => {
+    const payload = buildIntentAuditPayload('sí', 'SI_CLARO', 1);
+    assert.ok('via' in payload,
+      'El payload debe tener un campo "via" para identificar que fue Capa 2');
+    assert.ok(String(payload.via).length > 0);
+  });
+
+  test('para SI_CLARO el payload preserva el texto que autorizó', () => {
+    const texto = 'sí, adelante con la reparación';
+    const payload = buildIntentAuditPayload(texto, 'SI_CLARO', 5);
+    assert.strictEqual(payload.textoOriginal, texto,
+      'El texto original de autorización debe quedar inmutable en el audit');
+  });
+});
+
+// ── 4. Capa 3 — system prompt prohíbe confirmar autorizaciones ────────────────
+
+describe('buildSystemPrompt — Capa 3: prohibición de confirmar autorizaciones', () => {
+
+  let buildSystemPrompt;
+
+  test('exporta _buildSystemPrompt desde wa-agente.js', () => {
+    const mod = require('../services/wa-agente');
+    assert.ok(typeof mod._buildSystemPrompt === 'function',
+      '_buildSystemPrompt debe exportarse para testear el contenido del prompt');
+    buildSystemPrompt = mod._buildSystemPrompt;
+  });
+
+  test('el system prompt contiene una prohibición sobre autorizaciones de cotizaciones', () => {
+    const prompt = buildSystemPrompt('contexto de prueba');
+    const lower = prompt.toLowerCase();
+    // Debe prohibir confirmar/tramitar autorizaciones
+    const tieneProhibicion = lower.includes('autorizar') || lower.includes('autorización') || lower.includes('autorizacion');
+    assert.ok(tieneProhibicion,
+      'El system prompt debe mencionar autorizaciones en la sección NO PUEDES');
+  });
+
+  test('la prohibición está en la sección NO PUEDES (no en PUEDES)', () => {
+    const prompt = buildSystemPrompt('contexto');
+    const noPuedes = prompt.indexOf('NO PUEDES:');
+    const puedes   = prompt.indexOf('PUEDES:');
+    assert.ok(noPuedes > -1, 'El prompt debe tener sección NO PUEDES:');
+    assert.ok(puedes > -1,   'El prompt debe tener sección PUEDES:');
+
+    // El texto de prohibición debe aparecer después de NO PUEDES
+    const seccionNoPuedes = prompt.slice(noPuedes);
+    const lower = seccionNoPuedes.toLowerCase();
+    assert.ok(
+      lower.includes('confirmr') || lower.includes('confirmar') || lower.includes('tramitar') || lower.includes('registrar'),
+      'La sección NO PUEDES debe prohibir confirmar/tramitar autorizaciones'
+    );
+  });
+
+  test('el prompt recuerda que las opciones son 1, 2, 3 o 4 (en PUEDES o NO PUEDES)', () => {
+    const prompt = buildSystemPrompt('contexto');
+    // El prompt original ya dice "respondiendo 1, 2, 3 o 4" en PUEDES — debe seguir así
+    const tieneOpciones = /[1-4]/.test(prompt) && /autoriz/i.test(prompt);
+    assert.ok(tieneOpciones,
+      'El prompt debe indicar al agente que las opciones de autorización son numéricas');
+  });
+
+  test('el system prompt sigue siendo un string no vacío', () => {
+    const prompt = buildSystemPrompt('cualquier contexto');
+    assert.ok(typeof prompt === 'string' && prompt.length > 100,
+      'buildSystemPrompt debe seguir devolviendo un prompt válido');
+  });
+});
+
+// ── 5. detectarIntentAutorizacion — comportamiento real ante fallos ───────────
+//
+// Estos tests verifican la garantía de seguridad central:
+// "nunca ejecuta a ciegas si Claude falla".
+// Se inyecta un cliente simulado via _testClient para no llamar a la API real.
+
+describe('detectarIntentAutorizacion — safe default ante fallos reales', () => {
+
+  const { detectarIntentAutorizacion } = require('../services/wa-agente');
+
+  test('exporta detectarIntentAutorizacion como función', () => {
+    assert.ok(typeof detectarIntentAutorizacion === 'function');
+  });
+
+  test('(a) error de red/API → resuelve a AMBIGUA', async () => {
+    const errorClient = {
+      beta: { messages: { create: async () => {
+        throw new Error('ECONNREFUSED — simulación de fallo de red');
+      }}}
+    };
+    const result = await detectarIntentAutorizacion('sí claro autorizo', { _testClient: errorClient });
+    assert.strictEqual(result, 'AMBIGUA',
+      'Un error de red/API debe resolverse a AMBIGUA, nunca lanzar ni ejecutar la autorización');
+  });
+
+  test('(b) timeout — cliente no responde dentro de _testTimeoutMs → AMBIGUA', async () => {
+    // Cliente que cuelga indefinidamente; timeout reducido a 60ms para que el test sea rápido
+    const slowClient = {
+      beta: { messages: { create: () => new Promise(() => {}) }} // nunca resuelve
+    };
+    const result = await detectarIntentAutorizacion('dale', {
+      _testClient: slowClient,
+      _testTimeoutMs: 60,
+    });
+    assert.strictEqual(result, 'AMBIGUA',
+      'El timeout debe resolverse a AMBIGUA — la autorización no se ejecuta a ciegas');
+  });
+
+  test('(c) Claude responde con formato inesperado → AMBIGUA (integración con _parseIntentResponse)', async () => {
+    // Claude no siguió las instrucciones y devolvió texto libre en vez de una categoría
+    const unexpectedClient = {
+      beta: { messages: { create: async () => ({
+        content: [{ text: 'Creo que el cliente quiere autorizar la cotización completa.' }]
+      })}}
+    };
+    const result = await detectarIntentAutorizacion('sí claro', { _testClient: unexpectedClient });
+    assert.strictEqual(result, 'AMBIGUA',
+      '_parseIntentResponse debe rechazar texto libre y retornar AMBIGUA');
+  });
+
+  test('(d) happy path — respuesta válida SI_CLARO llega correctamente', async () => {
+    // Confirma que el canal completo funciona cuando Claude sí responde bien
+    const happyClient = {
+      beta: { messages: { create: async () => ({ content: [{ text: 'SI_CLARO' }] }) }}
+    };
+    const result = await detectarIntentAutorizacion('sí, adelante', { _testClient: happyClient });
+    assert.strictEqual(result, 'SI_CLARO');
+  });
+
+  test('(e) happy path — respuesta válida NO_CLARO llega correctamente', async () => {
+    const happyClient = {
+      beta: { messages: { create: async () => ({ content: [{ text: 'NO_CLARO' }] }) }}
+    };
+    const result = await detectarIntentAutorizacion('no gracias', { _testClient: happyClient });
+    assert.strictEqual(result, 'NO_CLARO');
+  });
+
+  test('(f) respuesta vacía de Claude → AMBIGUA', async () => {
+    const emptyClient = {
+      beta: { messages: { create: async () => ({ content: [] }) }}
+    };
+    const result = await detectarIntentAutorizacion('hmm', { _testClient: emptyClient });
+    assert.strictEqual(result, 'AMBIGUA');
+  });
+});

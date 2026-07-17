@@ -8,6 +8,10 @@ const WA_AGENTE_MODEL       = process.env.WA_AGENTE_MODEL || 'claude-haiku-4-5-2
 const WA_AGENTE_TIMEOUT_MS  = 15_000;
 const WA_AGENTE_MAX_HISTORIAL = 20;
 
+// Capa 2 — clasificación de intención de autorización
+const INTENT_TIMEOUT_MS = 8_000;
+const VALID_INTENTS = ['SI_CLARO', 'NO_CLARO', 'AMBIGUA', 'NINGUNA'];
+
 const TALLER_PHONE = (() => {
   const raw = String(process.env.PARTS_WHATSAPP_NUMBER || '3104650437').replace(/\D/g, '');
   return raw.slice(-10);
@@ -444,6 +448,71 @@ function formatContexto(contexto) {
   return lines.join('\n');
 }
 
+// ── Capa 2: detección de intención de autorización ───────────────────────────
+
+/**
+ * Parsea la respuesta de Claude a una de las 4 categorías válidas.
+ * Cualquier respuesta inesperada (o vacía) retorna 'AMBIGUA' como fallback seguro.
+ */
+function _parseIntentResponse(raw) {
+  const category = String(raw || '').trim().toUpperCase();
+  return VALID_INTENTS.includes(category) ? category : 'AMBIGUA';
+}
+
+/**
+ * Mapea la categoría de intención al dígito de autorización correspondiente.
+ * Solo SI_CLARO y NO_CLARO producen acción — el resto retorna null.
+ */
+function _opcionForIntent(intent) {
+  if (intent === 'SI_CLARO') return '1';
+  if (intent === 'NO_CLARO') return '2';
+  return null;
+}
+
+/**
+ * Construye el payload del audit log para autorizaciones detectadas por Capa 2.
+ * Preserva el texto original para poder verificar lo que escribió el cliente.
+ */
+function _buildIntentAuditPayload(textoOriginal, categoria, uidOrden) {
+  return { textoOriginal, categoria, uid_orden: uidOrden, via: 'detectarIntentAutorizacion' };
+}
+
+/**
+ * Capa 2 — Llama a Claude Haiku para clasificar si un mensaje WA es una
+ * intención de autorización/rechazo de cotización o un mensaje ordinario.
+ * Timeout 8s. Fallback seguro: 'AMBIGUA' ante cualquier error o respuesta inesperada.
+ *
+ * @param {string} text — mensaje original del cliente
+ * @param {object} [opts] — opciones de inyección para tests (no usar en producción)
+ *   _testClient    — cliente Anthropic simulado (omite getClient())
+ *   _testTimeoutMs — timeout reducido para acelerar tests de timeout
+ */
+async function detectarIntentAutorizacion(text, { _testClient, _testTimeoutMs } = {}) {
+  const client    = _testClient    || getClient();
+  const timeoutMs = _testTimeoutMs ?? INTENT_TIMEOUT_MS;
+  try {
+    const response = await withTimeout(
+      client.beta.messages.create({
+        model: WA_AGENTE_MODEL,
+        max_tokens: 10,
+        system: `Clasifica este mensaje de WhatsApp en exactamente una de estas 4 categorías:
+SI_CLARO — afirmación directa y sin condiciones de autorizar la cotización. Ej: "sí", "autorizo", "dale", "claro que sí", "sigan no más", "acepto".
+NO_CLARO — negación directa. Ej: "no", "no autorizo", "cancela", "mejor no", "no gracias".
+AMBIGUA — cualquier mensaje que mencione la cotización pero no sea respuesta limpia: preguntas, condicionales, dudas, autorización parcial o pedir asesor en texto libre.
+NINGUNA — el mensaje no tiene relación con autorizar o rechazar la cotización.
+Responde SOLO con la categoría. Sin explicación ni puntuación adicional.`,
+        messages: [{ role: 'user', content: String(text) }],
+      }),
+      timeoutMs,
+      'detectarIntentAutorizacion'
+    );
+    return _parseIntentResponse(response.content[0]?.text);
+  } catch (e) {
+    log.warn({ err: e.message }, 'wa-agente: detectarIntentAutorizacion falló — usando AMBIGUA');
+    return 'AMBIGUA';
+  }
+}
+
 function buildSystemPrompt(contextText) {
   return `Eres el Asistente SU HERRAMIENTA, el asistente virtual del taller SU HERRAMIENTA CST en Pereira, Colombia. Atiendes por WhatsApp a los clientes del taller de reparación de herramientas eléctricas.
 
@@ -466,6 +535,7 @@ NO PUEDES:
 - Tomar decisiones sobre reparaciones
 - Hablar de otros clientes
 - Inventar o suponer diagnósticos, repuestos, precios, fechas de entrega ni ningún dato que no esté explícitamente en el CONTEXTO ACTUAL DEL CLIENTE. Si no tienes el dato, dilo con claridad y remite al ${TALLER_PHONE}.
+- Confirmar, registrar ni tramitar autorizaciones de cotizaciones — eso lo gestiona otro sistema. Si el cliente quiere autorizar o rechazar, recuérdale que responda con el número de su elección: 1 autorizar todo, 2 no autorizar, 3 parcial, 4 hablar con asesor.
 
 Si el cliente pregunta algo fuera de tu alcance, indícale amablemente que se comunique al ${TALLER_PHONE}.
 
@@ -693,4 +763,9 @@ async function responderConIA(conn, senderPhone, tenantId, textoCliente) {
   return respuesta;
 }
 
-module.exports = { buildContextoCliente, normalizePhone, responderConIA, checkRateLimit };
+module.exports = {
+  buildContextoCliente, normalizePhone, responderConIA, checkRateLimit,
+  detectarIntentAutorizacion,
+  _parseIntentResponse, _opcionForIntent, _buildIntentAuditPayload,
+  _buildSystemPrompt: buildSystemPrompt,
+};
