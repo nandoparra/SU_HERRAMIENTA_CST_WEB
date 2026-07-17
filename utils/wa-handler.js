@@ -9,7 +9,8 @@
 const db = require('./db');
 const { registerMessageHandler, sendWAMessage, isReady, getLidPhone, setLidPhone } = require('./whatsapp-client');
 const log = require('./logger');
-const { responderConIA, checkRateLimit } = require('../services/wa-agente');
+const { responderConIA, checkRateLimit, detectarIntentAutorizacion, _opcionForIntent, _buildIntentAuditPayload } = require('../services/wa-agente');
+const { logAudit } = require('./audit');
 
 // P1-1: Cola de serialización por clave (normalmente `${tenantId}:${senderPhone}`).
 // Garantiza que dos mensajes del mismo número no se procesen en paralelo,
@@ -29,6 +30,19 @@ function _enqueue(key, fn) {
 
 function formatCOP(amount) {
   return `$${Number(amount || 0).toLocaleString('es-CO')}`;
+}
+
+/**
+ * Capa 1 del fix de autorización WA.
+ * Extrae la opción numérica (1-4) si el mensaje empieza con ese dígito seguido de:
+ *   - fin de texto (con espacios opcionales), O
+ *   - puntuación inmediata (. , ; : ! ?)
+ * Devuelve null para cualquier otra forma — incluyendo "2 preguntas" o "1 autorizó"
+ * (esos mensajes van a Capa 2: detectarIntentAutorizacion).
+ */
+function extractOpcion(text) {
+  const m = String(text || '').trim().match(/^([1-4])(?:\s*$|[.,;:!?])/);
+  return m ? m[1] : null;
 }
 
 log.info('✅ wa-handler: listener de mensajes entrantes registrado');
@@ -109,7 +123,7 @@ registerMessageHandler(async (tenantId, msg) => {
     // Si hay exactamente UN pendiente activo para este tenant sin wa_lid asignado,
     // lo asociamos a este LID. Funciona bien en talleres de baja concurrencia donde
     // rara vez hay dos clientes esperando autorizar al mismo tiempo.
-    if (!pendiente && jid.endsWith('@lid') && ['1','2','3','4'].includes(text)) {
+    if (!pendiente && jid.endsWith('@lid') && extractOpcion(text) !== null) {
       // Limpiar pendientes vencidos sin wa_lid antes de contar candidatos.
       // Misma TTL (7 días) que el handler principal. Esto elimina cotizaciones antiguas
       // sin respuesta que inflarían el conteo e impedirían que Phase 3 matchee
@@ -171,10 +185,37 @@ registerMessageHandler(async (tenantId, msg) => {
     log.debug(`📨 wa-handler: pendiente encontrado uid_orden=${pendiente.uid_orden} estado=${pendiente.estado}`);
 
     if (pendiente.estado === 'esperando_opcion') {
-      if (['1', '2', '3', '4'].includes(text)) {
-        await handleOpcion(conn, pendiente, text, jid, tenantId);
+      const opcion = extractOpcion(text);
+      if (opcion !== null) {
+        // Capa 1: dígito limpio con separador → autorizar directo
+        await handleOpcion(conn, pendiente, opcion, jid, tenantId);
       } else {
-        await handleAgente(conn, phoneForLookup, tenantId, text, jid);
+        // Capa 2: texto libre → detectar intención con Claude
+        const intent  = await detectarIntentAutorizacion(text);
+        const opcion2 = _opcionForIntent(intent);
+        if (opcion2 !== null) {
+          // SI_CLARO o NO_CLARO — auditar y ejecutar
+          logAudit(db, {
+            tenantId,
+            userId:       null,
+            accion:       'autorizacion_wa_intent',
+            entidad:      'b2c_wa_autorizacion_pendiente',
+            uidEntidad:   pendiente.uid_autorizacion,
+            datosAntes:   null,
+            datosDespues: _buildIntentAuditPayload(text, intent, pendiente.uid_orden),
+            ip:           'WA',
+          });
+          await handleOpcion(conn, pendiente, opcion2, jid, tenantId);
+        } else if (intent === 'AMBIGUA') {
+          // Pedir confirmación explícita — nunca ejecutar
+          await sendWAMessage(tenantId, jid,
+            'Para confirmar: ¿autorizas la cotización completa? Responde con el número de tu elección:\n' +
+            '1️⃣ Autorizar todo\n2️⃣ No autorizar\n3️⃣ Autorización parcial\n4️⃣ Hablar con asesor'
+          );
+        } else {
+          // NINGUNA — flujo normal del agente
+          await handleAgente(conn, phoneForLookup, tenantId, text, jid);
+        }
       }
     } else if (pendiente.estado === 'esperando_maquinas') {
       await handleSeleccionMaquinas(conn, pendiente, text, jid, tenantId);
@@ -498,4 +539,4 @@ async function handleAgente(conn, senderPhone, tenantId, text, senderJid) {
   }
 }
 
-module.exports = { _isAgenteHorarioActivo, _enqueue, _queue };
+module.exports = { _isAgenteHorarioActivo, _enqueue, _queue, _extractOpcion: extractOpcion };
