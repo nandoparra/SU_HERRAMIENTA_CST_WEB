@@ -141,7 +141,6 @@ const VIEW_LABELS = {
   clientes:'Clientes', funcionarios:'Funcionarios', inventario:'Inventario',
   recibos:'Recibos', ventas:'Ventas', finanzas:'Finanzas', contable:'Contable',
   solicitudesTaller:'Recogidas', waConversaciones:'Conversaciones WA Agente',
-  iaUso:'Uso IA',
   nuevaOrden:'Nueva Orden',
   misOrdenes:'Mis Órdenes', buscarOrden:'Buscar Orden'
 };
@@ -5776,93 +5775,5 @@ async function ord_confirmarEntrega() {
     _ent_showError('Error de conexión: ' + e.message);
     btn.disabled = false;
     btn.textContent = '✅ Confirmar entrega';
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// VISTA: USO IA — tokens y costo estimado por función
-// ════════════════════════════════════════════════════════════════════════════
-Views.iaUso = {
-  render() {
-    const hoy    = new Date().toISOString().slice(0, 10);
-    const hace30 = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
-    return `
-      <div style="max-width:900px;margin:0 auto;padding:20px 16px;">
-        <h2 style="margin-bottom:18px;">📊 Uso IA — tokens y costo estimado</h2>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:18px;">
-          <label style="font-size:.9rem;">Desde
-            <input type="date" id="iaDesde" value="${hace30}" style="margin-left:6px;padding:5px 8px;border:1px solid #ccc;border-radius:6px;">
-          </label>
-          <label style="font-size:.9rem;">Hasta
-            <input type="date" id="iaHasta" value="${hoy}" style="margin-left:6px;padding:5px 8px;border:1px solid #ccc;border-radius:6px;">
-          </label>
-          <button onclick="iau_cargar()" style="padding:6px 18px;background:#1d3557;color:#fff;border:none;border-radius:6px;cursor:pointer;">Actualizar</button>
-        </div>
-        <div id="iaUsoTabla"><p style="color:#888;">Cargando...</p></div>
-        <p style="margin-top:14px;font-size:.78rem;color:#888;">
-          Precios: Haiku $1.00/$5.00 por MTok · Opus $5.00/$25.00 por MTok (input/output, verificados 2026-07-17).
-          El costo es estimado — no incluye descuentos por caché de prompts.
-        </p>
-      </div>`;
-  },
-  init() { iau_cargar(); },
-};
-
-async function iau_cargar() {
-  const desde = document.getElementById('iaDesde')?.value || '';
-  const hasta  = document.getElementById('iaHasta')?.value || '';
-  const el     = document.getElementById('iaUsoTabla');
-  if (!el) return;
-  el.innerHTML = '<p style="color:#888;">Cargando...</p>';
-  try {
-    const params = new URLSearchParams();
-    if (desde) params.set('fecha_desde', desde);
-    if (hasta)  params.set('fecha_hasta', hasta);
-    const r = await fetch(`${API_BASE}/ia/uso?${params}`);
-    if (!r.ok) throw new Error(await r.text());
-    const rows = await r.json();
-
-    if (!rows.length) {
-      el.innerHTML = '<p style="color:#888;">Sin registros en ese período.</p>';
-      return;
-    }
-
-    const fmtN   = n => Number(n).toLocaleString('es-CO');
-    const fmtUSD = n => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-    const totalCosto = rows.reduce((s, row) => s + Number(row.costo_usd), 0);
-
-    const thead = `<tr style="background:#1d3557;color:#fff;">
-      <th style="padding:8px 12px;text-align:left;">Función</th>
-      <th style="padding:8px 12px;text-align:left;">Modelo</th>
-      <th style="padding:8px 12px;text-align:right;">Llamadas</th>
-      <th style="padding:8px 12px;text-align:right;">Tokens entrada</th>
-      <th style="padding:8px 12px;text-align:right;">Tokens salida</th>
-      <th style="padding:8px 12px;text-align:right;">Costo estimado</th>
-    </tr>`;
-
-    const tbody = rows.map((row, i) => `
-      <tr style="background:${i % 2 === 0 ? '#f8f9fa' : '#fff'};">
-        <td style="padding:8px 12px;font-weight:500;">${row.funcion}</td>
-        <td style="padding:8px 12px;font-size:.85rem;color:#555;">${row.modelo}</td>
-        <td style="padding:8px 12px;text-align:right;">${fmtN(row.llamadas)}</td>
-        <td style="padding:8px 12px;text-align:right;">${fmtN(row.total_input)}</td>
-        <td style="padding:8px 12px;text-align:right;">${fmtN(row.total_output)}</td>
-        <td style="padding:8px 12px;text-align:right;font-weight:600;">${fmtUSD(row.costo_usd)}</td>
-      </tr>`).join('');
-
-    const tfoot = `<tr style="background:#e8efe8;font-weight:700;">
-      <td colspan="5" style="padding:8px 12px;">TOTAL</td>
-      <td style="padding:8px 12px;text-align:right;">${fmtUSD(totalCosto)}</td>
-    </tr>`;
-
-    el.innerHTML = `<div style="overflow-x:auto;">
-      <table style="width:100%;border-collapse:collapse;font-size:.9rem;">
-        <thead>${thead}</thead>
-        <tbody>${tbody}</tbody>
-        <tfoot>${tfoot}</tfoot>
-      </table>
-    </div>`;
-  } catch (e) {
-    el.innerHTML = `<p style="color:#c0392b;">Error cargando datos: ${e.message}</p>`;
   }
 }

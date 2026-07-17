@@ -1597,6 +1597,44 @@ La estructura actual tiene clientes con órdenes pero no prospectos ni pipeline 
 
 ---
 
+## Logging de uso de tokens IA — utils/ia-uso.js + superadmin
+
+Mergeado 2026-07-17 (`feature/ia-uso-log` + `feature/ia-uso-superadmin`).
+
+### Tabla `b2c_ia_uso_log`
+Auto-migrada al arrancar. Columnas: `uid_uso` AI PK, `tenant_id`, `funcion` VARCHAR(60), `modelo` VARCHAR(60), `input_tokens`, `output_tokens`, `created_at`. Índices: `(tenant_id, created_at)`, `(funcion)`.
+
+### utils/ia-uso.js
+- `logIaUso({ tenantId, funcion, modelo, inputTokens, outputTokens })` — fire-and-forget (async IIFE con `.catch`). Nunca propaga error. Se llama con try/catch propio en cada punto — **no puede vivir dentro del try/catch de la lógica de negocio**.
+- `calcularCostoEstimadoUSD(modelo, inputTokens, outputTokens)` — Haiku $1.00/$5.00 · Opus $5.00/$25.00 por MTok (input/output, verificados 2026-07-17). Modelo desconocido → Opus (conservador).
+
+### Funciones logueadas
+| Función (`funcion`) | Llamado desde | Modelo |
+|---------------------|---------------|--------|
+| `informe_mantenimiento` | `routes/pdf.js` vía `generateText()` | `CLAUDE_MODEL` env |
+| `extraccion_factura` | `routes/contable.js` (Claude Vision) | `CLAUDE_MODEL` env |
+| `agente_conversacional` | `services/wa-agente.js` `responderConIA()` | `WA_AGENTE_MODEL` |
+| `clasificador_autorizacion` | `services/wa-agente.js` `detectarIntentAutorizacion()` | `WA_AGENTE_MODEL` |
+
+### Endpoint — solo superadmin
+`GET /superadmin/api/ia/uso?fecha_desde=YYYY-MM-DD&fecha_hasta=YYYY-MM-DD`
+- Protegido por `requireSuperadmin` (sesión `req.session.superadmin`)
+- Sin filtro de tenant — ve todos los tenants
+- GROUP BY `tenant_id, ten_nombre, funcion, modelo` + JOIN `b2c_tenant`
+- Devuelve costo calculado en query-time (no almacenado) → permite actualizar precios sin re-procesar histórico
+- UI: botón "📊 Consumo IA" en panel superadmin → modal con desglose por taller + subtotal + total general
+
+### ⚠️ BUG CONOCIDO — clasificador_autorizacion loguea siempre como tenant_id=1
+
+**Archivo**: `services/wa-agente.js`, función `detectarIntentAutorizacion()`  
+**Línea**: llamada a `logIaUso({ tenantId: null, ... })`  
+**Causa**: `detectarIntentAutorizacion` no recibe `tenantId` como parámetro — el clasificador corre antes de identificar de qué tenant viene la conversación. `null ?? 1` en `ia-uso.js` lo guarda como `tenant_id=1`.  
+**Efecto**: en el panel superadmin, el costo de `clasificador_autorizacion` aparece 100% bajo "SU HERRAMIENTA CST" (tenant 1), aunque sea un mensaje de otro tenant quien lo disparó.  
+**Estado**: sin impacto con un solo tenant. **Debe resolverse antes de, o inmediatamente después de, onboardear el segundo tenant real.** Si la demo del sábado 2026-07-19 resulta en un cliente nuevo, este bug deja de ser teórico en el primer mensaje WA que ese cliente reciba.  
+**Fix requerido**: pasar `tenantId` como parámetro a `detectarIntentAutorizacion(text, tenantId, { _testClient, _testTimeoutMs } = {})` y propagarlo desde `handleAgente()` en `wa-handler.js`. Actualizar tests correspondientes.
+
+---
+
 ## Notas de entorno (Windows / Git Bash)
 
 - Python no disponible (Windows Store shim)
