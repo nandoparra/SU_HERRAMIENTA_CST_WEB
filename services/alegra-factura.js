@@ -128,7 +128,7 @@ async function generarFactura({ orden, cliente, maquinas, paymentForm = 'CASH', 
       paymentForm,
       paymentMethod,
       status: 'open',
-      stamp: 'true',
+      stamp: true,
       numberTemplate: { id: ALEGRA_TEMPLATE_ID },
       observations: `Orden de servicio #${orden.ord_consecutivo}`,
     });
