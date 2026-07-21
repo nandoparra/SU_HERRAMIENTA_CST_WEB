@@ -13,14 +13,19 @@ const WA_AGENTE_MAX_HISTORIAL = 20;
 const INTENT_TIMEOUT_MS = 8_000;
 const VALID_INTENTS = ['SI_CLARO', 'NO_CLARO', 'AMBIGUA', 'NINGUNA'];
 
+// null cuando PARTS_WHATSAPP_NUMBER no está configurado — nunca hardcodear un número real
 const TALLER_PHONE = (() => {
-  const raw = String(process.env.PARTS_WHATSAPP_NUMBER || '3104650437').replace(/\D/g, '');
-  return raw.slice(-10);
+  const raw = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/\D/g, '');
+  return raw.length >= 7 ? raw.slice(-10) : null;
 })();
 
-const FALLBACK_MSG =
-  `En este momento no puedo responderte. Para cualquier consulta comunícate ` +
-  `con nosotros directamente al ${TALLER_PHONE}. — Asistente SU HERRAMIENTA`;
+// Mensaje de fallback — acepta teléfono del tenant (puede ser null)
+const _fallbackMsg = (phone) =>
+  phone
+    ? `En este momento no puedo responderte. Para cualquier consulta comunícate ` +
+      `con nosotros directamente al ${phone}. — Asistente SU HERRAMIENTA`
+    : `En este momento no puedo responderte. Para cualquier consulta comunícate ` +
+      `directamente con el taller. — Asistente SU HERRAMIENTA`;
 
 // Estados con equipo aún en el taller (no finalizados)
 const ESTADOS_ACTIVOS =
@@ -29,7 +34,7 @@ const ESTADOS_ACTIVOS =
 const ESTADOS_LABEL = {
   pendiente_revision: 'Pendiente de revisión',
   revisada:          'Revisada — pendiente de cotización',
-  cotizada:          'Cotizada — pendiente de autorizar',
+  cotizada:          'Cotizada — en espera de decisión del cliente',
   autorizada:        'Autorizada — en reparación',
   reparada:          'Reparada — lista para recoger ✅',
   entregada:         'Entregada',
@@ -520,7 +525,28 @@ Responde SOLO con la categoría. Sin explicación ni puntuación adicional.`,
   }
 }
 
-function buildSystemPrompt(contextText) {
+function buildSystemPrompt(contextText, hasCotizacionPendiente = false, tallerPhone = TALLER_PHONE) {
+  // La mención del menú 1/2/3/4 solo aparece cuando hay una cotización pendiente activa.
+  // Sin pendiente activo, el agente no debe presentar ni insinuar ese menú — es el origen
+  // del bug donde el agente confirmaba autorizaciones fantasma (orden #8045, 2026-07-14).
+  const recordarMenu = hasCotizacionPendiente
+    ? '\n- Recordarle al cliente que puede autorizar su cotización respondiendo 1, 2, 3 o 4'
+    : '';
+  const instrAutorizacion = hasCotizacionPendiente
+    ? `\n- Confirmar, registrar ni tramitar autorizaciones de cotizaciones — eso lo gestiona otro sistema. Si el cliente quiere autorizar o rechazar, recuérdale que responda con el número de su elección: 1 autorizar todo, 2 no autorizar, 3 parcial, 4 hablar con asesor.`
+    : `\n- Confirmar, registrar ni tramitar autorizaciones de cotizaciones — eso lo gestiona otro sistema por separado. Nunca presentes el menú 1/2/3/4 para autorizar si no hay una cotización pendiente indicada en el CONTEXTO. Si el cliente menciona que quiere autorizar, infórmale que recibirá las instrucciones por este canal cuando la cotización esté lista.`;
+
+  // Referencia de contacto — nunca hardcodear un número. Si no hay datos, placeholder genérico.
+  const contactoLinea = tallerPhone
+    ? `\n- Dar el número de contacto del taller para temas complejos: ${tallerPhone}`
+    : `\n- Indicar al cliente que contacte directamente con el taller para temas complejos`;
+  const remitirA = tallerPhone
+    ? `remite al ${tallerPhone}`
+    : `indica que contacte directamente con el taller`;
+  const despedida = tallerPhone
+    ? `Si el cliente pregunta algo fuera de tu alcance, indícale amablemente que se comunique al ${tallerPhone}.`
+    : `Si el cliente pregunta algo fuera de tu alcance, indícale amablemente que contacte directamente con el taller.`;
+
   return `Eres el Asistente SU HERRAMIENTA, el asistente virtual del taller SU HERRAMIENTA CST en Pereira, Colombia. Atiendes por WhatsApp a los clientes del taller de reparación de herramientas eléctricas.
 
 TONO Y ESTILO:
@@ -531,20 +557,17 @@ TONO Y ESTILO:
 
 PUEDES:
 - Informar el estado de las órdenes y máquinas del cliente
-- Explicar cotizaciones y montos
-- Recordarle al cliente que puede autorizar su cotización respondiendo 1, 2, 3 o 4
-- Responder preguntas generales sobre el servicio del taller
-- Dar el número de contacto del taller para temas complejos: ${TALLER_PHONE}
+- Explicar cotizaciones y montos${recordarMenu}
+- Responder preguntas generales sobre el servicio del taller${contactoLinea}
 
 NO PUEDES:
 - Prometer fechas de entrega
 - Cambiar precios o condiciones de una cotización
 - Tomar decisiones sobre reparaciones
 - Hablar de otros clientes
-- Inventar o suponer diagnósticos, repuestos, precios, fechas de entrega ni ningún dato que no esté explícitamente en el CONTEXTO ACTUAL DEL CLIENTE. Si no tienes el dato, dilo con claridad y remite al ${TALLER_PHONE}.
-- Confirmar, registrar ni tramitar autorizaciones de cotizaciones — eso lo gestiona otro sistema. Si el cliente quiere autorizar o rechazar, recuérdale que responda con el número de su elección: 1 autorizar todo, 2 no autorizar, 3 parcial, 4 hablar con asesor.
+- Inventar o suponer diagnósticos, repuestos, precios, fechas de entrega ni ningún dato que no esté explícitamente en el CONTEXTO ACTUAL DEL CLIENTE. Si no tienes el dato, dilo con claridad y ${remitirA}.${instrAutorizacion}
 
-Si el cliente pregunta algo fuera de tu alcance, indícale amablemente que se comunique al ${TALLER_PHONE}.
+${despedida}
 
 CONTEXTO ACTUAL DEL CLIENTE:
 ${contextText}`;
@@ -601,7 +624,7 @@ async function handleConfirmacion(conn, waPhone, tenantId, textoCliente, estadoI
  * Gestiona el flujo esperando_cedula: solicita identificación, cuenta intentos,
  * aplica FALLBACK si se supera el límite.
  */
-async function handleNoIdentificado(conn, waPhone, tenantId, textoCliente, estadoIdent) {
+async function handleNoIdentificado(conn, waPhone, tenantId, textoCliente, estadoIdent, tallerPhone = TALLER_PHONE) {
   const estadoActual = (estadoIdent.estado !== 'normal' && isEstadoExpired(estadoIdent.estado_desde))
     ? 'normal'
     : estadoIdent.estado;
@@ -628,15 +651,16 @@ async function handleNoIdentificado(conn, waPhone, tenantId, textoCliente, estad
         // Nota: esta mitigación es por wa_sender. Alguien con múltiples
         // números/cuentas WA puede evadirla iniciando desde otro número.
         await resetEstadoIdent(conn, waPhone, tenantId);
-        return FALLBACK_MSG;
+        return _fallbackMsg(tallerPhone);
       }
 
       const restantes = 5 - newIntentos;
+      const asistenciaRef = tallerPhone ? `al *${tallerPhone}*` : `directamente con el taller`;
       return (
         `No encontré esa identificación en nuestro sistema. ` +
         `Por favor verifíquela e inténtelo de nuevo ` +
         `(${restantes} intento${restantes === 1 ? '' : 's'} restante${restantes === 1 ? '' : 's'}). ` +
-        `Para asistencia directa comuníquese al *${TALLER_PHONE}*. — Asistente SU HERRAMIENTA`
+        `Para asistencia directa comuníquese ${asistenciaRef}. — Asistente SU HERRAMIENTA`
       );
     }
     // Texto sin dígitos — recordatorio sin contar intento
@@ -668,7 +692,7 @@ async function handleNoIdentificado(conn, waPhone, tenantId, textoCliente, estad
  *
  * Siempre retorna un string — nunca lanza excepción.
  */
-async function responderConIA(conn, senderPhone, tenantId, textoCliente) {
+async function responderConIA(conn, senderPhone, tenantId, textoCliente, tallerPhone = TALLER_PHONE) {
   // 0. Estado de identificación (P0-2/P1-3)
   const estadoIdent = await getEstadoIdent(conn, senderPhone, tenantId);
 
@@ -703,7 +727,7 @@ async function responderConIA(conn, senderPhone, tenantId, textoCliente) {
 
   // 2b. Cliente no identificado — flujo de solicitud de cédula (P0-2)
   if (!contexto) {
-    return await handleNoIdentificado(conn, senderPhone, tenantId, textoCliente, estadoIdent);
+    return await handleNoIdentificado(conn, senderPhone, tenantId, textoCliente, estadoIdent, tallerPhone);
   }
 
   // 3. Contexto completo — resetear estado si había uno activo
@@ -724,7 +748,7 @@ async function responderConIA(conn, senderPhone, tenantId, textoCliente) {
   );
 
   // 5. System prompt con contexto del cliente
-  const systemPrompt = buildSystemPrompt(formatContexto(contexto));
+  const systemPrompt = buildSystemPrompt(formatContexto(contexto), !!contexto.cotizacionPendiente, tallerPhone);
 
   // 6. Armar messages: historial + mensaje actual
   //    Si el último historial es 'user' (par incompleto por crash previo), descartarlo.
@@ -757,7 +781,7 @@ async function responderConIA(conn, senderPhone, tenantId, textoCliente) {
     }
   } catch (e) {
     log.warn({ err: e.message }, '⚠️ wa-agente: Claude timeout o error — enviando fallback');
-    respuesta = FALLBACK_MSG;
+    respuesta = _fallbackMsg(tallerPhone);
   }
 
   // 8. Persistir intercambio (P1-2: user siempre, assistant solo si exitoIA)
