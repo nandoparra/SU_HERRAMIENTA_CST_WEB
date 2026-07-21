@@ -483,7 +483,7 @@ function _isAgenteHorarioActivo(horaInicio, horaFin, utcHour = new Date().getUTC
 async function handleAgente(conn, senderPhone, tenantId, text, senderJid) {
   // Gate P0-1: verificar que el agente esté habilitado y dentro del horario
   const [[tenantConfig]] = await conn.execute(
-    `SELECT ten_agente_wa, ten_agente_wa_hora_inicio, ten_agente_wa_hora_fin FROM b2c_tenant WHERE uid_tenant = ?`,
+    `SELECT ten_agente_wa, ten_agente_wa_hora_inicio, ten_agente_wa_hora_fin, ten_telefono_empresa FROM b2c_tenant WHERE uid_tenant = ?`,
     [tenantId]
   );
   if (!tenantConfig?.ten_agente_wa) {
@@ -506,12 +506,17 @@ async function handleAgente(conn, senderPhone, tenantId, text, senderJid) {
     log.debug(`🚫 wa-agente: rate limit silent ****${senderPhone.slice(-4)}`);
     return;
   }
+  const _rawPhone = String(tenantConfig.ten_telefono_empresa || process.env.PARTS_WHATSAPP_NUMBER || '').replace(/\D/g, '');
+  const tallerPhone = _rawPhone.length >= 7 ? _rawPhone.slice(-10) : null;
+
   if (rl === 'notify') {
     log.info(`🚫 wa-agente: rate limit alcanzado ****${senderPhone.slice(-4)} — enviando aviso`);
-    const tallerPhone = String(process.env.PARTS_WHATSAPP_NUMBER || '3104650437').replace(/\D/g, '').slice(-10);
+    const contactoUrgente = tallerPhone
+      ? `Para consultas urgentes comunícate directamente al *${tallerPhone}*.`
+      : `Para consultas urgentes comunícate directamente con el taller.`;
     await sendWAMessage(tenantId, senderJid,
       `Has alcanzado el límite de mensajes del asistente por esta hora. ` +
-      `Para consultas urgentes comunícate directamente al *${tallerPhone}*. ` +
+      `${contactoUrgente} ` +
       `El límite se reinicia automáticamente. — Asistente SU HERRAMIENTA`
     );
     return;
@@ -519,7 +524,7 @@ async function handleAgente(conn, senderPhone, tenantId, text, senderJid) {
 
   try {
     log.info(`🤖 wa-agente: procesando mensaje de ****${senderPhone.slice(-4)}`);
-    const respuesta = await responderConIA(conn, senderPhone, tenantId, text);
+    const respuesta = await responderConIA(conn, senderPhone, tenantId, text, tallerPhone);
     log.info(`🤖 wa-agente: respuesta lista (${respuesta.length} chars), enviando...`);
 
     // Si WA se desconectó brevemente mientras Claude procesaba (ej. 440 transitorio),

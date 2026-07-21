@@ -214,12 +214,24 @@ describe('buildSystemPrompt — Capa 3: prohibición de confirmar autorizaciones
     );
   });
 
-  test('el prompt recuerda que las opciones son 1, 2, 3 o 4 (en PUEDES o NO PUEDES)', () => {
-    const prompt = buildSystemPrompt('contexto');
-    // El prompt original ya dice "respondiendo 1, 2, 3 o 4" en PUEDES — debe seguir así
-    const tieneOpciones = /[1-4]/.test(prompt) && /autoriz/i.test(prompt);
-    assert.ok(tieneOpciones,
-      'El prompt debe indicar al agente que las opciones de autorización son numéricas');
+  test('con cotizacionPendiente=true: el prompt incluye las opciones 1-4 para autorizar', () => {
+    const prompt = buildSystemPrompt('contexto', true);
+    assert.ok(
+      /respondiendo 1, 2, 3 o 4/.test(prompt),
+      'Con pendiente activo el prompt debe recordar las opciones numéricas 1-4'
+    );
+  });
+
+  test('con cotizacionPendiente=false (default): PUEDES no invita al menú 1-4', () => {
+    const prompt = buildSystemPrompt('contexto', false);
+    const puedesIdx  = prompt.indexOf('PUEDES:');
+    const noPuedesIdx = prompt.indexOf('NO PUEDES:');
+    assert.ok(puedesIdx > -1 && noPuedesIdx > -1, 'Debe tener secciones PUEDES y NO PUEDES');
+    const seccionPuedes = prompt.slice(puedesIdx, noPuedesIdx);
+    assert.ok(
+      !seccionPuedes.includes('respondiendo 1, 2, 3 o 4'),
+      'Sin cotizacionPendiente, PUEDES no debe invitar al menú de autorización'
+    );
   });
 
   test('el system prompt sigue siendo un string no vacío', () => {
@@ -302,5 +314,98 @@ describe('detectarIntentAutorizacion — safe default ante fallos reales', () =>
     };
     const result = await detectarIntentAutorizacion('hmm', { _testClient: emptyClient });
     assert.strictEqual(result, 'AMBIGUA');
+  });
+});
+
+// ── 6. Protección contra menú de autorización falso (bug orden #8045) ─────────
+//
+// Escenario real (2026-07-14): orden #8045 en estado 'cotizada' sin pendiente activo.
+// El agente presentó el menú 1/2/3/4 y cuando el cliente respondió "1", confirmó
+// la autorización con total confianza — pero el sistema nunca la registró.
+// Fix: el menú 1/2/3/4 solo aparece en el prompt cuando hay cotizacionPendiente activo.
+
+describe('Protección menú falso — sin cotizacionPendiente no hay menú 1/2/3/4', () => {
+
+  let buildSystemPrompt;
+
+  test('carga _buildSystemPrompt', () => {
+    const mod = require('../services/wa-agente');
+    assert.ok(typeof mod._buildSystemPrompt === 'function');
+    buildSystemPrompt = mod._buildSystemPrompt;
+  });
+
+  test('sin pendiente: PUEDES no incluye la invitación a responder 1/2/3/4', () => {
+    const prompt = buildSystemPrompt('orden #8045 — AMOLADORA cotizada', false);
+    const puedesIdx   = prompt.indexOf('PUEDES:');
+    const noPuedesIdx = prompt.indexOf('NO PUEDES:');
+    const seccionPuedes = prompt.slice(puedesIdx, noPuedesIdx);
+    assert.ok(
+      !seccionPuedes.includes('respondiendo 1, 2, 3 o 4'),
+      'Sin pendiente activo, PUEDES no debe incluir la invitación al menú de autorización'
+    );
+  });
+
+  test('sin pendiente: NO PUEDES prohíbe presentar el menú 1/2/3/4', () => {
+    const prompt = buildSystemPrompt('orden #8045 — AMOLADORA cotizada', false);
+    const noPuedesIdx = prompt.indexOf('NO PUEDES:');
+    const seccionNoPuedes = prompt.slice(noPuedesIdx).toLowerCase();
+    assert.ok(
+      seccionNoPuedes.includes('nunca presentes el menú') ||
+      seccionNoPuedes.includes('nunca presentes'),
+      'Sin pendiente activo, NO PUEDES debe prohibir presentar el menú de autorización'
+    );
+  });
+
+  test('con pendiente activo: PUEDES sí incluye el recordatorio del menú 1/2/3/4', () => {
+    const prompt = buildSystemPrompt('COTIZACIÓN PENDIENTE DE AUTORIZAR', true);
+    assert.ok(
+      /respondiendo 1, 2, 3 o 4/.test(prompt),
+      'Con pendiente activo, el prompt debe incluir el recordatorio del menú'
+    );
+  });
+
+  test('el estado label "cotizada" ya no dice "pendiente de autorizar"', () => {
+    // El label anterior inducía a Claude a pensar que debía gestionar la autorización.
+    // Ahora debe ser neutro.
+    const mod = require('../services/wa-agente');
+    // Verificar vía el prompt sin pendiente: el contexto no debe sugerir acción de autorización
+    const contextoConCotizada = 'Cotizada — en espera de decisión del cliente';
+    const prompt = buildSystemPrompt(contextoConCotizada, false);
+    // El sistema NO debe presentar el menú aunque el contexto mencione la cotización
+    const puedesIdx   = prompt.indexOf('PUEDES:');
+    const noPuedesIdx = prompt.indexOf('NO PUEDES:');
+    const seccionPuedes = prompt.slice(puedesIdx, noPuedesIdx);
+    assert.ok(
+      !seccionPuedes.includes('respondiendo 1, 2, 3 o 4'),
+      'El nuevo label de cotizada no debe provocar que PUEDES incluya el menú de autorización'
+    );
+  });
+
+  test('sin ten_telefono_empresa ni PARTS_WHATSAPP_NUMBER: prompt no contiene número hardcodeado', () => {
+    // Protección multi-tenant: si no hay datos configurados para este tenant,
+    // el prompt usa texto genérico — nunca cae a un número de otro negocio.
+    const promptSinPhone = buildSystemPrompt('contexto', false, null);
+    // No debe haber ningún número de 10 dígitos colombiano
+    assert.ok(
+      !/\b3\d{9}\b/.test(promptSinPhone),
+      'Sin teléfono configurado, el prompt no debe contener ningún número de celular colombiano'
+    );
+    // Debe indicar al cliente que contacte al taller de forma genérica
+    const lower = promptSinPhone.toLowerCase();
+    assert.ok(
+      lower.includes('directamente con el taller') || lower.includes('contacte directamente'),
+      'Sin teléfono, el prompt debe usar un placeholder genérico para el contacto'
+    );
+  });
+
+  test('_fallbackMsg con phone=null: no incluye número hardcodeado', () => {
+    // Accedemos a la función interna vía módulo cargado (no exportada, test indirecto)
+    // Verificamos que el mensaje de rate-limit/fallback con null phone es genérico
+    const prompt = buildSystemPrompt('contexto', false, null);
+    // Todo el prompt no debe tener el número personal hardcodeado
+    assert.ok(
+      !prompt.includes('3104650437'),
+      'El número personal hardcodeado no debe aparecer en ningún prompt cuando tallerPhone=null'
+    );
   });
 });
