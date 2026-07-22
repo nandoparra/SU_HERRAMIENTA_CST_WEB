@@ -480,12 +480,13 @@ router.get('/ventas/:id/print', async (req, res) => {
       [venta.uid_venta]
     );
 
+    const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const money = n => '$' + Math.round(Number(n)).toLocaleString('es-CO');
     const cliente = venta.cli_razon_social || venta.cli_contacto || 'Mostrador';
     const metodos = { efectivo:'Efectivo', transferencia:'Transferencia', tarjeta:'Tarjeta', cheque:'Cheque', otro:'Otro' };
     const itemsHtml = items.map(it => `
       <tr>
-        <td style="padding:3px 0;font-size:12px;">${it.vi_descripcion || ''}</td>
+        <td style="padding:3px 0;font-size:12px;">${esc(it.vi_descripcion)}</td>
         <td style="padding:3px 4px;text-align:center;font-size:12px;">${it.vi_cantidad}</td>
         <td style="padding:3px 0;text-align:right;font-size:12px;">${money(it.vi_total)}</td>
       </tr>`).join('');
@@ -513,7 +514,7 @@ router.get('/ventas/:id/print', async (req, res) => {
   <hr class="sep">
   <div style="font-size:12px;"><strong>Ticket #${venta.ven_consecutivo}</strong></div>
   <div style="font-size:11px;color:#555;">${new Date(venta.ven_fecha).toLocaleDateString('es-CO',{timeZone:'America/Bogota'})}</div>
-  <div style="font-size:11px;color:#555;">Cliente: ${cliente}</div>
+  <div style="font-size:11px;color:#555;">Cliente: ${esc(cliente)}</div>
   ${venta.ord_consecutivo ? `<div style="font-size:11px;color:#555;">Orden #${venta.ord_consecutivo}</div>` : ''}
   <div style="font-size:11px;color:#555;">Pago: ${metodos[venta.ven_metodo_pago] || venta.ven_metodo_pago}</div>
   <hr class="sep">
