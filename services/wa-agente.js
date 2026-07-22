@@ -493,7 +493,7 @@ function _buildIntentAuditPayload(textoOriginal, categoria, uidOrden) {
  *   _testClient    — cliente Anthropic simulado (omite getClient())
  *   _testTimeoutMs — timeout reducido para acelerar tests de timeout
  */
-async function detectarIntentAutorizacion(text, { _testClient, _testTimeoutMs } = {}) {
+async function detectarIntentAutorizacion(text, { tenantId, _testClient, _testTimeoutMs } = {}) {
   const client    = _testClient    || getClient();
   const timeoutMs = _testTimeoutMs ?? INTENT_TIMEOUT_MS;
   try {
@@ -514,7 +514,7 @@ Responde SOLO con la categoría. Sin explicación ni puntuación adicional.`,
     );
     const resultado = _parseIntentResponse(response.content[0]?.text);
     try {
-      logIaUso({ tenantId: null, funcion: 'clasificador_autorizacion', modelo: WA_AGENTE_MODEL, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens });
+      logIaUso({ tenantId: tenantId ?? null, funcion: 'clasificador_autorizacion', modelo: WA_AGENTE_MODEL, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens });
     } catch (logErr) {
       log.warn({ err: logErr.message }, 'ia-uso: logging falló en detectarIntentAutorizacion (no crítico)');
     }
