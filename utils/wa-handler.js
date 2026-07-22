@@ -191,7 +191,7 @@ registerMessageHandler(async (tenantId, msg) => {
         await handleOpcion(conn, pendiente, opcion, jid, tenantId);
       } else {
         // Capa 2: texto libre → detectar intención con Claude
-        const intent  = await detectarIntentAutorizacion(text);
+        const intent  = await detectarIntentAutorizacion(text, { tenantId });
         const opcion2 = _opcionForIntent(intent);
         if (opcion2 !== null) {
           // SI_CLARO o NO_CLARO — auditar y ejecutar
