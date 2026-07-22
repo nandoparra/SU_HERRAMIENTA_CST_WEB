@@ -98,8 +98,7 @@ router.put('/financiero/config', async (req, res) => {
     );
 
     await conn.commit();
-    await logAudit(req, 'config_financiera_actualizada', 'b2c_config_financiera',
-      String(result.insertId), { cf_utilidad_objetivo_min, cf_meta_total_mes, cf_total_costos_fijos: totalFijos });
+    await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'config_financiera_actualizada', entidad: 'b2c_config_financiera', uidEntidad: result.insertId, datosDespues: { cf_utilidad_objetivo_min, cf_meta_total_mes, cf_total_costos_fijos: totalFijos }, ip: req.ip });
     res.status(201).json({ uid_config: result.insertId });
   } catch (e) {
     await conn.rollback();

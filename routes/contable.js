@@ -114,9 +114,7 @@ router.post('/contable/egresos', async (req, res) => {
         egr_forma_pago, egr_fecha_vencimiento || null, estadoPago, userId,
       ]
     );
-    await logAudit(req, 'egreso_creado', 'b2c_egreso', String(result.insertId), {
-      egr_concepto, egr_valor: Number(egr_valor), egr_categoria,
-    });
+    await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'egreso_creado', entidad: 'b2c_egreso', uidEntidad: result.insertId, datosDespues: { egr_concepto, egr_valor: Number(egr_valor), egr_categoria }, ip: req.ip });
     res.status(201).json({ uid_egreso: result.insertId });
   } catch (err) {
     log.error({ err }, 'Error creando egreso');
@@ -178,7 +176,7 @@ router.patch('/contable/egresos/:id/anular', async (req, res) => {
       `UPDATE b2c_egreso SET egr_estado = 'anulado' WHERE uid_egreso = ? AND tenant_id = ?`,
       [req.params.id, tenantId]
     );
-    await logAudit(req, 'egreso_anulado', 'b2c_egreso', String(req.params.id), {});
+    await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'egreso_anulado', entidad: 'b2c_egreso', uidEntidad: req.params.id, ip: req.ip });
     res.json({ ok: true });
   } catch (err) {
     log.error({ err }, 'Error anulando egreso');
@@ -340,7 +338,7 @@ router.patch('/contable/egresos/:id/pagar', async (req, res) => {
       `UPDATE b2c_egreso SET egr_estado_pago = 'pagado' WHERE uid_egreso = ? AND tenant_id = ?`,
       [req.params.id, tenantId]
     );
-    await logAudit(req, 'egreso_pagado', 'b2c_egreso', String(req.params.id), {});
+    await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'egreso_pagado', entidad: 'b2c_egreso', uidEntidad: req.params.id, ip: req.ip });
     res.json({ ok: true });
   } catch (err) {
     log.error({ err }, 'Error marcando egreso como pagado');

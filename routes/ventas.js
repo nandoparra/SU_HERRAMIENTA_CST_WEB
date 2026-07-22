@@ -265,9 +265,7 @@ router.post('/ventas', async (req, res) => {
       conn, { tenantId, userId, ivaResp, body: req.body }
     );
     await conn.commit();
-    await logAudit(req, 'venta_creada', 'b2c_venta', String(uid_venta), {
-      ven_consecutivo, ven_total,
-    });
+    await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'venta_creada', entidad: 'b2c_venta', uidEntidad: uid_venta, datosDespues: { ven_consecutivo, ven_total }, ip: req.ip });
     res.status(201).json({ uid_venta, ven_consecutivo });
   } catch (e) {
     await conn.rollback();
@@ -295,7 +293,7 @@ router.patch('/ventas/:id/pagar', async (req, res) => {
       `UPDATE b2c_venta SET ven_estado = 'pagada' WHERE uid_venta = ?`,
       [req.params.id]
     );
-    await logAudit(req, 'venta_pagada', 'b2c_venta', req.params.id, {});
+    await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'venta_pagada', entidad: 'b2c_venta', uidEntidad: req.params.id, ip: req.ip });
     res.json({ ok: true });
   } catch (e) {
     log.error({ err: e }, 'Error marcando venta como pagada');
@@ -321,7 +319,7 @@ router.patch('/ventas/:id/anular', async (req, res) => {
       `UPDATE b2c_venta SET ven_estado = 'anulada' WHERE uid_venta = ?`,
       [req.params.id]
     );
-    await logAudit(req, 'venta_anulada', 'b2c_venta', req.params.id, {});
+    await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'venta_anulada', entidad: 'b2c_venta', uidEntidad: req.params.id, ip: req.ip });
     res.json({ ok: true });
   } catch (e) {
     log.error({ err: e }, 'Error anulando venta');
@@ -407,9 +405,7 @@ router.post('/ventas/desde-orden/:orderId', async (req, res) => {
       conn, { tenantId, userId, ivaResp, body }
     );
     await conn.commit();
-    await logAudit(req, 'venta_creada', 'b2c_venta', String(uid_venta), {
-      ven_consecutivo, ven_total, desde_orden: orden.uid_orden,
-    });
+    await logAudit(db, { tenantId, userId: req.session?.user?.id, accion: 'venta_creada', entidad: 'b2c_venta', uidEntidad: uid_venta, datosDespues: { ven_consecutivo, ven_total, desde_orden: orden.uid_orden }, ip: req.ip });
     res.status(201).json({ uid_venta, ven_consecutivo });
   } catch (e) {
     await conn.rollback().catch(() => {});
