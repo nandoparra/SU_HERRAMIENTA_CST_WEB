@@ -3,12 +3,12 @@ const { getTenantId } = require('../utils/tenant-id');
 const express  = require('express');
 const router   = express.Router();
 const db       = require('../utils/db');
-const { requireInterno } = require('../middleware/auth');
+const { requireAdminFuncionario } = require('../middleware/auth');
 const { logAudit }       = require('../utils/audit');
 const { calcularDashboardMensual, calcularRentabilidad, generarSugerencias } = require('../services/financiero');
 const log = require('../utils/logger');
 
-router.use(requireInterno);
+router.use(requireAdminFuncionario);
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function isAdmin(req) { return req.session?.user?.tipo === 'A'; }

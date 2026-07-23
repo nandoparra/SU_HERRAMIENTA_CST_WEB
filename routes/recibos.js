@@ -3,11 +3,11 @@ const { getTenantId } = require('../utils/tenant-id');
 const express = require('express');
 const router  = express.Router();
 const db      = require('../utils/db');
-const { requireInterno } = require('../middleware/auth');
+const { requireAdminFuncionario } = require('../middleware/auth');
 const { generateReciboPDF } = require('../utils/pdf-generator');
 const log = require('../utils/logger');
 
-router.use(requireInterno);
+router.use(requireAdminFuncionario);
 
 // ─── GET /api/recibos/cotizacion-orden/:uidOrden — datos de cotización para modal ──
 // Debe ir ANTES de /recibos/:id para que Express no confunda la ruta

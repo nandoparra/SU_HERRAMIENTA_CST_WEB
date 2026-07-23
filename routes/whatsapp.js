@@ -7,7 +7,7 @@ const { resolveOrder } = require('../utils/schema');
 const { isReady, sendWAMessage, getLastQR, resetTenantClient, getLidForPhone } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 const QRCode = require('qrcode');
-const { requireInterno } = require('../middleware/auth');
+const { requireInterno, requireAdminFuncionario } = require('../middleware/auth');
 const log = require('../utils/logger');
 
 // Máximo 10 envíos WA por usuario cada 5 minutos — evita spam masivo a clientes
@@ -28,7 +28,7 @@ router.get('/whatsapp/status', requireInterno, (req, res) => {
 });
 
 // Forzar reset de sesión WA — útil cuando no genera QR por sesión expirada
-router.post('/whatsapp/reset', requireInterno, async (req, res) => {
+router.post('/whatsapp/reset', requireAdminFuncionario, async (req, res) => {
   const tenantId = getTenantId(req);
   try {
     await resetTenantClient(tenantId);
@@ -38,8 +38,8 @@ router.post('/whatsapp/reset', requireInterno, async (req, res) => {
   }
 });
 
-// Mostrar QR para escanear desde el navegador (solo internos)
-router.get('/whatsapp/qr', requireInterno, async (req, res) => {
+// Mostrar QR para escanear desde el navegador (solo admin/funcionario)
+router.get('/whatsapp/qr', requireAdminFuncionario, async (req, res) => {
   const tenantId = getTenantId(req);
   if (isReady(tenantId)) {
     return res.send('<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2 style="color:green">✅ WhatsApp ya está conectado</h2></body></html>');
@@ -67,7 +67,7 @@ router.get('/whatsapp/qr', requireInterno, async (req, res) => {
 });
 
 // Enviar WhatsApp usando el mensaje guardado de la orden
-router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, waLimiter, async (req, res) => {
+router.post('/quotes/order/:orderId/send-whatsapp', requireAdminFuncionario, waLimiter, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     if (!isReady(tenantId)) {
@@ -155,7 +155,7 @@ router.post('/quotes/order/:orderId/send-whatsapp', requireInterno, waLimiter, a
 });
 
 // Envío genérico de WhatsApp
-router.post('/whatsapp/send', requireInterno, waLimiter, async (req, res) => {
+router.post('/whatsapp/send', requireAdminFuncionario, waLimiter, async (req, res) => {
   try {
     const { orderId, message } = req.body;
 

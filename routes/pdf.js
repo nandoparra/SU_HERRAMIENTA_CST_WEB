@@ -9,7 +9,7 @@ const { resolveOrder } = require('../utils/schema');
 const { generateQuotePDF, generateMaintenancePDF, generateOrdenServicioPDF } = require('../utils/pdf-generator');
 const { generateText }  = require('../utils/ia');
 const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
-const { requireInterno } = require('../middleware/auth');
+const { requireAdminFuncionario } = require('../middleware/auth');
 const { UPLOADS_DIR } = require('../utils/uploads');
 const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
@@ -139,7 +139,7 @@ function getPhone(order) {
 }
 
 // ─── DESCARGAR cotización PDF ─────────────────────────────────────────────────
-router.get('/orders/:orderId/pdf/quote', requireInterno, async (req, res) => {
+router.get('/orders/:orderId/pdf/quote', requireAdminFuncionario, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     const conn = await db.getConnection();
@@ -163,7 +163,7 @@ router.get('/orders/:orderId/pdf/quote', requireInterno, async (req, res) => {
 });
 
 // ─── DESCARGAR informe de mantenimiento PDF ───────────────────────────────────
-router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireInterno, async (req, res) => {
+router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireAdminFuncionario, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     const conn = await db.getConnection();
@@ -200,7 +200,7 @@ router.get('/orders/:orderId/pdf/maintenance/:equipmentOrderId', requireInterno,
 });
 
 // ─── ENVIAR cotización PDF por WhatsApp ──────────────────────────────────────
-router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) => {
+router.post('/orders/:orderId/send-pdf/quote', requireAdminFuncionario, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     if (!isReady(tenantId)) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
@@ -228,7 +228,7 @@ router.post('/orders/:orderId/send-pdf/quote', requireInterno, async (req, res) 
 });
 
 // ─── ENVIAR informe de mantenimiento PDF por WhatsApp ────────────────────────
-router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireInterno, async (req, res) => {
+router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireAdminFuncionario, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     if (!isReady(tenantId)) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });
@@ -267,7 +267,7 @@ router.post('/orders/:orderId/send-pdf/maintenance/:equipmentOrderId', requireIn
 });
 
 // ─── DESCARGAR informe guardado por uid — solo usuarios internos ──────────────
-router.get('/informes/:uid_informe', requireInterno, async (req, res) => {
+router.get('/informes/:uid_informe', requireAdminFuncionario, async (req, res) => {
   try {
     const conn = await db.getConnection();
     try {
@@ -341,7 +341,7 @@ function printHtml(pdfUrl) {
 }
 
 // ─── DESCARGAR / IMPRIMIR orden completa (todas las máquinas) ─────────────────
-router.get('/orders/:orderId/pdf/orden', requireInterno, async (req, res) => {
+router.get('/orders/:orderId/pdf/orden', requireAdminFuncionario, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     const conn = await db.getConnection();
@@ -372,7 +372,7 @@ router.get('/orders/:orderId/pdf/orden', requireInterno, async (req, res) => {
   }
 });
 
-router.get('/orders/:orderId/print/orden', requireInterno, async (req, res) => {
+router.get('/orders/:orderId/print/orden', requireAdminFuncionario, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     const conn = await db.getConnection();
@@ -390,7 +390,7 @@ router.get('/orders/:orderId/print/orden', requireInterno, async (req, res) => {
 });
 
 // ─── ENVIAR orden completa PDF por WhatsApp ───────────────────────────────────
-router.post('/orders/:orderId/send-pdf/orden', requireInterno, async (req, res) => {
+router.post('/orders/:orderId/send-pdf/orden', requireAdminFuncionario, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     if (!isReady(tenantId)) return res.status(503).json({ success: false, error: 'WhatsApp no está conectado.' });

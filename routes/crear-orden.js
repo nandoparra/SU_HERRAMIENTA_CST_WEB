@@ -7,14 +7,14 @@ const bcrypt  = require('bcrypt');
 const multer  = require('multer');
 const path    = require('path');
 const fs      = require('fs');
-const { requireInterno } = require('../middleware/auth');
+const { requireAdminFuncionario } = require('../middleware/auth');
 const { addDiasHabiles, toISODate } = require('../utils/dias-habiles');
 const { UPLOADS_DIR, checkMagicBytes } = require('../utils/uploads');
 const log = require('../utils/logger');
 const { logAudit } = require('../utils/audit');
 
-// Todas las rutas de crear-orden requieren rol interno
-router.use(requireInterno);
+// Solo admin y funcionario pueden crear órdenes, clientes o herramientas
+router.use(requireAdminFuncionario);
 
 // ── Multer — almacenamiento de fotos de recepción ────────────────────────────
 const storage = multer.diskStorage({

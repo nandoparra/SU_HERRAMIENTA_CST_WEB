@@ -54,6 +54,56 @@ function requireInterno(req, res, next) {
   next();
 }
 
+// Admin + Funcionario: bloquea técnicos (tipo T) y clientes (tipo C)
+function requireAdminFuncionario(req, res, next) {
+  const isApi = req.path.startsWith('/api/') || req.originalUrl.startsWith('/api/');
+
+  if (!req.session.user || !sessionMatchesTenant(req)) {
+    if (req.session.user) req.session.destroy(() => {});
+    if (isApi || req.xhr || req.headers['content-type'] === 'application/json') {
+      return res.status(401).json({ error: 'No autenticado', redirect: '/login' });
+    }
+    return res.redirect('/login');
+  }
+  if (!['A', 'F'].includes(req.session.user.tipo)) {
+    if (isApi || req.xhr || req.headers['content-type'] === 'application/json') {
+      return res.status(403).json({ error: 'Acceso denegado' });
+    }
+    return res.redirect('/dashboard.html');
+  }
+  if (req.session.user.pwd_must_change && !req.originalUrl.includes('/auth/change-password')) {
+    if (isApi || req.xhr || req.headers['content-type'] === 'application/json') {
+      return res.status(403).json({ error: 'Debe cambiar su contraseña', redirect: '/change-password.html' });
+    }
+  }
+  next();
+}
+
+// Solo admin (tipo A)
+function requireAdmin(req, res, next) {
+  const isApi = req.path.startsWith('/api/') || req.originalUrl.startsWith('/api/');
+
+  if (!req.session.user || !sessionMatchesTenant(req)) {
+    if (req.session.user) req.session.destroy(() => {});
+    if (isApi || req.xhr || req.headers['content-type'] === 'application/json') {
+      return res.status(401).json({ error: 'No autenticado', redirect: '/login' });
+    }
+    return res.redirect('/login');
+  }
+  if (req.session.user.tipo !== 'A') {
+    if (isApi || req.xhr || req.headers['content-type'] === 'application/json') {
+      return res.status(403).json({ error: 'Solo administradores' });
+    }
+    return res.redirect('/dashboard.html');
+  }
+  if (req.session.user.pwd_must_change && !req.originalUrl.includes('/auth/change-password')) {
+    if (isApi || req.xhr || req.headers['content-type'] === 'application/json') {
+      return res.status(403).json({ error: 'Debe cambiar su contraseña', redirect: '/change-password.html' });
+    }
+  }
+  next();
+}
+
 function requireCliente(req, res, next) {
   if (!req.session.user) return res.redirect('/login');
   if (req.session.user.tipo !== 'C') return res.redirect('/generador-cotizaciones.html');
@@ -71,4 +121,4 @@ function requireAddonContabilidad(req, res, next) {
   next();
 }
 
-module.exports = { requireLogin, requireInterno, requireCliente, requireAddonContabilidad };
+module.exports = { requireLogin, requireInterno, requireAdminFuncionario, requireAdmin, requireCliente, requireAddonContabilidad };

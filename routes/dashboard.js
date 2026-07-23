@@ -4,7 +4,7 @@ const router    = express.Router();
 const rateLimit = require('express-rate-limit');
 const db        = require('../utils/db');
 const bcrypt    = require('bcrypt');
-const { requireInterno } = require('../middleware/auth');
+const { requireInterno, requireAdminFuncionario } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
 
@@ -58,7 +58,7 @@ router.get('/config/estados', (req, res) => {
 });
 
 // ── Dashboard KPIs ─────────────────────────────────────────────────────────────
-router.get('/dashboard', dashLimiter, async (req, res) => {
+router.get('/dashboard', requireAdminFuncionario, dashLimiter, async (req, res) => {
   try {
     const raw = String(req.query.mes || '');
     const now  = new Date();
@@ -318,7 +318,7 @@ router.post('/clientes/:id/crear-acceso', async (req, res) => {
 });
 
 // ── Funcionarios ───────────────────────────────────────────────────────────────
-router.get('/funcionarios', async (req, res) => {
+router.get('/funcionarios', requireAdminFuncionario, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     const conn = await db.getConnection();
@@ -393,7 +393,7 @@ router.patch('/funcionarios/:id', async (req, res) => {
 });
 
 // ── Inventario ─────────────────────────────────────────────────────────────────
-router.get('/inventario', async (req, res) => {
+router.get('/inventario', requireAdminFuncionario, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     const conn = await db.getConnection();
@@ -539,7 +539,7 @@ router.post('/inventario/:id/recepcion', async (req, res) => {
 });
 
 // ── Historial de recepciones de un ítem ────────────────────────────────────
-router.get('/inventario/:id/recepciones', async (req, res) => {
+router.get('/inventario/:id/recepciones', requireAdminFuncionario, async (req, res) => {
   const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
@@ -562,7 +562,7 @@ router.get('/inventario/:id/recepciones', async (req, res) => {
 
 // ─── GET /api/cotizaciones/pendientes — máquinas revisadas sin cotización ─────
 // Sin filtro de fecha: devuelve TODO el historial, no solo el mes actual.
-router.get('/cotizaciones/pendientes', dashLimiter, async (req, res) => {
+router.get('/cotizaciones/pendientes', requireAdminFuncionario, dashLimiter, async (req, res) => {
   const tenantId = getTenantId(req);
   const conn = await db.getConnection();
   try {
