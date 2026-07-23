@@ -22,7 +22,7 @@ const { runMigrations, archivarConversacionesAntiguas } = require('./utils/migra
 const { initTenantClient } = require('./utils/whatsapp-client');
 require('./utils/wa-handler'); // Listener de mensajes entrantes (autorización por WA)
 const apiKey  = require('./middleware/apiKey');
-const { requireLogin, requireInterno } = require('./middleware/auth');
+const { requireLogin, requireInterno, requireAdmin } = require('./middleware/auth');
 const { tenantMiddleware } = require('./middleware/tenant');
 const log = require('./utils/logger');
 
@@ -143,43 +143,12 @@ app.use('/api', require('./routes/solicitudes-taller'));
 app.use('/api', require('./routes/wa-conversaciones'));
 app.use('/api', require('./routes/alegra'));
 
-// Health — solo usuarios internos autenticados
-app.get('/health', requireInterno, (req, res) => {
+// Health — solo administradores
+app.get('/health', requireAdmin, (req, res) => {
   const { isReady } = require('./utils/whatsapp-client');
   res.json({ status: 'OK', whatsappReady: isReady(), timestamp: new Date() });
 });
 
-// Debug endpoint: solo en desarrollo y solo usuarios internos
-if (process.env.NODE_ENV !== 'production') {
-  app.get('/api/debug/usuario-schema', requireInterno, async (req, res) => {
-    try {
-      const conn = await db.getConnection();
-      const { getUsuarioColumns } = require('./utils/schema');
-      const usrCols = await getUsuarioColumns(conn);
-
-      const out = { columns: usrCols.all, detected: usrCols, sampleRoles: [], sampleStatus: [] };
-
-      if (usrCols.roleCol) {
-        const [roles] = await conn.execute(
-          `SELECT DISTINCT CAST(\`${usrCols.roleCol}\` AS CHAR) AS v FROM b2c_usuario WHERE \`${usrCols.roleCol}\` IS NOT NULL LIMIT 50`
-        );
-        out.sampleRoles = roles.map(r => r.v);
-      }
-
-      if (usrCols.statusCol) {
-        const [st] = await conn.execute(
-          `SELECT DISTINCT CAST(\`${usrCols.statusCol}\` AS CHAR) AS v FROM b2c_usuario WHERE \`${usrCols.statusCol}\` IS NOT NULL LIMIT 50`
-        );
-        out.sampleStatus = st.map(r => r.v);
-      }
-
-      conn.release();
-      res.json(out);
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-}
 
 // Sentry error handler — debe ir antes del handler de Express
 if (process.env.SENTRY_DSN) Sentry.setupExpressErrorHandler(app);

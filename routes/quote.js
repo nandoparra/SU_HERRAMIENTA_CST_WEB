@@ -4,12 +4,12 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
-const { requireInterno } = require('../middleware/auth');
+const { requireInterno, requireAdminFuncionario } = require('../middleware/auth');
 const log = require('../utils/logger');
 const { saveMachineQuote } = require('../services/quote-machine');
 
-// Todos los endpoints de cotización son exclusivamente internos (admin/F/T).
-// El portal cliente recibe datos de cotización a través de /api/cliente/mis-ordenes.
+// requireInterno permite que técnicos pasen al siguiente router (whatsapp.js);
+// las rutas de cotización aplican requireAdminFuncionario inline.
 router.use(requireInterno);
 
 // Máximo 60 guardados de cotización por usuario por minuto — bloquea automatización abusiva
@@ -24,7 +24,7 @@ const quoteSaveLimiter = rateLimit({
 });
 
 // Catálogo de repuestos
-router.get('/quote/catalog', async (req, res) => {
+router.get('/quote/catalog', requireAdminFuncionario, async (req, res) => {
   try {
     const type = req.query.type || 'R';
     const tenantId = getTenantId(req);
@@ -48,7 +48,7 @@ router.get('/quote/catalog', async (req, res) => {
 });
 
 // GET cotización de una máquina
-router.get('/quotes/machine', async (req, res) => {
+router.get('/quotes/machine', requireAdminFuncionario, async (req, res) => {
   try {
     const orderId = String(req.query.orderId || '').trim();
     const equipmentOrderId = String(req.query.equipmentOrderId || '').trim();
@@ -91,7 +91,7 @@ router.get('/quotes/machine', async (req, res) => {
 });
 
 // POST guardar cotización de una máquina
-router.post('/quotes/machine', quoteSaveLimiter, async (req, res) => {
+router.post('/quotes/machine', requireAdminFuncionario, quoteSaveLimiter, async (req, res) => {
   const { orderId, equipmentOrderId, technicianId, laborCost, workDescription, items } = req.body;
 
   if (!orderId || !equipmentOrderId)
@@ -117,7 +117,7 @@ router.post('/quotes/machine', quoteSaveLimiter, async (req, res) => {
 });
 
 // GET cotización completa de la orden
-router.get('/quotes/order/:orderId', async (req, res) => {
+router.get('/quotes/order/:orderId', requireAdminFuncionario, async (req, res) => {
   try {
     const orderId = String(req.params.orderId || '').trim();
     const tenantId = getTenantId(req);
@@ -154,7 +154,7 @@ router.get('/quotes/order/:orderId', async (req, res) => {
 });
 
 // POST generar mensaje final con IA
-router.post('/quotes/order/:orderId/generate-message', async (req, res) => {
+router.post('/quotes/order/:orderId/generate-message', requireAdminFuncionario, async (req, res) => {
   try {
     const orderId = String(req.params.orderId || '').trim();
 

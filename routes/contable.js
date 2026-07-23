@@ -9,12 +9,12 @@ const db       = require('../utils/db');
 const { getClient: getIAClient, withTimeout } = require('../utils/ia');
 const { logIaUso } = require('../utils/ia-uso');
 const Jimp = require('jimp');
-const { requireInterno, requireAddonContabilidad } = require('../middleware/auth');
+const { requireAdminFuncionario, requireAddonContabilidad } = require('../middleware/auth');
 const { UPLOADS_DIR, checkMagicBytes } = require('../utils/uploads');
 const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
 
-router.use(requireInterno);
+router.use(requireAdminFuncionario);
 router.use(requireAddonContabilidad);
 
 // ── Multer para facturas de egreso (imagen o PDF) ─────────────────────────────

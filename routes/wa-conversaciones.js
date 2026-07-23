@@ -4,10 +4,10 @@ const router     = express.Router();
 const rateLimit  = require('express-rate-limit');
 const db         = require('../utils/db');
 const { getTenantId }             = require('../utils/tenant-id');
-const { requireInterno }          = require('../middleware/auth');
+const { requireAdminFuncionario }  = require('../middleware/auth');
 const { maskPhone, makeConversacionToken, resolveConversacionToken } = require('../utils/wa-conversaciones');
 
-router.use(requireInterno);
+router.use(requireAdminFuncionario);
 
 const keyByUser = (req) => String(req.session?.user?.id || req.ip);
 const waConvLimiter = rateLimit({

@@ -7,7 +7,7 @@ const multer = require('multer');
 const path   = require('path');
 const fs     = require('fs');
 const { resolveOrder } = require('../utils/schema');
-const { requireInterno } = require('../middleware/auth');
+const { requireInterno, requireAdminFuncionario } = require('../middleware/auth');
 const { UPLOADS_DIR, checkMagicBytes } = require('../utils/uploads');
 const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
@@ -56,7 +56,7 @@ const uploadFactura = multer({
 });
 
 // ── Subir foto de recepción (post-creación) ───────────────────────────────────
-router.post('/orders/:id/fotos-recepcion/:uid_herramienta_orden', uploadFoto.single('foto'), async (req, res) => {
+router.post('/orders/:id/fotos-recepcion/:uid_herramienta_orden', requireAdminFuncionario, uploadFoto.single('foto'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No se recibió imagen' });
     await checkMagicBytes(req.file.path, ['image/']);
@@ -96,7 +96,7 @@ router.post('/orders/:id/fotos-recepcion/:uid_herramienta_orden', uploadFoto.sin
 });
 
 // ── Eliminar foto de recepción ────────────────────────────────────────────────
-router.delete('/orders/fotos-recepcion/:uid_foto', async (req, res) => {
+router.delete('/orders/fotos-recepcion/:uid_foto', requireAdminFuncionario, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     const conn = await db.getConnection();
@@ -190,7 +190,7 @@ router.delete('/orders/fotos-trabajo/:uid_foto', async (req, res) => {
 });
 
 // ── Subir factura de garantía por máquina ─────────────────────────────────────
-router.post('/orders/:orderId/factura-maquina/:uid_herramienta_orden', uploadFactura.single('factura'), async (req, res) => {
+router.post('/orders/:orderId/factura-maquina/:uid_herramienta_orden', requireAdminFuncionario, uploadFactura.single('factura'), async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     if (!req.file) return res.status(400).json({ error: 'No se recibió ningún PDF' });
@@ -221,7 +221,7 @@ router.post('/orders/:orderId/factura-maquina/:uid_herramienta_orden', uploadFac
 });
 
 // ── Agregar máquina a orden existente ────────────────────────────────────────
-router.post('/orders/:orderId/agregar-maquina', async (req, res) => {
+router.post('/orders/:orderId/agregar-maquina', requireAdminFuncionario, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     const { uid_herramienta, observaciones, es_garantia, garantia_vence } = req.body;

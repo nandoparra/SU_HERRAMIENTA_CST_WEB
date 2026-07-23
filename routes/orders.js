@@ -12,7 +12,7 @@ const {
 const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
 const rateLimit = require('express-rate-limit');
-const { requireInterno } = require('../middleware/auth');
+const { requireInterno, requireAdminFuncionario } = require('../middleware/auth');
 const log = require('../utils/logger');
 const { logAudit } = require('../utils/audit');
 const { BULK_ESTADOS_PERMITIDOS, ESTADOS_ORIGEN_VALIDOS } = require('../utils/bulk-estados');
@@ -376,7 +376,7 @@ router.get('/orders/:orderId', async (req, res) => {
 });
 
 // Asignar técnico a máquina específica
-router.patch('/equipment-order/:equipmentOrderId/assign-technician', async (req, res) => {
+router.patch('/equipment-order/:equipmentOrderId/assign-technician', requireAdminFuncionario, async (req, res) => {
   try {
     const { technicianId } = req.body;
     const equipmentOrderId = String(req.params.equipmentOrderId);
@@ -417,7 +417,7 @@ router.patch('/equipment-order/:equipmentOrderId/assign-technician', async (req,
 });
 
 // Asignar técnico a toda la orden
-router.patch('/orders/:orderId/assign-technician', async (req, res) => {
+router.patch('/orders/:orderId/assign-technician', requireAdminFuncionario, async (req, res) => {
   try {
     const { technicianId } = req.body;
 
@@ -468,6 +468,12 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
 
     if (!status || !ESTADOS_VALIDOS.includes(status)) {
       return res.status(400).json({ success: false, error: `Estado inválido. Valores permitidos: ${ESTADOS_VALIDOS.join(', ')}` });
+    }
+
+    // Técnico solo puede usar estados técnicos; estados comerciales son exclusivos de A/F
+    const ESTADOS_TECNICO = ['pendiente_revision', 'revisada', 'reparada'];
+    if (req.session?.user?.tipo === 'T' && !ESTADOS_TECNICO.includes(status)) {
+      return res.status(403).json({ success: false, error: 'Estado no permitido para técnico' });
     }
 
     const conn = await db.getConnection();

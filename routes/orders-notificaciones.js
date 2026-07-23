@@ -7,10 +7,12 @@ const db = require('../utils/db');
 const { resolveOrder } = require('../utils/schema');
 const { isReady, sendWAMessage } = require('../utils/whatsapp-client');
 const { parseColombianPhones } = require('../utils/phones');
-const { requireInterno } = require('../middleware/auth');
+const { requireInterno, requireAdminFuncionario } = require('../middleware/auth');
 const { enviarListaRepuestos } = require('../utils/repuestos-notifier');
 const log = require('../utils/logger');
 
+// requireInterno permite que técnicos pasen al siguiente router; las rutas de notificación
+// aplican requireAdminFuncionario inline porque son exclusivas de admin/funcionario.
 router.use(requireInterno);
 
 // Máximo 20 notificaciones WA por usuario por minuto — cubre trabajo normal con múltiples órdenes
@@ -25,7 +27,7 @@ const notifyLimiter = rateLimit({
 });
 
 // Enviar lista consolidada de repuestos (máquinas autorizadas) al encargado
-router.post('/orders/:orderId/notify-parts', notifyLimiter, async (req, res) => {
+router.post('/orders/:orderId/notify-parts', requireAdminFuncionario, notifyLimiter, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     const conn = await db.getConnection();
@@ -46,7 +48,7 @@ router.post('/orders/:orderId/notify-parts', notifyLimiter, async (req, res) => 
 });
 
 // Notificar al cliente que sus máquinas están reparadas
-router.post('/orders/:orderId/notify-ready', notifyLimiter, async (req, res) => {
+router.post('/orders/:orderId/notify-ready', requireAdminFuncionario, notifyLimiter, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     const conn = await db.getConnection();
@@ -91,7 +93,7 @@ router.post('/orders/:orderId/notify-ready', notifyLimiter, async (req, res) => 
 });
 
 // Confirmar entrega al cliente
-router.post('/orders/:orderId/notify-delivered', notifyLimiter, async (req, res) => {
+router.post('/orders/:orderId/notify-delivered', requireAdminFuncionario, notifyLimiter, async (req, res) => {
   try {
     const tenantId = getTenantId(req);
     const conn = await db.getConnection();
