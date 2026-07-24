@@ -538,20 +538,36 @@ async function seedConfigFinanciera() {
   }
 }
 
+/**
+ * Lógica interna de ensureInventarioColumns.
+ * Exportada para testing — recibe conn para que los tests puedan usar un mock.
+ * Tolera ER_NO_SUCH_TABLE (BD vacía, la tabla ERP aún no existe) y
+ * ER_DUP_FIELDNAME (columna ya fue agregada — idempotente).
+ */
+async function _doInventarioColumns(conn) {
+  try {
+    await conn.execute(
+      `ALTER TABLE b2c_concepto_costos ADD COLUMN cco_costo DECIMAL(12,2) NOT NULL DEFAULT 0`
+    );
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') throw e;
+  }
+  try {
+    await conn.execute(
+      `ALTER TABLE b2c_concepto_costos ADD COLUMN cco_stock INT NOT NULL DEFAULT 0`
+    );
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') throw e;
+  }
+}
+
 async function ensureInventarioColumns() {
   const conn = await db.getConnection();
   try {
-    // cco_costo — precio de compra del repuesto (para calcular margen)
-    try {
-      await conn.execute(`ALTER TABLE b2c_concepto_costos ADD COLUMN cco_costo DECIMAL(12,2) NOT NULL DEFAULT 0`);
-      console.log('✅ cco_costo agregado a b2c_concepto_costos');
-    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
-
-    // cco_stock — unidades disponibles en bodega
-    try {
-      await conn.execute(`ALTER TABLE b2c_concepto_costos ADD COLUMN cco_stock INT NOT NULL DEFAULT 0`);
-      console.log('✅ cco_stock agregado a b2c_concepto_costos');
-    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    await _doInventarioColumns(conn);
+    console.log('✅ Columnas inventario en b2c_concepto_costos verificadas');
+  } catch (e) {
+    console.warn('⚠️ No pude agregar columnas inventario a b2c_concepto_costos:', String(e?.message || e));
   } finally {
     conn.release();
   }
@@ -1093,4 +1109,4 @@ async function ensureIaUsoLog() {
   }
 }
 
-module.exports = { runMigrations, archivarConversacionesAntiguas, _doArchivar };
+module.exports = { runMigrations, archivarConversacionesAntiguas, _doArchivar, _doInventarioColumns };
