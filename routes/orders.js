@@ -68,6 +68,58 @@ async function _loadFotosForOrden(conn, ids) {
   }
 }
 
+/**
+ * Carga informes de mantenimiento para una lista de uid_herramienta_orden.
+ * Retorna [] si b2c_informe_mantenimiento no existe (ER_NO_SUCH_TABLE).
+ * Exportada para tests unitarios.
+ */
+async function _loadInformesForOrden(conn, ids) {
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  try {
+    const [rows] = await conn.execute(
+      `SELECT uid_informe, uid_herramienta_orden, inf_fecha
+       FROM b2c_informe_mantenimiento
+       WHERE uid_herramienta_orden IN (${placeholders})
+       ORDER BY inf_fecha DESC`,
+      ids
+    );
+    return rows;
+  } catch (e) {
+    if (e.code === 'ER_NO_SUCH_TABLE') {
+      log.warn('b2c_informe_mantenimiento no existe — detalle de orden cargado sin informes');
+      return [];
+    }
+    throw e;
+  }
+}
+
+/**
+ * Carga historial de estados para una lista de uid_herramienta_orden.
+ * Retorna [] si b2c_herramienta_status_log no existe (ER_NO_SUCH_TABLE).
+ * Exportada para tests unitarios.
+ */
+async function _loadHistorialForOrden(conn, ids) {
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  try {
+    const [rows] = await conn.execute(
+      `SELECT uid_herramienta_orden, estado, changed_at
+       FROM b2c_herramienta_status_log
+       WHERE uid_herramienta_orden IN (${placeholders})
+       ORDER BY changed_at ASC`,
+      ids
+    );
+    return rows;
+  } catch (e) {
+    if (e.code === 'ER_NO_SUCH_TABLE') {
+      log.warn('b2c_herramienta_status_log no existe — detalle de orden cargado sin historial');
+      return [];
+    }
+    throw e;
+  }
+}
+
 const ESTADOS_VALIDOS = [
   'pendiente_revision',
   'revisada',
@@ -513,14 +565,20 @@ router.patch('/equipment-order/:equipmentOrderId/status', async (req, res) => {
       if (updateResult.affectedRows === 0) {
         return res.status(404).json({ success: false, error: 'Máquina no encontrada' });
       }
-      await conn.execute(
-        `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, ?, ?)`,
-        [equipmentOrderId, status, tenantId]
-      );
-      const [[logRow]] = await conn.execute(
-        `SELECT changed_at FROM b2c_herramienta_status_log WHERE uid_herramienta_orden = ? ORDER BY id DESC LIMIT 1`,
-        [equipmentOrderId]
-      );
+      let logRow;
+      try {
+        await conn.execute(
+          `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, ?, ?)`,
+          [equipmentOrderId, status, tenantId]
+        );
+        [[logRow]] = await conn.execute(
+          `SELECT changed_at FROM b2c_herramienta_status_log WHERE uid_herramienta_orden = ? ORDER BY id DESC LIMIT 1`,
+          [equipmentOrderId]
+        );
+      } catch (logErr) {
+        if (logErr.code !== 'ER_NO_SUCH_TABLE') throw logErr;
+        log.warn('b2c_herramienta_status_log no existe — estado cambiado sin entrada en historial');
+      }
 
       if (status === 'reparada' && isReady(tenantId)) {
         try {
@@ -625,11 +683,16 @@ router.patch('/orders/:orderId/equipment/bulk-status', async (req, res) => {
         );
 
         // 7. Status log por cada máquina actualizada
-        for (const id of eligibleIds) {
-          await conn.execute(
-            `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, ?, ?)`,
-            [id, status, tenantId]
-          );
+        try {
+          for (const id of eligibleIds) {
+            await conn.execute(
+              `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, ?, ?)`,
+              [id, status, tenantId]
+            );
+          }
+        } catch (logErr) {
+          if (logErr.code !== 'ER_NO_SUCH_TABLE') throw logErr;
+          log.warn('b2c_herramienta_status_log no existe — bulk cambio de estado sin entrada en historial');
         }
 
         // 8. WA para 'reparada' — un solo mensaje consolidado
@@ -760,14 +823,7 @@ router.get('/orders/:orderId/detalle', ordersLimiter, async (req, res) => {
 
       if (maquinas.length) {
         const ids = maquinas.map(m => m.uid_herramienta_orden);
-        const placeholders = ids.map(() => '?').join(',');
-        const [informes] = await conn.execute(
-          `SELECT uid_informe, uid_herramienta_orden, inf_fecha
-           FROM b2c_informe_mantenimiento
-           WHERE uid_herramienta_orden IN (${placeholders})
-           ORDER BY inf_fecha DESC`,
-          ids
-        );
+        const informes = await _loadInformesForOrden(conn, ids);
         const informeMap = {};
         informes.forEach(i => {
           if (!informeMap[i.uid_herramienta_orden]) informeMap[i.uid_herramienta_orden] = [];
@@ -807,14 +863,7 @@ router.get('/orders/:orderId/detalle', ordersLimiter, async (req, res) => {
       // Historial de estados por máquina
       if (maquinas.length) {
         const ids = maquinas.map(m => m.uid_herramienta_orden);
-        const placeholders = ids.map(() => '?').join(',');
-        const [histRows] = await conn.execute(
-          `SELECT uid_herramienta_orden, estado, changed_at
-           FROM b2c_herramienta_status_log
-           WHERE uid_herramienta_orden IN (${placeholders})
-           ORDER BY changed_at ASC`,
-          ids
-        );
+        const histRows = await _loadHistorialForOrden(conn, ids);
         const histMap = {};
         histRows.forEach(h => {
           const k = Number(h.uid_herramienta_orden);
@@ -837,4 +886,6 @@ router.get('/orders/:orderId/detalle', ordersLimiter, async (req, res) => {
 });
 
 module.exports = router;
-module.exports._loadFotosForOrden = _loadFotosForOrden;
+module.exports._loadFotosForOrden     = _loadFotosForOrden;
+module.exports._loadInformesForOrden  = _loadInformesForOrden;
+module.exports._loadHistorialForOrden = _loadHistorialForOrden;

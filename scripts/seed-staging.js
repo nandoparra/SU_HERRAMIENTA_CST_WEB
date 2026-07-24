@@ -234,6 +234,49 @@ async function ensureErpSchema(conn) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // Tablas del sistema (creadas normalmente por runMigrations, pero ensureStatusTables()
+  // puede abortar en staging si las tablas ERP aún no existen cuando arranca el servidor
+  // por primera vez. Las creamos aquí para que el seed sea autocontenido.
+  await conn.execute(`
+    CREATE TABLE IF NOT EXISTS b2c_herramienta_status_log (
+      id                    BIGINT       AUTO_INCREMENT PRIMARY KEY,
+      uid_herramienta_orden VARCHAR(64)  NOT NULL,
+      estado                VARCHAR(32)  NOT NULL,
+      changed_at            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      tenant_id             INT          NOT NULL DEFAULT 1,
+      INDEX idx_hsl        (uid_herramienta_orden),
+      INDEX idx_hsl_tenant (tenant_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  await conn.execute(`
+    CREATE TABLE IF NOT EXISTS b2c_wa_autorizacion_pendiente (
+      uid_autorizacion INT          AUTO_INCREMENT PRIMARY KEY,
+      uid_orden        INT          NOT NULL,
+      wa_phone         VARCHAR(20)  NOT NULL,
+      wa_lid           VARCHAR(50)  NULL,
+      estado           ENUM('esperando_opcion','esperando_maquinas') NOT NULL DEFAULT 'esperando_opcion',
+      tenant_id        INT          NOT NULL DEFAULT 1,
+      created_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_wa_phone (wa_phone),
+      INDEX idx_wap_tenant (tenant_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  await conn.execute(`
+    CREATE TABLE IF NOT EXISTS b2c_informe_mantenimiento (
+      uid_informe           INT          AUTO_INCREMENT PRIMARY KEY,
+      uid_orden             INT          NOT NULL,
+      uid_herramienta_orden INT          NOT NULL,
+      inf_archivo           VARCHAR(255) NOT NULL,
+      inf_fecha             DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      tenant_id             INT          NOT NULL DEFAULT 1,
+      UNIQUE KEY uq_informe_maquina (uid_herramienta_orden),
+      INDEX idx_inf_orden  (uid_orden),
+      INDEX idx_inf_tenant (tenant_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   console.log('  ✅ Esquema ERP verificado/creado');
 }
 

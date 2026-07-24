@@ -381,10 +381,15 @@ router.post('/orders/equipment/:uid/entregar', uploadFirma.single('firma'), asyn
          WHERE uid_herramienta_orden = ?`,
         [entrega_nombre.trim(), entrega_telefono.trim(), entrega_cedula?.trim() || null, req.file.filename, uid]
       );
-      await conn.execute(
-        `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, 'entregada', ?)`,
-        [uid, tenantId]
-      );
+      try {
+        await conn.execute(
+          `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, 'entregada', ?)`,
+          [uid, tenantId]
+        );
+      } catch (logErr) {
+        if (logErr.code !== 'ER_NO_SUCH_TABLE') throw logErr;
+        log.warn('b2c_herramienta_status_log no existe — entrega registrada sin entrada en historial');
+      }
 
       // WA: notificar entrega al cliente (misma plantilla que notify-delivered, fallo silencioso)
       if (isReady(tenantId)) {
@@ -546,11 +551,16 @@ router.post('/orders/:orderId/equipment/bulk-entregar', uploadFirmaBulk.single('
           [entrega_nombre.trim(), entrega_telefono.trim(), entrega_cedula?.trim() || null, firmaFilename, ...eligibleIds, tenantId]
         );
 
-        for (const id of eligibleIds) {
-          await conn.execute(
-            `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, 'entregada', ?)`,
-            [id, tenantId]
-          );
+        try {
+          for (const id of eligibleIds) {
+            await conn.execute(
+              `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado, tenant_id) VALUES (?, 'entregada', ?)`,
+              [id, tenantId]
+            );
+          }
+        } catch (logErr) {
+          if (logErr.code !== 'ER_NO_SUCH_TABLE') throw logErr;
+          log.warn('b2c_herramienta_status_log no existe — bulk entrega sin entrada en historial');
         }
 
         // WA — un mensaje listando todas las máquinas entregadas
