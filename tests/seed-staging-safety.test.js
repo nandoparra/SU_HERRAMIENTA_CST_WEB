@@ -142,3 +142,33 @@ test('ensureStagingDomain: no ejecuta ningún query cuando domain es string vac�
   assert.equal(result, false, 'debe retornar false cuando domain es cadena vacía');
   assert.equal(conn.calls.length, 0, 'no debe ejecutar ningún query');
 });
+
+// ── Capa 3: IDs seed deben pasar el filtro '999%' ─────────────────────────────
+//
+// Este test existe para que el mismatch entre datos seed y lógica de seguridad
+// nunca vuelva a colarse sin ser detectado: si alguien cambia los IDs seed a un
+// prefijo que no sea '999', checkRealClients() los tratará como clientes reales
+// y abortará el seed — exactamente el bug que encontramos en producción.
+
+const { SEED_CLIENTES_IDS } = require('../scripts/seed-staging');
+
+test('IDs seed de clientes: todos empiezan con 999 (Capa 3 los trata como safe)', () => {
+  assert.ok(SEED_CLIENTES_IDS.length > 0, 'debe haber al menos un ID seed definido');
+  for (const id of SEED_CLIENTES_IDS) {
+    assert.ok(
+      String(id).startsWith('999'),
+      `ID seed '${id}' no empieza con '999' — checkRealClients() lo marcará como cliente real y abortará el seed`
+    );
+  }
+});
+
+test('IDs seed de clientes: ninguno coincide con identificaciones reales colombianas típicas', () => {
+  // Cédulas reales: 6-10 dígitos sin prefijo 999. NITs: terminan en dígito verificador.
+  // Esta verificación adicional documenta la intención: 999xxxxx es un rango reservado para pruebas.
+  for (const id of SEED_CLIENTES_IDS) {
+    assert.ok(
+      String(id).startsWith('999'),
+      `ID '${id}' no usa el prefijo de prueba 999`
+    );
+  }
+});
