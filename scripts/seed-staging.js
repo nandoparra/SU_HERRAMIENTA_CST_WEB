@@ -62,6 +62,26 @@ async function checkRealClients(conn) {
   }
 }
 
+/**
+ * Configura ten_dominio_custom del tenant 1 con el dominio estable de staging.
+ * Recibe el dominio como parámetro (no lo lee de process.env) para ser testeable.
+ * Retorna true si actualizó, false si saltó (domain vacío / undefined).
+ */
+async function ensureStagingDomain(conn, domain) {
+  if (!domain) {
+    console.warn('  ⚠️ STAGING_DOMAIN no definido — ten_dominio_custom no se configuró.');
+    console.warn('     Configúralo manualmente:');
+    console.warn("     UPDATE b2c_tenant SET ten_dominio_custom = '<dominio>' WHERE uid_tenant = 1;");
+    return false;
+  }
+  await conn.execute(
+    `UPDATE b2c_tenant SET ten_dominio_custom = ? WHERE uid_tenant = ?`,
+    [domain, TENANT_ID]
+  );
+  console.log(`  ✅ ten_dominio_custom → ${domain}`);
+  return true;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Bootstrap de esquema ERP (tablas que el servidor no crea via runMigrations)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -602,6 +622,10 @@ async function main() {
     if (isClean) await cleanSeedData(conn);
 
     await ensureErpSchema(conn);
+
+    console.log('\n🌐 Configurando dominio de staging...');
+    await ensureStagingDomain(conn, process.env.STAGING_DOMAIN);
+
     await seedUsuarios(conn);
     await seedClientes(conn);
     await seedHerramientas(conn);
@@ -632,7 +656,7 @@ async function main() {
 // Exports (para tests) y punto de entrada
 // ═══════════════════════════════════════════════════════════════════════════════
 
-module.exports = { hasFlag, isProduction, checkRealClients };
+module.exports = { hasFlag, isProduction, checkRealClients, ensureStagingDomain };
 
 if (require.main === module) {
   main().catch(e => {
