@@ -99,13 +99,19 @@ router.get('/cliente/mis-ordenes', async (req, res) => {
       if (maqIds.length) {
         const mhp = maqIds.map(() => '?').join(',');
 
-        const [logs] = await conn.execute(
-          `SELECT uid_herramienta_orden, estado, changed_at
-           FROM b2c_herramienta_status_log
-           WHERE uid_herramienta_orden IN (${mhp})
-           ORDER BY id ASC`,
-          maqIds
-        );
+        let logs = [];
+        try {
+          [logs] = await conn.execute(
+            `SELECT uid_herramienta_orden, estado, changed_at
+             FROM b2c_herramienta_status_log
+             WHERE uid_herramienta_orden IN (${mhp})
+             ORDER BY id ASC`,
+            maqIds
+          );
+        } catch (e) {
+          if (e.code !== 'ER_NO_SUCH_TABLE') throw e;
+          log.warn('b2c_herramienta_status_log no existe — mis-ordenes cargado sin historial');
+        }
         logs.forEach(l => {
           const k = String(l.uid_herramienta_orden);
           if (!statusMap[k]) statusMap[k] = [];
@@ -133,12 +139,18 @@ router.get('/cliente/mis-ordenes', async (req, res) => {
           itemsMap[k].push(i);
         });
 
-        const [informeRows] = await conn.execute(
-          `SELECT uid_herramienta_orden, uid_informe, inf_fecha, inf_archivo
-           FROM b2c_informe_mantenimiento
-           WHERE uid_herramienta_orden IN (${mhp})`,
-          maqIds
-        );
+        let informeRows = [];
+        try {
+          [informeRows] = await conn.execute(
+            `SELECT uid_herramienta_orden, uid_informe, inf_fecha, inf_archivo
+             FROM b2c_informe_mantenimiento
+             WHERE uid_herramienta_orden IN (${mhp})`,
+            maqIds
+          );
+        } catch (e) {
+          if (e.code !== 'ER_NO_SUCH_TABLE') throw e;
+          log.warn('b2c_informe_mantenimiento no existe — mis-ordenes cargado sin informes');
+        }
         informeRows.forEach(i => { informeMap[String(i.uid_herramienta_orden)] = i; });
       }
 
@@ -173,17 +185,22 @@ router.get('/cliente/informe/:uid_herramienta_orden', async (req, res) => {
     const conn = await db.getConnection();
     let row;
     try {
-      const [[r]] = await conn.execute(
-        `SELECT i.inf_archivo
-         FROM b2c_informe_mantenimiento i
-         JOIN b2c_herramienta_orden ho ON ho.uid_herramienta_orden = i.uid_herramienta_orden
-         JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
-         JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
-         WHERE i.uid_herramienta_orden = ? AND c.uid_usuario = ? AND o.tenant_id = ?
-         LIMIT 1`,
-        [req.params.uid_herramienta_orden, user.id, tenantId]
-      );
-      row = r;
+      try {
+        const [[r]] = await conn.execute(
+          `SELECT i.inf_archivo
+           FROM b2c_informe_mantenimiento i
+           JOIN b2c_herramienta_orden ho ON ho.uid_herramienta_orden = i.uid_herramienta_orden
+           JOIN b2c_orden o ON o.uid_orden = ho.uid_orden
+           JOIN b2c_cliente c ON c.uid_cliente = o.uid_cliente
+           WHERE i.uid_herramienta_orden = ? AND c.uid_usuario = ? AND o.tenant_id = ?
+           LIMIT 1`,
+          [req.params.uid_herramienta_orden, user.id, tenantId]
+        );
+        row = r;
+      } catch (e) {
+        if (e.code !== 'ER_NO_SUCH_TABLE') throw e;
+        log.warn('b2c_informe_mantenimiento no existe — informe cliente no disponible');
+      }
     } finally {
       conn.release();
     }
@@ -235,10 +252,15 @@ router.patch('/cliente/maquina/:uid_herramienta_orden/autorizar', async (req, re
         `UPDATE b2c_herramienta_orden SET her_estado = ? WHERE uid_herramienta_orden = ?`,
         [decision, uid]
       );
-      await conn.execute(
-        `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado) VALUES (?, ?)`,
-        [uid, decision]
-      );
+      try {
+        await conn.execute(
+          `INSERT INTO b2c_herramienta_status_log (uid_herramienta_orden, estado) VALUES (?, ?)`,
+          [uid, decision]
+        );
+      } catch (logErr) {
+        if (logErr.code !== 'ER_NO_SUCH_TABLE') throw logErr;
+        log.warn('b2c_herramienta_status_log no existe — autorización guardada sin entrada en historial');
+      }
       await conn.commit();
     } catch (e) {
       await conn.rollback();

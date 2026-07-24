@@ -61,32 +61,36 @@ async function ensureStatusTables() {
   try {
     // Agregar columna her_estado si no existe
     // IF NOT EXISTS es sintaxis MariaDB — en MySQL 8 usamos try/catch con ER_DUP_FIELDNAME
+    // ER_NO_SUCH_TABLE tolerated: ERP tables may not exist yet on first boot in staging
+    // (they are created by the seed script which runs after the server starts).
+    // The CREATE TABLE IF NOT EXISTS blocks below must still execute — they are system
+    // tables that do NOT depend on the ERP schema.
     try {
       await conn.execute(
         `ALTER TABLE b2c_herramienta_orden ADD COLUMN her_estado VARCHAR(32) NOT NULL DEFAULT 'pendiente_revision'`
       );
-    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') throw e; }
 
     // Agregar columna fho_tipo a fotos si no existe
     try {
       await conn.execute(
         `ALTER TABLE b2c_foto_herramienta_orden ADD COLUMN fho_tipo VARCHAR(20) NOT NULL DEFAULT 'recepcion'`
       );
-    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') throw e; }
 
     // Columnas para órdenes de garantía
     try {
       await conn.execute(`ALTER TABLE b2c_orden ADD COLUMN ord_tipo VARCHAR(20) NOT NULL DEFAULT 'normal'`);
-    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') throw e; }
     try {
       await conn.execute(`ALTER TABLE b2c_orden ADD COLUMN ord_factura VARCHAR(255) NULL`);
-    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') throw e; }
     try {
       await conn.execute(`ALTER TABLE b2c_orden ADD COLUMN ord_garantia_vence DATE NULL`);
-    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') throw e; }
     try {
       await conn.execute(`ALTER TABLE b2c_orden ADD COLUMN ord_revision_limite DATE NULL`);
-    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_NO_SUCH_TABLE') throw e; }
 
     // Tabla de historial de cambios de estado
     await conn.execute(`
