@@ -207,6 +207,79 @@ feature/fase1-seguridad        SEC-01..05 IDOR tenant isolation + pwd_must_chang
 
 ---
 
+## Ambiente de staging
+
+Creado 2026-07-24. Servicio Railway separado de producción, con BD propia y dominio propio.
+
+### Configuración
+
+| Ítem | Valor |
+|------|-------|
+| Dominio | `staging.suherramienta.com` |
+| Rama | `staging` (separada de `main`) |
+| Proyecto Railway (staging) | `eaa5f8b3-ac88-4d49-9af7-5bfa91d87e75` |
+| Proyecto Railway (prod) | `9d884101-bbbd-4916-9042-6e2b2e662d85` |
+
+**DNS en GoDaddy** (mismo patrón que `taller.suherramienta.com`):
+| Tipo | Nombre | Valor |
+|------|--------|-------|
+| CNAME | `staging` | `<hostname-staging>.up.railway.app` |
+| TXT | `_railway-verify.staging` | token de verificación Railway |
+
+SSL provisionado automáticamente por Railway. `ten_dominio_custom = 'staging.suherramienta.com'`
+guardado en `b2c_tenant` (uid_tenant=1) — así `middleware/tenant.js` resuelve el dominio al tenant correcto.
+
+**Variables de entorno Railway staging** — mismas que producción, más:
+```
+STAGING_DOMAIN=staging.suherramienta.com
+NODE_ENV=staging   (o development — cualquier valor ≠ production)
+```
+
+### Recrear el ambiente desde cero
+
+Si la BD de staging se pierde o hay que recrear el servicio:
+
+1. Arrancar el servidor — `runMigrations()` crea automáticamente todas las tablas gestionadas.
+2. Correr el seed (con las credenciales de la BD de staging):
+   ```bash
+   STAGING_DOMAIN=staging.suherramienta.com node scripts/seed-staging.js --staging-confirmed
+   ```
+   El script crea el esquema ERP completo, siembra datos de prueba e-to-e, y configura
+   `ten_dominio_custom = 'staging.suherramienta.com'` en `b2c_tenant` automáticamente.
+3. Verificar acceso en `https://staging.suherramienta.com/login`.
+
+### Protecciones de seed-staging.js (3 capas antes de tocar datos)
+
+1. **Flag CLI** — requiere `--staging-confirmed` explícito; nunca corre por accidente.
+2. **NODE_ENV** — aborta si `NODE_ENV=production` (producción lo tiene, staging no).
+3. **Huella de BD** — aborta si `b2c_cliente` contiene identificaciones que no empiezan en `999`.
+   `ER_NO_SUCH_TABLE` se trata como "BD vacía → seguro para continuar" (no crashea).
+
+`--clean`: borra solo registros del seed (IDs `999*`, logins `*_test`, seriales `SEED-*`,
+descripciones `*[SEED]*`). Nunca puede tocar datos reales.
+
+### Datos de prueba (seeded)
+
+**Credenciales:**
+| Usuario | Tipo | Contraseña |
+|---------|------|-----------|
+| `admin_test` | A — Admin | `Admin#Cst2026` |
+| `fun_test` | F — Funcionario | `Fun#Cst2026` |
+| `tec_test` | T — Técnico | `Tec#Cst2026` |
+| `cliente_test` | C — Cliente | `0004` |
+
+**Órdenes de prueba:**
+| Orden | Máquina | Estado | Cliente |
+|-------|---------|--------|---------|
+| #9001 | Taladro DeWalt SEED-TAL-001 | `revisada` | FERRETERÍA EL TORNILLO |
+| #9001 | Amoladora Bosch SEED-AMO-001 | `cotizada` (con cotización generada) | FERRETERÍA EL TORNILLO |
+| #9002 | Sierra Makita SEED-SIE-001 | `reparada` | CONSTRUCTORA PRUEBAS SA |
+| #9003 | Compresor B+D SEED-COM-001 | `entregada` (con datos de entrega + firma) | INDUSTRIAS TEST LTDA |
+
+Inventario: 5 conceptos de costo/repuesto marcados con `[SEED]`.
+
+---
+
 ## Seguridad — correcciones aplicadas (feature/security-fixes, mergeado a main 2026-03-11)
 
 ### Correcciones originales

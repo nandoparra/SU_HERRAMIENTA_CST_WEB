@@ -14,7 +14,7 @@
 const { test } = require('node:test');
 const assert   = require('node:assert/strict');
 
-const { hasFlag, isProduction, checkRealClients } = require('../scripts/seed-staging');
+const { hasFlag, isProduction, checkRealClients, ensureStagingDomain } = require('../scripts/seed-staging');
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -105,4 +105,40 @@ test('checkRealClients: "unsafe" con un solo cliente real (borde count=1)', asyn
   const conn = makeConn([[{ cnt: 1 }]]);
   const result = await checkRealClients(conn);
   assert.equal(result, 'unsafe');
+});
+
+// ── ensureStagingDomain ───────────────────────────────────────────────────────
+
+/** Mock conn que registra cada llamada a execute() para verificar SQL/params. */
+function makeTrackingConn() {
+  const calls = [];
+  return {
+    calls,
+    async execute(sql, params) { calls.push({ sql, params }); },
+  };
+}
+
+test('ensureStagingDomain: ejecuta UPDATE con el dominio correcto cuando se pasa dominio', async () => {
+  const conn = makeTrackingConn();
+  const result = await ensureStagingDomain(conn, 'staging.suherramienta.com');
+  assert.equal(result, true, 'debe retornar true cuando el dominio está definido');
+  assert.equal(conn.calls.length, 1, 'debe ejecutar exactamente un query');
+  assert.ok(
+    conn.calls[0].params.includes('staging.suherramienta.com'),
+    'el dominio debe estar en los params del UPDATE'
+  );
+});
+
+test('ensureStagingDomain: no ejecuta ningún query cuando domain es undefined', async () => {
+  const conn = makeTrackingConn();
+  const result = await ensureStagingDomain(conn, undefined);
+  assert.equal(result, false, 'debe retornar false cuando domain es undefined');
+  assert.equal(conn.calls.length, 0, 'no debe ejecutar ningún query');
+});
+
+test('ensureStagingDomain: no ejecuta ningún query cuando domain es string vacío', async () => {
+  const conn = makeTrackingConn();
+  const result = await ensureStagingDomain(conn, '');
+  assert.equal(result, false, 'debe retornar false cuando domain es cadena vacía');
+  assert.equal(conn.calls.length, 0, 'no debe ejecutar ningún query');
 });
