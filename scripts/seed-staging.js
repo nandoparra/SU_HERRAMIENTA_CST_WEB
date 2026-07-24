@@ -249,23 +249,27 @@ const SEED_USUARIOS = [
 ];
 
 const SEED_CLIENTES = [
-  { id: '99000001', nombre: 'FERRETERÍA EL TORNILLO',  tel: '3001112233', dir: 'Calle 10 # 5-23, Pereira'             },
-  { id: '99000002', nombre: 'CONSTRUCTORA PRUEBAS SA', tel: '3004445566', dir: 'Av. 30 de Agosto # 40-10, Pereira'    },
-  { id: '99000003', nombre: 'INDUSTRIAS TEST LTDA',    tel: '3007778899', dir: 'Zona Industrial Calle 6, Dosquebradas' },
-  { id: '99000004', nombre: 'CLIENTE PORTAL TEST',     tel: '3009998877', dir: 'Carrera 8 # 20-15, Pereira',
+  { id: '99900001', nombre: 'FERRETERÍA EL TORNILLO',  tel: '3001112233', dir: 'Calle 10 # 5-23, Pereira'             },
+  { id: '99900002', nombre: 'CONSTRUCTORA PRUEBAS SA', tel: '3004445566', dir: 'Av. 30 de Agosto # 40-10, Pereira'    },
+  { id: '99900003', nombre: 'INDUSTRIAS TEST LTDA',    tel: '3007778899', dir: 'Zona Industrial Calle 6, Dosquebradas' },
+  { id: '99900004', nombre: 'CLIENTE PORTAL TEST',     tel: '3009998877', dir: 'Carrera 8 # 20-15, Pereira',
     loginVinculado: 'cliente_test' },
 ];
 
+// Exportado para que los tests de Capa 3 puedan verificar que los IDs
+// siempre usan el prefijo '999' que espera checkRealClients().
+const SEED_CLIENTES_IDS = SEED_CLIENTES.map(c => c.id);
+
 const SEED_HERRAMIENTAS = [
-  { serial: 'SEED-TAL-001', nombre: 'Taladro Percutor 1/2"',  marca: 'DeWalt',       clienteId: '99000001' },
-  { serial: 'SEED-AMO-001', nombre: 'Amoladora Angular 7"',   marca: 'Bosch',        clienteId: '99000001' },
-  { serial: 'SEED-SIE-001', nombre: 'Sierra Circular 7-1/4"', marca: 'Makita',       clienteId: '99000002' },
-  { serial: 'SEED-COM-001', nombre: 'Compresor de Aire 24L',  marca: 'Black+Decker', clienteId: '99000003' },
+  { serial: 'SEED-TAL-001', nombre: 'Taladro Percutor 1/2"',  marca: 'DeWalt',       clienteId: '99900001' },
+  { serial: 'SEED-AMO-001', nombre: 'Amoladora Angular 7"',   marca: 'Bosch',        clienteId: '99900001' },
+  { serial: 'SEED-SIE-001', nombre: 'Sierra Circular 7-1/4"', marca: 'Makita',       clienteId: '99900002' },
+  { serial: 'SEED-COM-001', nombre: 'Compresor de Aire 24L',  marca: 'Black+Decker', clienteId: '99900003' },
 ];
 
 const SEED_ORDENES = [
   {
-    consec: 9001, clienteId: '99000001', fecha: '20260101',
+    consec: 9001, clienteId: '99900001', fecha: '20260101',
     maquinas: [
       { serial: 'SEED-TAL-001', estado: 'revisada' },
       { serial: 'SEED-AMO-001', estado: 'cotizada', cotizacion: {
@@ -276,13 +280,13 @@ const SEED_ORDENES = [
     ],
   },
   {
-    consec: 9002, clienteId: '99000002', fecha: '20260110',
+    consec: 9002, clienteId: '99900002', fecha: '20260110',
     maquinas: [
       { serial: 'SEED-SIE-001', estado: 'reparada' },
     ],
   },
   {
-    consec: 9003, clienteId: '99000003', fecha: '20260115',
+    consec: 9003, clienteId: '99900003', fecha: '20260115',
     maquinas: [
       { serial: 'SEED-COM-001', estado: 'entregada', entrega: {
         nombre:   'Pedro Gómez Prueba',
@@ -362,7 +366,7 @@ async function seedUsuarios(conn) {
     `, [u.nombre, u.login, hash, u.tipo, TENANT_ID]);
     console.log(`  ✅ ${u.login} (${u.tipo})`);
   }
-  // cliente_test — tipo C, clave = últimos 4 dígitos de 99000004
+  // cliente_test — tipo C, clave = últimos 4 dígitos de 99900004
   const hashC = await bcrypt.hash('0004', BCRYPT_ROUNDS);
   await conn.execute(`
     INSERT IGNORE INTO b2c_usuario (usu_nombre, usu_login, usu_clave, usu_tipo, usu_estado, tenant_id)
@@ -651,7 +655,7 @@ async function main() {
     console.log('  admin_test    (A) — Admin#Cst2026');
     console.log('  fun_test      (F) — Fun#Cst2026');
     console.log('  tec_test      (T) — Tec#Cst2026');
-    console.log('  cliente_test  (C) — 0004   (últimos 4 de 99000004)\n');
+    console.log('  cliente_test  (C) — 0004   (últimos 4 de 99900004)\n');
     console.log('Datos sembrados:');
     console.log('  Clientes    : FERRETERÍA EL TORNILLO, CONSTRUCTORA PRUEBAS SA,');
     console.log('                INDUSTRIAS TEST LTDA, CLIENTE PORTAL TEST');
@@ -669,7 +673,7 @@ async function main() {
 // Exports (para tests) y punto de entrada
 // ═══════════════════════════════════════════════════════════════════════════════
 
-module.exports = { hasFlag, isProduction, checkRealClients, ensureStagingDomain, ensureErpSchema };
+module.exports = { hasFlag, isProduction, checkRealClients, ensureStagingDomain, ensureErpSchema, SEED_CLIENTES_IDS };
 
 if (require.main === module) {
   main().catch(e => {
