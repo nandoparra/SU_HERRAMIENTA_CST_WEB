@@ -39,6 +39,34 @@ const searchLimiter = rateLimit({
 
 router.use(requireInterno);
 
+/**
+ * Carga fotos de una lista de uid_herramienta_orden.
+ * Si b2c_foto_herramienta_orden no existe (BD vacía / seed pendiente)
+ * retorna [] en lugar de propagar ER_NO_SUCH_TABLE — el detalle de orden
+ * sigue siendo funcional, simplemente sin fotos.
+ * Exportada para tests unitarios.
+ */
+async function _loadFotosForOrden(conn, ids) {
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  try {
+    const [rows] = await conn.execute(
+      `SELECT uid_foto_herramienta_orden, uid_herramienta_orden, fho_archivo, fho_nombre,
+              COALESCE(fho_tipo, 'recepcion') AS fho_tipo
+       FROM b2c_foto_herramienta_orden
+       WHERE uid_herramienta_orden IN (${placeholders})
+       ORDER BY uid_foto_herramienta_orden`,
+      ids
+    );
+    return rows;
+  } catch (e) {
+    if (e.code === 'ER_NO_SUCH_TABLE') {
+      log.warn('b2c_foto_herramienta_orden no existe — detalle de orden cargado sin fotos');
+      return [];
+    }
+    throw e;
+  }
+}
 
 const ESTADOS_VALIDOS = [
   'pendiente_revision',
@@ -713,15 +741,7 @@ router.get('/orders/:orderId/detalle', ordersLimiter, async (req, res) => {
       const fotoMap = {};
       if (maquinas.length) {
         const ids = maquinas.map(m => m.uid_herramienta_orden);
-        const placeholders = ids.map(() => '?').join(',');
-        const [fotos] = await conn.execute(
-          `SELECT uid_foto_herramienta_orden, uid_herramienta_orden, fho_archivo, fho_nombre,
-                  COALESCE(fho_tipo, 'recepcion') AS fho_tipo
-           FROM b2c_foto_herramienta_orden
-           WHERE uid_herramienta_orden IN (${placeholders})
-           ORDER BY uid_foto_herramienta_orden`,
-          ids
-        );
+        const fotos = await _loadFotosForOrden(conn, ids);
         fotos.forEach(f => {
           if (!fotoMap[f.uid_herramienta_orden]) fotoMap[f.uid_herramienta_orden] = { recepcion: [], trabajo: [] };
           const tipo = f.fho_tipo === 'trabajo' ? 'trabajo' : 'recepcion';
@@ -817,3 +837,4 @@ router.get('/orders/:orderId/detalle', ordersLimiter, async (req, res) => {
 });
 
 module.exports = router;
+module.exports._loadFotosForOrden = _loadFotosForOrden;

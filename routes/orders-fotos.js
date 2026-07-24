@@ -74,11 +74,20 @@ router.post('/orders/:id/fotos-recepcion/:uid_herramienta_orden', requireAdminFu
         try { fs.unlinkSync(req.file.path); } catch {}
         return res.status(404).json({ error: 'Máquina no encontrada' });
       }
-      await conn.execute(
-        `INSERT INTO b2c_foto_herramienta_orden (uid_herramienta_orden, fho_archivo, fho_nombre, fho_tipo)
-         VALUES (?, ?, ?, 'recepcion')`,
-        [req.params.uid_herramienta_orden, req.file.filename, req.file.originalname]
-      );
+      try {
+        await conn.execute(
+          `INSERT INTO b2c_foto_herramienta_orden (uid_herramienta_orden, fho_archivo, fho_nombre, fho_tipo)
+           VALUES (?, ?, ?, 'recepcion')`,
+          [req.params.uid_herramienta_orden, req.file.filename, req.file.originalname]
+        );
+      } catch (e) {
+        if (e.code === 'ER_NO_SUCH_TABLE') {
+          log.warn('b2c_foto_herramienta_orden no existe — no se pudo registrar la foto de recepción');
+          try { fs.unlinkSync(req.file.path); } catch {}
+          return res.status(500).json({ error: 'Sistema de fotos temporalmente no disponible' });
+        }
+        throw e;
+      }
       const [[ins]] = await conn.execute('SELECT LAST_INSERT_ID() AS id');
       res.json({
         success:  true,
@@ -101,11 +110,20 @@ router.delete('/orders/fotos-recepcion/:uid_foto', requireAdminFuncionario, asyn
     const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
-      const [[foto]] = await conn.execute(
-        `SELECT fho_archivo FROM b2c_foto_herramienta_orden
-         WHERE uid_foto_herramienta_orden = ? AND fho_tipo = 'recepcion' AND tenant_id = ?`,
-        [req.params.uid_foto, tenantId]
-      );
+      let foto;
+      try {
+        [[foto]] = await conn.execute(
+          `SELECT fho_archivo FROM b2c_foto_herramienta_orden
+           WHERE uid_foto_herramienta_orden = ? AND fho_tipo = 'recepcion' AND tenant_id = ?`,
+          [req.params.uid_foto, tenantId]
+        );
+      } catch (e) {
+        if (e.code === 'ER_NO_SUCH_TABLE') {
+          log.warn('b2c_foto_herramienta_orden no existe — foto de recepción no encontrada');
+          return res.status(404).json({ error: 'Foto no encontrada' });
+        }
+        throw e;
+      }
       if (!foto) return res.status(404).json({ error: 'Foto no encontrada' });
       await conn.execute(
         `DELETE FROM b2c_foto_herramienta_orden WHERE uid_foto_herramienta_orden = ? AND tenant_id = ?`,
@@ -141,11 +159,20 @@ router.post('/orders/:id/fotos-trabajo/:uid_herramienta_orden', uploadFoto.singl
         try { fs.unlinkSync(req.file.path); } catch {}
         return res.status(404).json({ error: 'Máquina no encontrada' });
       }
-      await conn.execute(
-        `INSERT INTO b2c_foto_herramienta_orden (uid_herramienta_orden, fho_archivo, fho_nombre, fho_tipo)
-         VALUES (?, ?, ?, 'trabajo')`,
-        [req.params.uid_herramienta_orden, req.file.filename, req.file.originalname]
-      );
+      try {
+        await conn.execute(
+          `INSERT INTO b2c_foto_herramienta_orden (uid_herramienta_orden, fho_archivo, fho_nombre, fho_tipo)
+           VALUES (?, ?, ?, 'trabajo')`,
+          [req.params.uid_herramienta_orden, req.file.filename, req.file.originalname]
+        );
+      } catch (e) {
+        if (e.code === 'ER_NO_SUCH_TABLE') {
+          log.warn('b2c_foto_herramienta_orden no existe — no se pudo registrar la foto de trabajo');
+          try { fs.unlinkSync(req.file.path); } catch {}
+          return res.status(500).json({ error: 'Sistema de fotos temporalmente no disponible' });
+        }
+        throw e;
+      }
       const [[ins]] = await conn.execute('SELECT LAST_INSERT_ID() AS id');
       res.json({
         success:   true,
@@ -168,11 +195,20 @@ router.delete('/orders/fotos-trabajo/:uid_foto', async (req, res) => {
     const tenantId = getTenantId(req);
     const conn = await db.getConnection();
     try {
-      const [[foto]] = await conn.execute(
-        `SELECT fho_archivo FROM b2c_foto_herramienta_orden
-         WHERE uid_foto_herramienta_orden = ? AND fho_tipo = 'trabajo' AND tenant_id = ?`,
-        [req.params.uid_foto, tenantId]
-      );
+      let foto;
+      try {
+        [[foto]] = await conn.execute(
+          `SELECT fho_archivo FROM b2c_foto_herramienta_orden
+           WHERE uid_foto_herramienta_orden = ? AND fho_tipo = 'trabajo' AND tenant_id = ?`,
+          [req.params.uid_foto, tenantId]
+        );
+      } catch (e) {
+        if (e.code === 'ER_NO_SUCH_TABLE') {
+          log.warn('b2c_foto_herramienta_orden no existe — foto de trabajo no encontrada');
+          return res.status(404).json({ error: 'Foto no encontrada' });
+        }
+        throw e;
+      }
       if (!foto) return res.status(404).json({ error: 'Foto no encontrada' });
       await conn.execute(
         `DELETE FROM b2c_foto_herramienta_orden WHERE uid_foto_herramienta_orden = ? AND tenant_id = ?`,
