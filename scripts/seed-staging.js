@@ -205,6 +205,19 @@ async function ensureErpSchema(conn) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  await conn.execute(`
+    CREATE TABLE IF NOT EXISTS b2c_foto_herramienta_orden (
+      uid_foto_herramienta_orden INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      uid_herramienta_orden      INT          NOT NULL,
+      fho_archivo                VARCHAR(100) NOT NULL,
+      fho_nombre                 VARCHAR(100) NOT NULL,
+      fho_tipo                   VARCHAR(20)  NOT NULL DEFAULT 'recepcion',
+      tenant_id                  INT          NOT NULL DEFAULT 1,
+      INDEX idx_fho_hor    (uid_herramienta_orden),
+      INDEX idx_fho_tenant (tenant_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // Tablas de cotización (normalmente creadas por runMigrations al arrancar el servidor,
   // pero las creamos aquí para que el seed sea autocontenido)
   await conn.execute(`
@@ -656,7 +669,7 @@ async function main() {
 // Exports (para tests) y punto de entrada
 // ═══════════════════════════════════════════════════════════════════════════════
 
-module.exports = { hasFlag, isProduction, checkRealClients, ensureStagingDomain };
+module.exports = { hasFlag, isProduction, checkRealClients, ensureStagingDomain, ensureErpSchema };
 
 if (require.main === module) {
   main().catch(e => {
