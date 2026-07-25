@@ -16,11 +16,18 @@ const log = require('../utils/logger');
 
 // ─── Helper: buscar informe existente para esta máquina en esta orden ────────
 async function getExistingInforme(conn, uid_herramienta_orden) {
-  const [[row]] = await conn.execute(
-    `SELECT uid_informe, inf_archivo FROM b2c_informe_mantenimiento
-     WHERE uid_herramienta_orden = ? LIMIT 1`,
-    [uid_herramienta_orden]
-  );
+  let row;
+  try {
+    [[row]] = await conn.execute(
+      `SELECT uid_informe, inf_archivo FROM b2c_informe_mantenimiento
+       WHERE uid_herramienta_orden = ? LIMIT 1`,
+      [uid_herramienta_orden]
+    );
+  } catch (e) {
+    if (e.code !== 'ER_NO_SUCH_TABLE') throw e;
+    log.warn('b2c_informe_mantenimiento no existe — se generará un informe nuevo');
+    return null;
+  }
   if (!row) return null;
   const fpath = path.join(UPLOADS_DIR, 'informes-mantenimiento', row.inf_archivo);
   if (!fs.existsSync(fpath)) return null;   // archivo borrado del disco — tratar como inexistente
@@ -271,10 +278,17 @@ router.get('/informes/:uid_informe', requireAdminFuncionario, async (req, res) =
   try {
     const conn = await db.getConnection();
     try {
-      const [[inf]] = await conn.execute(
-        `SELECT inf_archivo, inf_fecha FROM b2c_informe_mantenimiento WHERE uid_informe = ?`,
-        [req.params.uid_informe]
-      );
+      let inf;
+      try {
+        [[inf]] = await conn.execute(
+          `SELECT inf_archivo, inf_fecha FROM b2c_informe_mantenimiento WHERE uid_informe = ?`,
+          [req.params.uid_informe]
+        );
+      } catch (e) {
+        if (e.code !== 'ER_NO_SUCH_TABLE') throw e;
+        log.warn('b2c_informe_mantenimiento no existe — informe no disponible');
+        return res.status(404).json({ error: 'Informe no encontrado' });
+      }
       if (!inf) return res.status(404).json({ error: 'Informe no encontrado' });
 
       const fpath = path.join(UPLOADS_DIR, 'informes-mantenimiento', inf.inf_archivo);
