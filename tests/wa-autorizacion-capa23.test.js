@@ -23,7 +23,7 @@
  *   para poder verificar exactamente qué escribió el cliente.
  */
 
-const { test, describe } = require('node:test');
+const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 
 // ── 1. _parseIntentResponse — puro, sin BD ni Claude ─────────────────────────
@@ -409,3 +409,5 @@ describe('Protección menú falso — sin cotizacionPendiente no hay menú 1/2/3
     );
   });
 });
+
+after(async () => { await require('../utils/db').end(); });

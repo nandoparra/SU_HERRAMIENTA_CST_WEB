@@ -10,7 +10,7 @@
  * — no reproducen la concurrencia que P1-1 previene en producción.
  */
 
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert   = require('node:assert/strict');
 const { checkRateLimit } = require('../services/wa-agente');
 
@@ -86,3 +86,5 @@ test('ventana a 59 min 59 s — no expira, sigue contando dentro de la ventana',
   const conn = makeMockConn({ msgs_hora_count: 20, msgs_hora_desde: hace59m59s });
   assert.equal(await checkRateLimit(conn, 'TEST', 1), 'notify');
 });
+
+after(async () => { await require('../utils/db').end(); });

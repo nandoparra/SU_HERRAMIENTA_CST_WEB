@@ -9,7 +9,7 @@
  * El test de lazy DELETE lee el código fuente directamente.
  */
 
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert   = require('node:assert/strict');
 const fs       = require('fs');
 const path     = require('path');
@@ -105,3 +105,5 @@ test('lazy DELETE eliminado: wa-agente.js no contiene DELETE con INTERVAL 24 HOU
     'wa-agente.js no debe contener DELETE con INTERVAL 24 HOUR — fue reemplazado por archivado al arrancar'
   );
 });
+
+after(async () => { await require('../utils/db').end(); });

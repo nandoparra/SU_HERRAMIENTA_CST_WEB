@@ -11,7 +11,7 @@
  *   checkRealClients — Capa 3: detecta clientes reales / tabla inexistente
  */
 
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert   = require('node:assert/strict');
 
 const { hasFlag, isProduction, checkRealClients, ensureStagingDomain } = require('../scripts/seed-staging');
@@ -172,3 +172,5 @@ test('IDs seed de clientes: ninguno coincide con identificaciones reales colombi
     );
   }
 });
+
+after(async () => { await require('../utils/db').end(); });
