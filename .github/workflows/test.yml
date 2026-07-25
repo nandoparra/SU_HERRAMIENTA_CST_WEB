@@ -49,7 +49,7 @@ jobs:
           NODE_ENV: test
           UPLOADS_PATH: /tmp/cst-uploads-ci
         run: |
-          node --test --concurrency=4 \
+          node --test --test-concurrency=4 \
             tests/dias-habiles.test.js \
             tests/phones.test.js \
             tests/uploads.test.js \
@@ -127,7 +127,7 @@ jobs:
           exit 1
 
       # ── 4. Suite COMPLETA — todos los tests con servidor + BD reales ──────────
-      # --concurrency=1: archivos en serie para evitar colisiones de sesión entre
+      # --test-concurrency=1: archivos en serie para evitar colisiones de sesión entre
       # archivos de integración (aunque el rate limiter ya está deshabilitado en test,
       # la serialización protege contra race conditions de estado compartido).
       - name: Suite completa (unitarios + integración)
@@ -150,7 +150,7 @@ jobs:
           TEST_TEC_PASS: Tec#Cst2026
           TEST_FUN_LOGIN: fun_test
           TEST_FUN_PASS: Fun#Cst2026
-        run: node --test --concurrency=1 tests/*.test.js
+        run: node --test --test-concurrency=1 tests/*.test.js
 
       # ── 5. Log del servidor visible si el job falla ───────────────────────────
       - name: Log del servidor (solo si falla)
