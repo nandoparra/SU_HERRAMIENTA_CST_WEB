@@ -1,14 +1,29 @@
-name: Tests
+name: Tests — CI completo
 
 on:
   push:
-    branches: [main, feature/**]
+    branches: [main, staging, 'feature/**']
   pull_request:
-    branches: [main]
+    branches: [main, staging]
 
 jobs:
   test:
+    name: Suite completa
     runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test
+          MYSQL_DATABASE: cst_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
 
     steps:
       - uses: actions/checkout@v4
@@ -22,32 +37,120 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run unit tests
-        run: npm test
+      # ── 1. Tests unitarios — sin servidor (falla rápido antes de levantar BD) ──
+      # Solo archivos 100% unitarios. Los híbridos (sec12) y de integración pura
+      # corren en el paso 4 junto con el servidor real.
+      - name: Tests unitarios
         env:
           NODE_ENV: test
-          # Tests unitarios (dias-habiles, phones, uploads) no requieren BD.
-          # Cuando se agreguen tests de integración (Fase 5), añadir aquí:
-          # DB_HOST: 127.0.0.1
-          # DB_PORT: 3306
-          # DB_USER: root
-          # DB_PASSWORD: test
-          # DB_NAME: cst_test
-          # services: mysql (ver comentario abajo)
+          UPLOADS_PATH: /tmp/cst-uploads-ci
+        run: |
+          node --test --concurrency=4 \
+            tests/dias-habiles.test.js \
+            tests/phones.test.js \
+            tests/uploads.test.js \
+            tests/fase1-seguridad.test.js \
+            tests/bulk-operaciones.test.js \
+            tests/wa-conversaciones.test.js \
+            tests/wa-agente-gate.test.js \
+            tests/wa-agente-enqueue.test.js \
+            tests/wa-agente-historial.test.js \
+            tests/wa-ratelimit.test.js \
+            tests/wa-conversacion-archivo.test.js \
+            tests/pdf-tenant.test.js \
+            tests/wa-autorizacion-capa1.test.js \
+            tests/wa-autorizacion-capa23.test.js \
+            tests/ia-uso.test.js \
+            tests/alegra-stamp.test.js \
+            tests/sec07-audit-log.test.js \
+            tests/cal08-xss-ticket.test.js \
+            tests/tenantid-clasificador.test.js \
+            tests/migrations-empty-db.test.js \
+            tests/seed-staging-safety.test.js \
+            tests/fotos-tabla-faltante.test.js \
+            tests/financiero.test.js \
+            tests/bulk-entregar-upload.test.js \
+            tests/bulk-entregar-ux.test.js
 
-      # ── MySQL en Docker para tests de integración (Fase 5) ──────────────
-      # Descomentar cuando existan tests de integración:
-      #
-      # services:
-      #   mysql:
-      #     image: mysql:8.0
-      #     env:
-      #       MYSQL_ROOT_PASSWORD: test
-      #       MYSQL_DATABASE: cst_test
-      #     ports:
-      #       - 3306:3306
-      #     options: >-
-      #       --health-cmd="mysqladmin ping"
-      #       --health-interval=10s
-      #       --health-timeout=5s
-      #       --health-retries=3
+      # ── 2. Seed de BD de prueba ───────────────────────────────────────────────
+      - name: Seed BD de prueba
+        env:
+          NODE_ENV: test
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_USER: root
+          DB_PASSWORD: test
+          DB_NAME: cst_test
+          SESSION_SECRET: ci-test-secret-not-for-production-use
+        run: node scripts/seed-staging.js --staging-confirmed
+
+      # ── 3. Servidor en background ─────────────────────────────────────────────
+      # WA_INIT_DELAY_MS=0 suprime el grace period de 20s (innecesario en CI).
+      # NODE_ENV=test además deshabilita la inicialización de Baileys completamente.
+      - name: Iniciar servidor
+        env:
+          NODE_ENV: test
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_USER: root
+          DB_PASSWORD: test
+          DB_NAME: cst_test
+          PORT: 3001
+          SESSION_SECRET: ci-test-secret-not-for-production-use
+          ANTHROPIC_API_KEY: sk-ant-ci-placeholder-not-real
+          SUPERADMIN_SECRET: ci-superadmin-not-real
+          UPLOADS_PATH: /tmp/cst-uploads-ci
+          WA_AUTH_PATH: /tmp/wa-ci
+          WA_INIT_DELAY_MS: 0
+        run: |
+          mkdir -p /tmp/cst-uploads-ci /tmp/wa-ci
+          node server.js > /tmp/server.log 2>&1 &
+          echo $! > /tmp/server.pid
+          echo "Servidor iniciado con PID $(cat /tmp/server.pid)"
+
+      - name: Esperar a que el servidor responda
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3001/login > /dev/null 2>&1; then
+              echo "✅ Servidor listo (intento $i)"
+              exit 0
+            fi
+            echo "⏳ Esperando servidor... ($i/30)"
+            sleep 2
+          done
+          echo "❌ El servidor no respondió en 60s — últimas líneas del log:"
+          tail -30 /tmp/server.log
+          exit 1
+
+      # ── 4. Suite COMPLETA — todos los tests con servidor + BD reales ──────────
+      # --concurrency=1: archivos en serie para evitar colisiones de sesión entre
+      # archivos de integración (aunque el rate limiter ya está deshabilitado en test,
+      # la serialización protege contra race conditions de estado compartido).
+      - name: Suite completa (unitarios + integración)
+        env:
+          NODE_ENV: test
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_USER: root
+          DB_PASSWORD: test
+          DB_NAME: cst_test
+          SESSION_SECRET: ci-test-secret-not-for-production-use
+          ANTHROPIC_API_KEY: sk-ant-ci-placeholder-not-real
+          SUPERADMIN_SECRET: ci-superadmin-not-real
+          UPLOADS_PATH: /tmp/cst-uploads-ci
+          WA_AUTH_PATH: /tmp/wa-ci
+          WA_INIT_DELAY_MS: 0
+          TEST_ADMIN_LOGIN: admin_test
+          TEST_ADMIN_PASS: Admin#Cst2026
+          TEST_TEC_LOGIN: tec_test
+          TEST_TEC_PASS: Tec#Cst2026
+          TEST_FUN_LOGIN: fun_test
+          TEST_FUN_PASS: Fun#Cst2026
+        run: node --test --concurrency=1 tests/*.test.js
+
+      # ── 5. Log del servidor visible si el job falla ───────────────────────────
+      - name: Log del servidor (solo si falla)
+        if: failure()
+        run: |
+          echo "=== SERVER LOG ==="
+          cat /tmp/server.log || echo "(log no disponible)"
