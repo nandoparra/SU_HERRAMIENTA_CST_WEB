@@ -12,7 +12,7 @@
  *      real, sube un PNG de 67 bytes, verifica que el handler se alcanza.
  */
 
-const { test, describe } = require('node:test');
+const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http   = require('node:http');
 const path   = require('node:path');
@@ -169,3 +169,5 @@ describe('firmaMimeFilter — integración con multer real (sin BD, sin auth)', 
     if (server) await new Promise(resolve => server.close(resolve));
   });
 });
+
+after(async () => { await require('../utils/db').end(); });

@@ -12,7 +12,7 @@
  *   Opus 4.6+: $5.00 input / $25.00 output por MTok
  */
 
-const { test, describe } = require('node:test');
+const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 
 // ── 1. calcularCostoEstimadoUSD — pura, sin efectos ──────────────────────────
@@ -187,4 +187,11 @@ describe('generateText — firma retrocompatible tras agregar 3er parámetro', (
       'El 3er parámetro de generateText debe tener default {} para ser opcional'
     );
   });
+});
+
+// mysql2.createPool() (vía require('../utils/ia-uso') → require('./db')) registra
+// timers internos de keepalive/idle que impiden que el subproceso de node:test
+// salga al terminar el archivo. Cerrar el pool aquí libera esos handles.
+after(async () => {
+  await require('../utils/db').end();
 });

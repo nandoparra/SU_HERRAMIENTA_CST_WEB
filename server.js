@@ -183,10 +183,15 @@ app.listen(PORT, async () => {
   await archivarConversacionesAntiguas();
   // Delay configurable para que el contenedor anterior (Railway) termine su Chromium
   // antes de que el nuevo lo arranque en el mismo directorio del Volume.
-  const waDelay = Number(process.env.WA_INIT_DELAY_MS ?? 20_000);
-  if (waDelay > 0) {
-    log.info(`[WA] Esperando ${waDelay / 1000}s antes de inicializar (grace period contenedor anterior)…`);
-    await new Promise(r => setTimeout(r, waDelay));
+  // NODE_ENV=test solo existe en GitHub Actions CI — nunca en Railway.
+  // En CI no hay sesión WA válida y Baileys generaría QR + reintentos de red
+  // indefinidos durante todo el job, sin que nadie esté presente para escanear.
+  if (process.env.NODE_ENV !== 'test') {
+    const waDelay = Number(process.env.WA_INIT_DELAY_MS ?? 20_000);
+    if (waDelay > 0) {
+      log.info(`[WA] Esperando ${waDelay / 1000}s antes de inicializar (grace period contenedor anterior)…`);
+      await new Promise(r => setTimeout(r, waDelay));
+    }
+    initTenantClient(1);
   }
-  initTenantClient(1);
 });

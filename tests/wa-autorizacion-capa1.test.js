@@ -22,7 +22,7 @@
  *   Es un superconjunto compatible con el comportamiento anterior.
  */
 
-const { test, describe } = require('node:test');
+const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 
 // La función se exporta desde wa-handler.js con module.exports._extractOpcion
@@ -173,3 +173,5 @@ describe('extractOpcion — invariante de retrocompatibilidad', () => {
     }
   });
 });
+
+after(async () => { await require('../utils/db').end(); });

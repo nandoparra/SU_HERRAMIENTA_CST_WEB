@@ -16,7 +16,7 @@
  * Tests unitarios — no requieren BD real ni servidor.
  */
 
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert   = require('node:assert/strict');
 
 const { ensureErpSchema } = require('../scripts/seed-staging');
@@ -207,3 +207,5 @@ test('ensureErpSchema: b2c_informe_mantenimiento incluye UNIQUE KEY por uid_herr
   assert.ok(/UNIQUE\s+KEY/i.test(sql),          'debe incluir UNIQUE KEY (evita informes duplicados por máquina)');
   assert.ok(/uid_herramienta_orden/i.test(sql), 'la clave única debe referenciar uid_herramienta_orden');
 });
+
+after(async () => { await require('../utils/db').end(); });

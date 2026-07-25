@@ -9,14 +9,16 @@ const { invalidateTenantCache } = require('../middleware/tenant');
 const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
 
-// Máximo 10 intentos de login por IP en 15 minutos
-const loginLimiter = rateLimit({
-  windowMs:        15 * 60 * 1000,
-  max:             10,
-  message:         { success: false, error: 'Demasiados intentos fallidos. Espere 15 minutos.' },
-  standardHeaders: true,
-  legacyHeaders:   false,
-});
+// NODE_ENV=test solo existe en GitHub Actions CI — nunca en Railway (prod/staging).
+const loginLimiter = process.env.NODE_ENV === 'test'
+  ? (req, res, next) => next()
+  : rateLimit({
+      windowMs:        15 * 60 * 1000,
+      max:             10,
+      message:         { success: false, error: 'Demasiados intentos fallidos. Espere 15 minutos.' },
+      standardHeaders: true,
+      legacyHeaders:   false,
+    });
 
 const ROLES = { A: 'admin', F: 'funcionario', T: 'tecnico', C: 'cliente' };
 

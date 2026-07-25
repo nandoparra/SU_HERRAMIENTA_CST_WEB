@@ -23,7 +23,7 @@
  *   [DML] INSERT user (+ INSERT assistant si exitoIA)
  */
 
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert   = require('node:assert');
 const path     = require('path');
 
@@ -252,3 +252,5 @@ test('trazabilidad P1-2: Claude OK → INSERT user + INSERT assistant', async ()
   assert.ok(inserts[0].sql.includes("'user'"),    "primer INSERT debe tener rol = 'user'");
   assert.ok(inserts[1].sql.includes("'assistant'"), "segundo INSERT debe tener rol = 'assistant'");
 });
+
+after(async () => { await require('../utils/db').end(); });
