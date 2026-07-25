@@ -12,7 +12,7 @@
  * el superior exclusivo (las 20:00 ya está fuera del horario).
  */
 
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert   = require('node:assert');
 
 // _isAgenteHorarioActivo es una función pura exportada para permitir testing.
@@ -77,3 +77,5 @@ test('_isAgenteHorarioActivo: horario nocturno (hora_fin < hora_inicio) no sopor
   assert.strictEqual(_isAgenteHorarioActivo(20, 7, 22), false,
     'horario nocturno (fin < inicio) no está soportado — siempre retorna false');
 });
+
+after(async () => { await require('../utils/db').end(); });

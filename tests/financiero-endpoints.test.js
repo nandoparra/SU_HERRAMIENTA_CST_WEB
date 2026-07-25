@@ -26,6 +26,7 @@ function request(method, url, body, headers = {}) {
       port:     u.port || 80,
       path:     u.pathname + u.search,
       method,
+      timeout: 5000,
       headers: {
         'Content-Type': 'application/json',
         ...headers,
@@ -43,6 +44,7 @@ function request(method, url, body, headers = {}) {
       });
     });
     req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('HTTP request timeout after 5s')));
     if (payload) req.write(payload);
     req.end();
   });
@@ -62,6 +64,7 @@ function requestRaw(method, url, body, headers = {}) {
       port:     u.port || 80,
       path:     u.pathname + u.search,
       method,
+      timeout: 5000,
       headers: {
         'Content-Type': 'application/json',
         ...headers,
@@ -79,6 +82,7 @@ function requestRaw(method, url, body, headers = {}) {
       });
     });
     req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('HTTP request timeout after 5s')));
     if (payload) req.write(payload);
     req.end();
   });

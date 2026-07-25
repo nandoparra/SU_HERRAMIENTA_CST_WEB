@@ -11,7 +11,7 @@
  * Tests unitarios — no requieren BD real. Se inyecta un mock conn.
  */
 
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert   = require('node:assert/strict');
 
 const { _doInventarioColumns } = require('../utils/migrations');
@@ -90,3 +90,5 @@ test('_doInventarioColumns: re-lanza errores inesperados de BD', async () => {
     { code: 'ER_ACCESS_DENIED_ERROR' }
   );
 });
+
+after(async () => { await require('../utils/db').end(); });

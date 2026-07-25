@@ -10,7 +10,7 @@
  * Exportado como _enqueue y _queue desde utils/wa-handler.js.
  */
 
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert   = require('node:assert');
 
 let _enqueue, _queue;
@@ -100,3 +100,5 @@ test('_enqueue: cadena de 3 fns — orden garantizado', async () => {
   ]);
   assert.deepStrictEqual(order, [1, 2, 3], 'las 3 fns deben ejecutarse en orden de encolado');
 });
+
+after(async () => { await require('../utils/db').end(); });
