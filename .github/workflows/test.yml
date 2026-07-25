@@ -35,7 +35,11 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        # --legacy-peer-deps: jimp@0.22 (usado en contable.js) conflicta con
+        # peerOptional jimp@^1.6.0 de baileys. El conflicto es nominal — baileys
+        # lo declara opcional y WA está deshabilitado en CI (NODE_ENV=test).
+        # Ver deuda técnica en CLAUDE.md → sección "Deuda técnica conocida".
+        run: npm ci --legacy-peer-deps
 
       # ── 1. Tests unitarios — sin servidor (falla rápido antes de levantar BD) ──
       # Solo archivos 100% unitarios. Los híbridos (sec12) y de integración pura

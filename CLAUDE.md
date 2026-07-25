@@ -1450,8 +1450,31 @@ los tenants del pool antes de `process.exit(0)`.
 | 4A | Split `pdf-generator.js` (archivo muy grande) | Pendiente |
 | 4B | Split rutas del dashboard | Pendiente |
 | 4C | Split `dashboard.js` (mayor riesgo) | Pendiente |
-| 5 | Tests de integración con MySQL Docker en GitHub Actions | Pendiente |
+| 5 | Tests de integración con MySQL Docker en GitHub Actions | ✅ COMPLETO 2026-07-25 |
 | 6 | Migraciones robustas | Pendiente |
+
+---
+
+## Deuda técnica conocida
+
+### jimp@0.22 vs baileys peerOptional jimp@^1.6.0
+
+**Síntoma**: `npm ci` falla en CI con `ERESOLVE` porque `@whiskeysockets/baileys@6.7.23`
+declara `peerOptional jimp@^1.6.0` y el proyecto tiene `jimp@^0.22.12`.
+
+**Workaround activo**: `.github/workflows/test.yml` usa `npm ci --legacy-peer-deps`.
+Esto es seguro porque jimp es `peerOptional` (no requerido) en Baileys, y en CI
+WhatsApp está deshabilitado (`NODE_ENV=test`) — Baileys nunca toca jimp.
+
+**Fix real pendiente** — actualizar `routes/contable.js` (único archivo que usa jimp):
+
+| API actual (jimp@0.22) | API nueva (jimp@1.x) |
+|------------------------|----------------------|
+| `Jimp.MIME_JPEG` | `'image/jpeg'` (string literal) |
+| `img.getBufferAsync(mime)` | `img.getBuffer(mime)` (también async) |
+
+Una vez actualizado contable.js y verificada la compresión de imágenes antes del
+envío a Claude Vision, se puede quitar `--legacy-peer-deps` del workflow.
 
 ---
 
