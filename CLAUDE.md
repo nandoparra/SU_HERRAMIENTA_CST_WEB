@@ -248,6 +248,20 @@ Si la BD de staging se pierde o hay que recrear el servicio:
    `ten_dominio_custom = 'staging.suherramienta.com'` en `b2c_tenant` automáticamente.
 3. Verificar acceso en `https://staging.suherramienta.com/login`.
 
+**Boot sequence — tablas del sistema** (fix 2026-07-25):
+`ensureStatusTables()` en `migrations.js` arrancaba con 6 `ALTER TABLE` que fallaban con
+`ER_NO_SUCH_TABLE` si las tablas ERP no existían aún (staging vacío). Eso abortaba la
+función antes de los 3 `CREATE TABLE IF NOT EXISTS` y las tablas del sistema nunca se creaban.
+
+Fix en 3 capas (mergeado a main 2026-07-25, branch `feature/fix-tablas-faltantes-v2`):
+- **Capa 1**: los 6 catches en `ensureStatusTables()` ahora también toleran `ER_NO_SUCH_TABLE`,
+  por lo que las 3 tablas del sistema se crean siempre en el primer arranque.
+- **Capa 2**: todos los routes que consultan `b2c_herramienta_status_log`,
+  `b2c_informe_mantenimiento` y `b2c_wa_autorizacion_pendiente` tienen try/catch
+  `ER_NO_SUCH_TABLE` — lecturas retornan `[]`, escrituras loguean y continúan.
+- **Capa 3**: `ensureErpSchema()` en `seed-staging.js` también crea las 3 tablas del sistema
+  como respaldo para que el seed sea autocontenido.
+
 ### Protecciones de seed-staging.js (3 capas antes de tocar datos)
 
 1. **Flag CLI** — requiere `--staging-confirmed` explícito; nunca corre por accidente.
