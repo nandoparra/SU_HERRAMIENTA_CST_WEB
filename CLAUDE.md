@@ -1752,3 +1752,73 @@ Auto-migrada al arrancar. Columnas: `uid_uso` AI PK, `tenant_id`, `funcion` VARC
 - Heredocs de Bash fallan con comillas simples — usar Write tool
 - Rutas Node: forward slashes `C:/...`
 - Shell: bash MINGW64 — sintaxis Unix
+
+---
+
+## Estado del proyecto — 2026-07-25
+
+### ✅ Cerrado y en main/producción
+
+| Feature / Fix | Rama mergeada | Notas |
+|---------------|---------------|-------|
+| Fase 1 seguridad (SEC-01 a SEC-05) | `feature/fase1-seguridad` | IDOR multi-tenant + pwd_must_change frontend |
+| SEC-07: audit log completo | `feature/sec07-audit-log-fix` | logAudit en ventas / financiero / contable |
+| SEC-12: control de acceso por rol T/F/A | `feature/sec12-role-enforcement` + `feature/bulk-entregar-role-check` | Backend completo; técnico ya NO es equivalente a funcionario en el backend |
+| CAL-08: XSS en ticket de venta | `feature/cal08-xss-ticket` | Escapa `vi_descripcion` y nombre cliente en HTML del ticket |
+| tenantId=null en clasificador WA | `feature/tenantid-clasificador` | Propaga `tenantId` a `detectarIntentAutorizacion` → `logIaUso` |
+| Logging costos IA en superadmin | `feature/ia-uso-log` + `feature/ia-uso-superadmin` | Tabla `b2c_ia_uso_log`, endpoint superadmin, UI modal "Consumo IA" |
+| Alegra timbrado automático (DIAN) | `feature/alegra-auto-stamp` + `feature/alegra-stamp-boolean` | Auto-stamp + alertas DIAN + campo booleano stamp |
+| PDF multi-tenant (datos empresa) | `feature/pdf-datos-tenant` | Datos de empresa en PDF leídos de `b2c_tenant`, no hardcodeados |
+| Autorización WA — 3 capas | `feature/wa-autorizacion-capa1` + `feature/wa-autorizacion-capa23` | Capa 1: `extractOpcion`; Capas 2+3: intent detection |
+| Fix menú WA falso | `feature/wa-menu-fix` | Previene que se envíe el menú de autorización (1/2/3/4) cuando no corresponde; usa `ten_telefono_empresa` como fuente de contacto |
+| Bulk operaciones | `feature/bulk-operaciones` | Cambio masivo de estado + entrega múltiple |
+| Vista de taller (portal cliente v2) | `feature/portal-cliente-v2` | Seguimiento.html SPA + vista interna solicitudes de recogida + tabla `b2c_solicitud_recogida` |
+| Vista conversaciones WA agente | `feature/wa-conversaciones-dashboard` | Historial agente IA con clientes, enmascarado PII |
+| Ambiente staging completo | `feature/seed-staging` + `feature/staging-domain-seed` + fixes | Dominio, seed, dominio auto-configurado |
+| CI GitHub Actions — suite completa | `feature/ci-completo` | 391 tests, 0 fallas, ~1-2 min |
+
+**ACTUALIZACIÓN SEC-12**: la sección "Hallazgo nuevo — SEC-12 (backlog Fase 3/4, NO implementado en Fase 1)" más arriba está **desactualizada**. SEC-12 fue implementado completamente en backend (`requireAdminFuncionario` en rutas admin-only; técnico queda en `requireInterno` para endpoints propios). Los tests de integración están en `tests/sec12-role-enforcement.test.js`.
+
+---
+
+### 🧪 Estado del ambiente de staging / CI (2026-07-25)
+
+**Staging Railway:**
+- Rama `staging` separada de `main`, deploy automático en Railway
+- Dominio `staging.suherramienta.com` (CNAME + TXT en GoDaddy, SSL Railway)
+- `ten_dominio_custom = 'staging.suherramienta.com'` en `b2c_tenant` (uid_tenant=1)
+
+**seed-staging.js — 3 capas de protección:**
+1. Flag CLI `--staging-confirmed` requerido
+2. `NODE_ENV !== 'production'` (Railway staging usa `NODE_ENV=staging` o `development`)
+3. Huella BD: identificaciones que no empiezan en `999` → abort
+
+**CI GitHub Actions (`.github/workflows/test.yml`):**
+- Corre en push/PR a `main` y `staging`
+- Levanta MySQL 8.0 como service, corre `seed-staging.js --staging-confirmed`, arranca servidor en background, espera health check (`GET /login`), ejecuta `node --test --test-concurrency=1 tests/*.test.js`
+- Duración: ~1-2 minutos. Estado actual: **391 tests, 0 fallas**
+- `--legacy-peer-deps` en `npm ci` por conflicto jimp@0.22 vs baileys `peerOptional jimp@^1.6.0`
+- `NODE_ENV=test` activo en CI: desactiva WA (`initTenantClient`), bypass `loginLimiter`
+
+**Pool MySQL2 en tests:**
+Todos los archivos de test que cargan `utils/db.js` directa o transitivamente tienen al final:
+```js
+after(async () => { await require('../utils/db').end(); });
+```
+Sin este hook, el runner de `node:test` se cuelga indefinidamente porque `mysql2.createPool()` registra timers internos de keepalive que impiden que el subproceso salga. Los archivos afectados son los que importan `utils/migrations.js`, `utils/wa-handler.js`, `services/wa-agente.js`, `routes/orders-fotos.js`, `routes/orders.js`, o `scripts/seed-staging.js`.
+
+---
+
+### ⏳ Pendiente (prioridad descendente)
+
+1. **Branch protection en GitHub** — próximo paso lógico ahora que CI está probado y estable. Configurar en GitHub → Settings → Branches → require CI verde antes de merge a `main`. Sin código nuevo requerido.
+
+2. **Agente de QA con Playwright** — planeado para después del CI. No iniciado aún.
+
+3. **Bulk-status: mensaje cuando resultado es 0 o parcial** — el endpoint de cambio masivo de estado no le dice al usuario *por qué* algunas máquinas no cambiaron (ej: estado inválido, ya estaban en ese estado). Ajuste de UX pendiente, no bloqueante.
+
+4. **Deuda técnica jimp@0.22 → jimp@1.x** — `routes/contable.js` usa la API antigua (`Jimp.MIME_JPEG`, `getBufferAsync`). Fix: reemplazar por `'image/jpeg'` literal y `getBuffer()`. Una vez hecho, quitar `--legacy-peer-deps` del workflow. Ver sección "Deuda técnica conocida" arriba.
+
+5. **Bug `clasificador_autorizacion` loguea como tenant_id=1** — documentado en sección "BUG CONOCIDO" arriba. Sin impacto con un solo tenant; bloquea al onboardear el segundo.
+
+6. **Vista de taller (cola de revisión con prioridad por garantía)** — el código base de `feature/portal-cliente-v2` está en main. Verificar en staging si la experiencia de cola de revisión priorizada por garantía está completa y lista para producción, o si falta pulido.
