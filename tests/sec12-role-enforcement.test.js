@@ -219,6 +219,7 @@ describe('restricción de estados técnico — PATCH individual /status', () => 
 // Ver nota en CLAUDE.md sección "Clasificación de tests".
 
 const BASE = 'http://localhost:3001/api';
+const FETCH_TIMEOUT_MS = 5000;
 
 async function loginAs(login, clave) {
   const r = await fetch(`http://localhost:3001/login`, {
@@ -226,6 +227,7 @@ async function loginAs(login, clave) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: login, password: clave }),
     redirect: 'manual',
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   const setCookie = r.headers.get('set-cookie') || '';
   const match = setCookie.match(/(connect\.sid=[^;]+)/);
@@ -237,6 +239,7 @@ async function req403(cookie, method, path) {
     method,
     headers: { Cookie: cookie, 'Content-Type': 'application/json' },
     body: method !== 'GET' ? JSON.stringify({}) : undefined,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   return r.status;
 }
@@ -370,6 +373,7 @@ describe('SEC-12 integración — funcionario bloqueado en admin-only (requiere 
     const r = await fetch(`http://localhost:3001/health`, {
       headers: { Cookie: cookieFun },
       redirect: 'manual',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     assert.ok(r.status === 302 || r.status === 403,
       `esperado 302 (redirect) o 403, recibido ${r.status}`);
@@ -385,7 +389,7 @@ describe('SEC-12 integración — técnico SÍ puede acceder a sus endpoints (re
   });
 
   it('T GET /orders → requireInterno pasa al técnico (no bloqueado por requireAdminFuncionario)', async () => {
-    const r = await fetch(`${BASE}/orders`, { headers: { Cookie: cookieTec } });
+    const r = await fetch(`${BASE}/orders`, { headers: { Cookie: cookieTec }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     // 200/400: acceso OK. 403 por pwd_must_change: requireInterno pasó (correcto).
     // Si r.status === 403 verificamos que NO sea "Acceso denegado" (eso indicaría bug).
     if (r.status === 403) {
@@ -398,7 +402,7 @@ describe('SEC-12 integración — técnico SÍ puede acceder a sus endpoints (re
   });
 
   it('T GET /clientes/search?q=test → requireInterno pasa al técnico', async () => {
-    const r = await fetch(`${BASE}/clientes/search?q=test`, { headers: { Cookie: cookieTec } });
+    const r = await fetch(`${BASE}/clientes/search?q=test`, { headers: { Cookie: cookieTec }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (r.status === 403) {
       const body = await r.json().catch(() => ({}));
       assert.ok(!body.error?.toLowerCase().includes('denegado'),
@@ -409,7 +413,7 @@ describe('SEC-12 integración — técnico SÍ puede acceder a sus endpoints (re
   });
 
   it('T GET /whatsapp/status → requireInterno pasa al técnico', async () => {
-    const r = await fetch(`${BASE}/whatsapp/status`, { headers: { Cookie: cookieTec } });
+    const r = await fetch(`${BASE}/whatsapp/status`, { headers: { Cookie: cookieTec }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (r.status === 403) {
       const body = await r.json().catch(() => ({}));
       assert.ok(!body.error?.toLowerCase().includes('denegado'),

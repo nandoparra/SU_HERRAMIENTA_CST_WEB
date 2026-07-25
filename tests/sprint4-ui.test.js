@@ -29,6 +29,7 @@ function request(method, url, body, headers = {}) {
     const req = http.request({
       hostname: u.hostname, port: u.port || 80,
       path: u.pathname + u.search, method,
+      timeout: 5000,
       headers: { 'Content-Type':'application/json', ...headers,
                  ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}) },
     }, res => {
@@ -41,6 +42,7 @@ function request(method, url, body, headers = {}) {
       });
     });
     req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('HTTP request timeout after 5s')));
     if (payload) req.write(payload);
     req.end();
   });
