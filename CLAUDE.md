@@ -8,9 +8,10 @@
 
 1. **Rama nueva** para cada cambio: `git checkout -b feature/<nombre>` — nunca trabajar directo en `main`.
 2. **Tests antes que código de producción** — escribir el test file primero, luego el código que lo hace pasar.
-3. **Antes de proponer merge a main**, correr TODOS los tests del proyecto (`npm test`) — no solo los del cambio en curso — y reportar: qué se hizo (archivo por archivo, breve), resultado de tests (cuántos pasaron/fallaron), riesgos o limitaciones conocidas.
-4. **No hacer merge a main sin aprobación explícita del usuario.** "Todos los tests pasan" NO es luz verde automática.
-5. **Si algo falla, reportarlo sin ocultarlo** — no arreglarlo en silencio antes de reportar.
+3. **Staging primero, main después** — todo cambio se mergea a `staging` y se valida con pruebas reales antes de tocar `main`. Sin validación en staging no hay merge a main.
+4. **Antes de proponer merge a main**, correr TODOS los tests del proyecto (`npm test`) — no solo los del cambio en curso — y reportar: qué se hizo (archivo por archivo, breve), resultado de tests (cuántos pasaron/fallaron), riesgos o limitaciones conocidas.
+5. **No hacer merge a main sin aprobación explícita del usuario.** "Todos los tests pasan" NO es luz verde automática.
+6. **Si algo falla, reportarlo sin ocultarlo** — no arreglarlo en silencio antes de reportar.
 
 ---
 
