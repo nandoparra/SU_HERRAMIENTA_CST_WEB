@@ -11,6 +11,7 @@ const { calcularCostoEstimadoUSD } = require('../utils/ia-uso');
 const { requireSuperadmin } = require('../middleware/requireSuperadmin');
 const { invalidateTenantCache } = require('../middleware/tenant');
 const { initTenantClient }      = require('../utils/whatsapp-client');
+const { parseColombianPhones }  = require('../utils/phones');
 const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
 
@@ -337,5 +338,92 @@ router.post('/tenants/:id/init-wa', requireSuperadmin, (req, res) => {
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
+
+// ── TEMPORAL — eliminar después del 10-ago-2026 ───────────────────────────────
+// Broadcast de emergencia terremoto 10-ago. No tiene audit log formal ni tabla
+// de BD — los logs del servidor (Railway) son el registro persistente del envío.
+// Versión completa (filtros, imágenes, audit log, rol) está en el backlog.
+
+const MSG_TERREMOTO_A = (nombre) =>
+  `Hola ${nombre}, te escribimos desde SU HERRAMIENTA CST.\n\n` +
+  `Como sabes, el terremoto del 10 de agosto afectó nuestro taller. Queremos que estés tranquilo: tu equipo está a salvo, no sufrió ningún daño.\n\n` +
+  `Ya estamos retomando operaciones y pronto vamos a estar funcionando con normalidad. Te avisaremos apenas tengamos fecha exacta de reapertura.\n\n` +
+  `Gracias por tu paciencia. Cualquier duda, puedes responder este mensaje.`;
+
+const MSG_TERREMOTO_B = (nombre) =>
+  `Hola ${nombre}, te escribimos desde SU HERRAMIENTA CST.\n\n` +
+  `Como sabes, el terremoto del 10 de agosto afectó nuestro taller. Queremos contarte que ya estamos retomando operaciones y pronto vamos a estar funcionando con normalidad, para seguir atendiéndote como siempre.\n\n` +
+  `Gracias por confiar en nosotros. Cualquier duda o servicio que necesites, escríbenos.`;
+
+async function _queryDestinatariosTerremoto(conn) {
+  const [rows] = await conn.execute(`
+    SELECT
+      c.uid_cliente,
+      COALESCE(NULLIF(TRIM(c.cli_razon_social),''), NULLIF(TRIM(c.cli_contacto),''), 'cliente') AS nombre,
+      c.cli_telefono,
+      CASE
+        WHEN MAX(CASE WHEN ho.her_estado != 'entregada' THEN 1 ELSE 0 END) = 1 THEN 'A'
+        ELSE 'B'
+      END AS grupo
+    FROM b2c_orden o
+    JOIN b2c_cliente          c  ON c.uid_cliente = o.uid_cliente
+    JOIN b2c_herramienta_orden ho ON ho.uid_orden  = o.uid_orden
+    WHERE o.ord_fecha LIKE '2026%'
+      AND o.tenant_id = 1
+    GROUP BY c.uid_cliente, c.cli_razon_social, c.cli_contacto, c.cli_telefono
+    ORDER BY grupo, nombre
+  `);
+
+  const destinatarios = [];
+  const sinTelefono   = [];
+
+  for (const row of rows) {
+    const chatIds = parseColombianPhones(row.cli_telefono);
+    if (chatIds.length === 0) {
+      sinTelefono.push({ nombre: row.nombre, telefono_raw: row.cli_telefono || '(vacío)' });
+      continue;
+    }
+    const chatId  = chatIds[0];
+    const phone   = chatId.replace('@c.us', '');
+    const mensaje = row.grupo === 'A' ? MSG_TERREMOTO_A(row.nombre) : MSG_TERREMOTO_B(row.nombre);
+    destinatarios.push({
+      uid_cliente: row.uid_cliente,
+      nombre:      row.nombre,
+      phone,
+      chatId,
+      grupo:       row.grupo,
+      mensaje,
+    });
+  }
+
+  return { destinatarios, sinTelefono };
+}
+
+// GET /superadmin/api/broadcast-terremoto — dry-run, solo lectura
+router.get('/broadcast-terremoto', requireSuperadmin, async (req, res) => {
+  const conn = await db.getConnection();
+  try {
+    const { destinatarios, sinTelefono } = await _queryDestinatariosTerremoto(conn);
+    const grupoA = destinatarios.filter(d => d.grupo === 'A').length;
+    const grupoB = destinatarios.filter(d => d.grupo === 'B').length;
+    res.json({
+      resumen: {
+        total_destinatarios:   destinatarios.length,
+        grupo_a_en_taller:     grupoA,
+        grupo_b_ya_entregados: grupoB,
+        sin_telefono_valido:   sinTelefono.length,
+      },
+      sin_telefono_valido: sinTelefono,
+      destinatarios,
+    });
+  } catch (e) {
+    log.error({ err: e }, '[broadcast-terremoto] Error en dry-run');
+    res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
+// ── FIN TEMPORAL ──────────────────────────────────────────────────────────────
 
 module.exports = router;
