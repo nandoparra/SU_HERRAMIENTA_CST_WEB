@@ -10,8 +10,8 @@ const db         = require('../utils/db');
 const { calcularCostoEstimadoUSD } = require('../utils/ia-uso');
 const { requireSuperadmin } = require('../middleware/requireSuperadmin');
 const { invalidateTenantCache } = require('../middleware/tenant');
-const { initTenantClient }      = require('../utils/whatsapp-client');
-const { parseColombianPhones }  = require('../utils/phones');
+const { initTenantClient, sendWAMessage } = require('../utils/whatsapp-client');
+const { parseColombianPhones }           = require('../utils/phones');
 const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
 
@@ -344,22 +344,31 @@ router.post('/tenants/:id/init-wa', requireSuperadmin, (req, res) => {
 // de BD — los logs del servidor (Railway) son el registro persistente del envío.
 // Versión completa (filtros, imágenes, audit log, rol) está en el backlog.
 
-const MSG_TERREMOTO_A = (nombre) =>
-  `Hola ${nombre}, te escribimos desde SU HERRAMIENTA CST.\n\n` +
-  `Como sabes, el terremoto del 10 de agosto afectó nuestro taller. Queremos que estés tranquilo: tu equipo está a salvo, no sufrió ningún daño.\n\n` +
-  `Ya estamos retomando operaciones y pronto vamos a estar funcionando con normalidad. Te avisaremos apenas tengamos fecha exacta de reapertura.\n\n` +
-  `Gracias por tu paciencia. Cualquier duda, puedes responder este mensaje.`;
+// nombre puede ser '' cuando el cliente solo tiene su cédula registrada.
+const MSG_TERREMOTO_A = (nombre) => {
+  const saludo = nombre ? `Hola ${nombre},` : 'Hola,';
+  return (
+    `${saludo} te escribimos desde SU HERRAMIENTA CST.\n\n` +
+    `Como sabes, el terremoto del 10 de agosto afectó nuestro taller. Queremos que estés tranquilo: tu equipo está a salvo, no sufrió ningún daño.\n\n` +
+    `Ya estamos retomando operaciones y pronto vamos a estar funcionando con normalidad. Te avisaremos apenas tengamos fecha exacta de reapertura.\n\n` +
+    `Gracias por tu paciencia. Cualquier duda, puedes responder este mensaje.`
+  );
+};
 
-const MSG_TERREMOTO_B = (nombre) =>
-  `Hola ${nombre}, te escribimos desde SU HERRAMIENTA CST.\n\n` +
-  `Como sabes, el terremoto del 10 de agosto afectó nuestro taller. Queremos contarte que ya estamos retomando operaciones y pronto vamos a estar funcionando con normalidad, para seguir atendiéndote como siempre.\n\n` +
-  `Gracias por confiar en nosotros. Cualquier duda o servicio que necesites, escríbenos.`;
+const MSG_TERREMOTO_B = (nombre) => {
+  const saludo = nombre ? `Hola ${nombre},` : 'Hola,';
+  return (
+    `${saludo} te escribimos desde SU HERRAMIENTA CST.\n\n` +
+    `Como sabes, el terremoto del 10 de agosto afectó nuestro taller. Queremos contarte que ya estamos retomando operaciones y pronto vamos a estar funcionando con normalidad, para seguir atendiéndote como siempre.\n\n` +
+    `Gracias por confiar en nosotros. Cualquier duda o servicio que necesites, escríbenos.`
+  );
+};
 
 async function _queryDestinatariosTerremoto(conn) {
   const [rows] = await conn.execute(`
     SELECT
       c.uid_cliente,
-      COALESCE(NULLIF(TRIM(c.cli_razon_social),''), NULLIF(TRIM(c.cli_contacto),''), 'cliente') AS nombre,
+      COALESCE(NULLIF(TRIM(c.cli_razon_social),''), NULLIF(TRIM(c.cli_contacto),''), '') AS nombre,
       c.cli_telefono,
       CASE
         WHEN MAX(CASE WHEN ho.her_estado != 'entregada' THEN 1 ELSE 0 END) = 1 THEN 'A'
@@ -374,36 +383,58 @@ async function _queryDestinatariosTerremoto(conn) {
     ORDER BY grupo, nombre
   `);
 
-  const destinatarios = [];
-  const sinTelefono   = [];
+  // Verificación de encoding — detecta si hay caracteres Ã almacenados (signo de corrupción UTF-8)
+  const [[encRow]] = await conn.execute(`
+    SELECT
+      SUM(CASE WHEN (cli_razon_social LIKE '%Ã%' OR cli_contacto LIKE '%Ã%') THEN 1 ELSE 0 END) AS con_encoding_roto,
+      SUM(CASE WHEN (cli_razon_social LIKE '%ñ%' OR cli_razon_social LIKE '%Ñ%'
+                  OR cli_contacto   LIKE '%ñ%' OR cli_contacto   LIKE '%Ñ%') THEN 1 ELSE 0 END) AS con_n_correcta
+    FROM b2c_cliente
+    WHERE tenant_id = 1
+  `);
+
+  // Deduplicación por teléfono: un número recibe un solo mensaje; Grupo A tiene prioridad
+  const porChatId  = new Map(); // chatId → candidato
+  const sinTelefono = [];
 
   for (const row of rows) {
     const chatIds = parseColombianPhones(row.cli_telefono);
     if (chatIds.length === 0) {
-      sinTelefono.push({ nombre: row.nombre, telefono_raw: row.cli_telefono || '(vacío)' });
+      sinTelefono.push({ nombre: row.nombre || '(sin nombre)', telefono_raw: row.cli_telefono || '(vacío)' });
       continue;
     }
+
+    // Si el campo nombre es solo dígitos (cédula guardada como nombre) → saludo sin nombre
+    const nombreDisplay = /^\d+$/.test(row.nombre) ? '' : row.nombre;
     const chatId  = chatIds[0];
     const phone   = chatId.replace('@c.us', '');
-    const mensaje = row.grupo === 'A' ? MSG_TERREMOTO_A(row.nombre) : MSG_TERREMOTO_B(row.nombre);
-    destinatarios.push({
-      uid_cliente: row.uid_cliente,
-      nombre:      row.nombre,
-      phone,
-      chatId,
-      grupo:       row.grupo,
-      mensaje,
-    });
+    const mensaje = row.grupo === 'A' ? MSG_TERREMOTO_A(nombreDisplay) : MSG_TERREMOTO_B(nombreDisplay);
+    const candidato = { uid_cliente: row.uid_cliente, nombre: row.nombre, nombreDisplay, phone, chatId, grupo: row.grupo, mensaje };
+
+    const existing = porChatId.get(chatId);
+    if (!existing) {
+      porChatId.set(chatId, candidato);
+    } else if (existing.grupo === 'B' && row.grupo === 'A') {
+      porChatId.set(chatId, candidato); // Grupo A desplaza a Grupo B
+    }
+    // mismo grupo o existing ya es A → conservar el primero
   }
 
-  return { destinatarios, sinTelefono };
+  const destinatarios   = Array.from(porChatId.values());
+  const encodingCheck   = {
+    con_encoding_roto: Number(encRow.con_encoding_roto || 0),
+    con_n_correcta:    Number(encRow.con_n_correcta    || 0),
+    muestra_afectados: destinatarios.filter(d => d.nombre.includes('Ã')).slice(0, 5).map(d => d.nombre),
+  };
+
+  return { destinatarios, sinTelefono, encodingCheck };
 }
 
 // GET /superadmin/api/broadcast-terremoto — dry-run, solo lectura
 router.get('/broadcast-terremoto', requireSuperadmin, async (req, res) => {
   const conn = await db.getConnection();
   try {
-    const { destinatarios, sinTelefono } = await _queryDestinatariosTerremoto(conn);
+    const { destinatarios, sinTelefono, encodingCheck } = await _queryDestinatariosTerremoto(conn);
     const grupoA = destinatarios.filter(d => d.grupo === 'A').length;
     const grupoB = destinatarios.filter(d => d.grupo === 'B').length;
     res.json({
@@ -413,12 +444,80 @@ router.get('/broadcast-terremoto', requireSuperadmin, async (req, res) => {
         grupo_b_ya_entregados: grupoB,
         sin_telefono_valido:   sinTelefono.length,
       },
+      encoding_check: encodingCheck,
+      advertencia_encoding: encodingCheck.con_encoding_roto > 0
+        ? `⚠️ ${encodingCheck.con_encoding_roto} nombre(s) con encoding posiblemente roto — revisa muestra_afectados`
+        : '✅ Encoding OK — no se detectaron caracteres Ã en los nombres de la BD',
       sin_telefono_valido: sinTelefono,
       destinatarios,
     });
   } catch (e) {
     log.error({ err: e }, '[broadcast-terremoto] Error en dry-run');
     res.status(500).json({ error: 'Error interno del servidor' });
+  } finally {
+    conn.release();
+  }
+});
+
+// POST /superadmin/api/broadcast-terremoto — envío real con SSE streaming
+// Body requerido: { confirm: "CONFIRMAR" }
+// Registro completo queda en logs del servidor (Railway) vía log.info / log.warn.
+router.post('/broadcast-terremoto', requireSuperadmin, async (req, res) => {
+  if (req.body?.confirm !== 'CONFIRMAR') {
+    return res.status(400).json({ error: 'Body debe incluir { confirm: "CONFIRMAR" }' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sse = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+
+  const conn = await db.getConnection();
+  try {
+    const { destinatarios, sinTelefono } = await _queryDestinatariosTerremoto(conn);
+    const total = destinatarios.length;
+
+    log.info({ total, sin_telefono: sinTelefono.length },
+      '[broadcast-terremoto] ▶ Iniciando envío masivo — emergencia terremoto 10-ago-2026');
+    sse({ status: 'start', total, sin_telefono: sinTelefono.length });
+
+    let enviados = 0;
+    let fallidos = 0;
+    const fallidos_lista = [];
+
+    for (let i = 0; i < destinatarios.length; i++) {
+      const d = destinatarios[i];
+      try {
+        await sendWAMessage(1, d.chatId, d.mensaje);
+        enviados++;
+        log.info({ pos: i + 1, total, nombre: d.nombre, phone: d.phone, grupo: d.grupo },
+          '[broadcast-terremoto] ✅ Enviado');
+        sse({ i: i + 1, n: total, nombre: d.nombre, phone: d.phone, grupo: d.grupo, status: 'ok' });
+      } catch (e) {
+        fallidos++;
+        const motivo = e.message || 'Error desconocido';
+        fallidos_lista.push({ nombre: d.nombre, phone: d.phone, grupo: d.grupo, motivo });
+        log.warn({ pos: i + 1, total, nombre: d.nombre, phone: d.phone, motivo },
+          '[broadcast-terremoto] ❌ Fallo');
+        sse({ i: i + 1, n: total, nombre: d.nombre, phone: d.phone, grupo: d.grupo, status: 'error', motivo });
+      }
+
+      // Pausa entre envíos para no disparar detección de spam de WA
+      if (i < destinatarios.length - 1) {
+        await new Promise(r => setTimeout(r, 4000));
+      }
+    }
+
+    const resumen = { enviados, fallidos, sin_telefono: sinTelefono.length, fallidos_lista };
+    log.info(resumen, '[broadcast-terremoto] ✅ Broadcast completado');
+    sse({ done: true, ...resumen });
+    res.end();
+  } catch (e) {
+    log.error({ err: e }, '[broadcast-terremoto] Error fatal durante envío');
+    sse({ error: true, motivo: e.message || 'Error interno' });
+    res.end();
   } finally {
     conn.release();
   }
