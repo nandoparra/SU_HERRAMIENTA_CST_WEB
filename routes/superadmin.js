@@ -383,15 +383,8 @@ async function _queryDestinatariosTerremoto(conn) {
     ORDER BY grupo, nombre
   `);
 
-  // Verificación de encoding — detecta si hay caracteres Ã almacenados (signo de corrupción UTF-8)
-  const [[encRow]] = await conn.execute(`
-    SELECT
-      SUM(CASE WHEN (cli_razon_social LIKE '%Ã%' OR cli_contacto LIKE '%Ã%') THEN 1 ELSE 0 END) AS con_encoding_roto,
-      SUM(CASE WHEN (cli_razon_social LIKE '%ñ%' OR cli_razon_social LIKE '%Ñ%'
-                  OR cli_contacto   LIKE '%ñ%' OR cli_contacto   LIKE '%Ñ%') THEN 1 ELSE 0 END) AS con_n_correcta
-    FROM b2c_cliente
-    WHERE tenant_id = 1
-  `);
+  // Verificación de encoding — se computa DESPUÉS de armar la lista de destinatarios,
+  // así el alcance es exactamente los 555 de este broadcast, no toda la tabla.
 
   // Deduplicación por teléfono: un número recibe un solo mensaje; Grupo A tiene prioridad
   const porChatId  = new Map(); // chatId → candidato
@@ -420,11 +413,14 @@ async function _queryDestinatariosTerremoto(conn) {
     // mismo grupo o existing ya es A → conservar el primero
   }
 
-  const destinatarios   = Array.from(porChatId.values());
-  const encodingCheck   = {
-    con_encoding_roto: Number(encRow.con_encoding_roto || 0),
-    con_n_correcta:    Number(encRow.con_n_correcta    || 0),
-    muestra_afectados: destinatarios.filter(d => d.nombre.includes('Ã')).slice(0, 5).map(d => d.nombre),
+  const destinatarios = Array.from(porChatId.values());
+
+  // Encoding check sobre los destinatarios de ESTE broadcast (no toda la tabla)
+  const afectados = destinatarios.filter(d => d.nombre.includes('Ã'));
+  const encodingCheck = {
+    total_destinatarios:  destinatarios.length,
+    con_encoding_roto:    afectados.length,
+    nombres_afectados:    afectados.map(d => ({ nombre: d.nombre, phone: d.phone, grupo: d.grupo })),
   };
 
   return { destinatarios, sinTelefono, encodingCheck };
