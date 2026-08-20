@@ -397,8 +397,9 @@ async function _queryDestinatariosTerremoto(conn) {
       continue;
     }
 
-    // Si el campo nombre es solo dígitos (cédula guardada como nombre) → saludo sin nombre
-    const nombreDisplay = /^\d+$/.test(row.nombre) ? '' : row.nombre;
+    // Si el campo nombre es solo dígitos (cédula guardada como nombre)
+    // o contiene Ã (Ñ con encoding roto) → saludo genérico sin nombre
+    const nombreDisplay = (/^\d+$/.test(row.nombre) || row.nombre.includes('Ã')) ? '' : row.nombre;
     const chatId  = chatIds[0];
     const phone   = chatId.replace('@c.us', '');
     const mensaje = row.grupo === 'A' ? MSG_TERREMOTO_A(nombreDisplay) : MSG_TERREMOTO_B(nombreDisplay);
@@ -415,12 +416,16 @@ async function _queryDestinatariosTerremoto(conn) {
 
   const destinatarios = Array.from(porChatId.values());
 
-  // Encoding check sobre los destinatarios de ESTE broadcast (no toda la tabla)
-  const afectados = destinatarios.filter(d => d.nombre.includes('Ã'));
+  // Encoding check sobre los destinatarios de ESTE broadcast (no toda la tabla).
+  // con_encoding_en_bd: cuántos tienen Ã en la BD (dato informativo).
+  // con_encoding_en_mensaje: cuántos de esos llegaron al mensaje (debe ser 0 tras el fallback).
+  const rawAfectados = destinatarios.filter(d => d.nombre.includes('Ã'));
+  const enMensaje    = destinatarios.filter(d => d.nombreDisplay.includes('Ã'));
   const encodingCheck = {
-    total_destinatarios:  destinatarios.length,
-    con_encoding_roto:    afectados.length,
-    nombres_afectados:    afectados.map(d => ({ nombre: d.nombre, phone: d.phone, grupo: d.grupo })),
+    total_destinatarios:      destinatarios.length,
+    con_encoding_en_bd:       rawAfectados.length,
+    con_encoding_en_mensaje:  enMensaje.length,
+    fallback_aplicado:        rawAfectados.map(d => ({ nombre_bd: d.nombre, phone: d.phone, grupo: d.grupo, mensaje_preview: d.mensaje.slice(0, 60) })),
   };
 
   return { destinatarios, sinTelefono, encodingCheck };
@@ -441,9 +446,9 @@ router.get('/broadcast-terremoto', requireSuperadmin, async (req, res) => {
         sin_telefono_valido:   sinTelefono.length,
       },
       encoding_check: encodingCheck,
-      advertencia_encoding: encodingCheck.con_encoding_roto > 0
-        ? `⚠️ ${encodingCheck.con_encoding_roto} nombre(s) con encoding posiblemente roto — revisa muestra_afectados`
-        : '✅ Encoding OK — no se detectaron caracteres Ã en los nombres de la BD',
+      advertencia_encoding: encodingCheck.con_encoding_en_mensaje > 0
+        ? `⚠️ ${encodingCheck.con_encoding_en_mensaje} nombre(s) con encoding roto llegarán en el mensaje — revisar`
+        : `✅ Mensajes OK — ${encodingCheck.con_encoding_en_bd > 0 ? `${encodingCheck.con_encoding_en_bd} nombres con Ã en BD usan saludo genérico (ver fallback_aplicado)` : 'no se detectaron caracteres Ã'}`,
       sin_telefono_valido: sinTelefono,
       destinatarios,
     });
