@@ -247,6 +247,21 @@
           </label>
           <small style="color:#64748b;font-size:11px;">Ej: 7 – 21 atiende de 7:00 a 20:59</small>
         </div>
+        <!-- Aviso de emergencia — se antepone UNA vez al primer mensaje de cada cliente -->
+        <div style="margin-top:14px;padding:12px 14px;background:#1e293b;border:1px solid #475569;border-radius:6px;">
+          <div style="font-size:12px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">⚠️ Aviso de emergencia (opcional)</div>
+          <small style="color:#94a3b8;font-size:11px;display:block;margin-bottom:8px;">
+            Si está activo, se antepone UNA sola vez al primer mensaje que el cliente envíe. Dejar vacío para desactivar.
+          </small>
+          <label style="font-size:13px;color:#cbd5e1;display:flex;flex-direction:column;gap:4px;margin-bottom:8px;">
+            Clave del aviso <small style="color:#64748b;">(slug corto — cambiar aquí para que todos lo reciban de nuevo)</small>
+            <input type="text" id="f_aviso_clave" placeholder="Ej: terremoto_0810" style="padding:6px 8px;background:#0f172a;border:1px solid #475569;border-radius:4px;color:#f1f5f9;font-size:13px;">
+          </label>
+          <label style="font-size:13px;color:#cbd5e1;display:flex;flex-direction:column;gap:4px;">
+            Texto del aviso <small style="color:#64748b;">(vacío = desactivado)</small>
+            <textarea id="f_aviso_emergencia" rows="4" placeholder="Ej: Antes de continuar: el taller estuvo afectado por el terremoto del 10 de agosto..." style="padding:6px 8px;background:#0f172a;border:1px solid #475569;border-radius:4px;color:#f1f5f9;font-size:13px;resize:vertical;font-family:inherit;"></textarea>
+          </label>
+        </div>
       </div>
     </div>
     <div style="margin-top:18px;padding-top:14px;border-top:1px solid #334155;">

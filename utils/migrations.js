@@ -1086,6 +1086,7 @@ async function runMigrations() {
   await ensureEntregaColumns();
   await ensureTenantEmpresaColumns();
   await ensureIaUsoLog();
+  await ensureWaAvisoEmergencia();
   console.log('Migraciones completadas');
 }
 
@@ -1108,6 +1109,39 @@ async function ensureIaUsoLog() {
     console.log('✅ b2c_ia_uso_log verificada');
   } catch (e) {
     console.warn('⚠️ No pude crear b2c_ia_uso_log:', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
+}
+
+async function ensureWaAvisoEmergencia() {
+  const conn = await db.getConnection();
+  try {
+    // Columnas en b2c_tenant para activar/desactivar el modo aviso
+    const cols = [
+      ['ten_aviso_emergencia', 'TEXT NULL'],
+      ['ten_aviso_clave',      'VARCHAR(50) NULL'],
+    ];
+    for (const [col, def] of cols) {
+      try { await conn.execute(`ALTER TABLE b2c_tenant ADD COLUMN ${col} ${def}`); }
+      catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+    }
+
+    // Tabla de tracking: registra qué número ya recibió cada aviso (por clave)
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS b2c_wa_aviso_enviado (
+        uid_aviso   INT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id   INT NOT NULL,
+        wa_sender   VARCHAR(50) NOT NULL,
+        aviso_clave VARCHAR(50) NOT NULL,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_aviso (tenant_id, wa_sender, aviso_clave),
+        INDEX idx_tenant (tenant_id)
+      )
+    `);
+    console.log('✅ b2c_wa_aviso_enviado + columnas aviso en b2c_tenant verificadas');
+  } catch (e) {
+    console.warn('⚠️ No pude crear b2c_wa_aviso_enviado:', String(e?.message || e));
   } finally {
     conn.release();
   }
