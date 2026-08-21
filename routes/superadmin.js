@@ -473,7 +473,17 @@ router.post('/broadcast-terremoto', requireSuperadmin, async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  const sse = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+  const sse = (data) => { try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch (_) {} };
+
+  // Detectar desconexión del cliente (cierre de pestaña, red caída, etc.)
+  // aborted=true detiene el loop en el próximo tick; wakeupPausa interrumpe el setTimeout activo.
+  let aborted = false;
+  let wakeupPausa = null;
+  req.on('close', () => {
+    aborted = true;
+    if (wakeupPausa) wakeupPausa();
+    log.warn('[broadcast-terremoto] ⚠️ Cliente desconectado — loop abortado');
+  });
 
   const conn = await db.getConnection();
   try {
@@ -489,6 +499,8 @@ router.post('/broadcast-terremoto', requireSuperadmin, async (req, res) => {
     const fallidos_lista = [];
 
     for (let i = 0; i < destinatarios.length; i++) {
+      if (aborted) break; // cliente desconectado — detener inmediatamente
+
       const d = destinatarios[i];
       try {
         await sendWAMessage(1, d.chatId, d.mensaje);
@@ -505,14 +517,22 @@ router.post('/broadcast-terremoto', requireSuperadmin, async (req, res) => {
         sse({ i: i + 1, n: total, nombre: d.nombre, phone: d.phone, grupo: d.grupo, status: 'error', motivo });
       }
 
-      // Pausa entre envíos para no disparar detección de spam de WA
-      if (i < destinatarios.length - 1) {
-        await new Promise(r => setTimeout(r, 4000));
+      // Pausa interruptible: si el cliente se desconecta, clearTimeout cancela la espera
+      if (!aborted && i < destinatarios.length - 1) {
+        await new Promise(resolve => {
+          const t = setTimeout(resolve, 4000);
+          wakeupPausa = () => { clearTimeout(t); resolve(); };
+        });
+        wakeupPausa = null;
       }
     }
 
-    const resumen = { enviados, fallidos, sin_telefono: sinTelefono.length, fallidos_lista };
-    log.info(resumen, '[broadcast-terremoto] ✅ Broadcast completado');
+    const resumen = { enviados, fallidos, sin_telefono: sinTelefono.length, fallidos_lista, abortado: aborted };
+    if (aborted) {
+      log.warn({ ...resumen, enviados, fallidos }, '[broadcast-terremoto] ⚠️ Broadcast abortado por desconexión del cliente');
+    } else {
+      log.info(resumen, '[broadcast-terremoto] ✅ Broadcast completado');
+    }
     sse({ done: true, ...resumen });
     res.end();
   } catch (e) {
