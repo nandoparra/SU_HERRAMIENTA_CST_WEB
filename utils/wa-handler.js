@@ -483,7 +483,9 @@ function _isAgenteHorarioActivo(horaInicio, horaFin, utcHour = new Date().getUTC
 async function handleAgente(conn, senderPhone, tenantId, text, senderJid) {
   // Gate P0-1: verificar que el agente esté habilitado y dentro del horario
   const [[tenantConfig]] = await conn.execute(
-    `SELECT ten_agente_wa, ten_agente_wa_hora_inicio, ten_agente_wa_hora_fin, ten_telefono_empresa FROM b2c_tenant WHERE uid_tenant = ?`,
+    `SELECT ten_agente_wa, ten_agente_wa_hora_inicio, ten_agente_wa_hora_fin, ten_telefono_empresa,
+            ten_aviso_emergencia, ten_aviso_clave
+     FROM b2c_tenant WHERE uid_tenant = ?`,
     [tenantId]
   );
   if (!tenantConfig?.ten_agente_wa) {
@@ -522,10 +524,35 @@ async function handleAgente(conn, senderPhone, tenantId, text, senderJid) {
     return;
   }
 
+  // Aviso de emergencia: si el tenant tiene un aviso activo y este número aún no lo recibió,
+  // se antepone una sola vez a la respuesta del agente. Protegido por _enqueue (P1-1).
+  let avisoPendiente = false;
+  const avisoText  = tenantConfig.ten_aviso_emergencia || null;
+  const aviso_clave = tenantConfig.ten_aviso_clave      || null;
+  if (avisoText && aviso_clave) {
+    try {
+      const [avisoRows] = await conn.execute(
+        `SELECT 1 FROM b2c_wa_aviso_enviado
+         WHERE tenant_id = ? AND wa_sender = ? AND aviso_clave = ? LIMIT 1`,
+        [tenantId, senderPhone, aviso_clave]
+      );
+      avisoPendiente = avisoRows.length === 0;
+      if (avisoPendiente) log.info(`🔔 wa-aviso: aviso "${aviso_clave}" pendiente para ****${senderPhone.slice(-4)}`);
+    } catch (e) {
+      if (e.code === 'ER_NO_SUCH_TABLE') {
+        log.warn('🔔 wa-aviso: tabla b2c_wa_aviso_enviado no existe todavía — aviso omitido');
+      } else {
+        throw e;
+      }
+    }
+  }
+
   try {
     log.info(`🤖 wa-agente: procesando mensaje de ****${senderPhone.slice(-4)}`);
     const respuesta = await responderConIA(conn, senderPhone, tenantId, text, tallerPhone);
     log.info(`🤖 wa-agente: respuesta lista (${respuesta.length} chars), enviando...`);
+
+    const mensajeFinal = avisoPendiente ? _buildAvisoMensaje(avisoText, respuesta) : respuesta;
 
     // Si WA se desconectó brevemente mientras Claude procesaba (ej. 440 transitorio),
     // esperar hasta 10s para que reconecte antes de intentar enviar.
@@ -537,11 +564,44 @@ async function handleAgente(conn, senderPhone, tenantId, text, senderJid) {
       }
     }
 
-    await sendWAMessage(tenantId, senderJid, respuesta);
+    await sendWAMessage(tenantId, senderJid, mensajeFinal);
     log.info(`🤖 wa-agente: mensaje enviado a ****${senderPhone.slice(-4)}`);
+
+    // Marcar aviso como enviado solo después de que sendWAMessage tuvo éxito.
+    // Si send falla, avisoPendiente sigue true → el próximo mensaje reintenta.
+    if (avisoPendiente) {
+      try {
+        await conn.execute(
+          `INSERT IGNORE INTO b2c_wa_aviso_enviado (tenant_id, wa_sender, aviso_clave) VALUES (?, ?, ?)`,
+          [tenantId, senderPhone, aviso_clave]
+        );
+        log.info(`🔔 wa-aviso: aviso "${aviso_clave}" marcado enviado para ****${senderPhone.slice(-4)}`);
+      } catch (e) {
+        if (e.code !== 'ER_NO_SUCH_TABLE') log.warn({ err: e }, '🔔 wa-aviso: no se pudo marcar aviso como enviado');
+      }
+    }
   } catch (e) {
     log.error({ err: e }, `❌ wa-agente: error procesando mensaje de ****${senderPhone.slice(-4)}`);
   }
 }
 
-module.exports = { _isAgenteHorarioActivo, _enqueue, _queue, _extractOpcion: extractOpcion };
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers puros — exportados para testing
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Construye el mensaje final anteponiendo el aviso con separador visual. */
+function _buildAvisoMensaje(avisoText, respuesta) {
+  return `${avisoText}\n\n—\n\n${respuesta}`;
+}
+
+/**
+ * Decide si hay que mostrar el aviso de emergencia a este número.
+ * @param {object|null} tenantConfig  — fila de b2c_tenant con ten_aviso_emergencia y ten_aviso_clave
+ * @param {Array}       rows          — resultado de SELECT en b2c_wa_aviso_enviado (vacío = aún no vio el aviso)
+ */
+function _shouldShowAviso(tenantConfig, rows) {
+  if (!tenantConfig?.ten_aviso_emergencia || !tenantConfig?.ten_aviso_clave) return false;
+  return rows.length === 0;
+}
+
+module.exports = { _isAgenteHorarioActivo, _enqueue, _queue, _extractOpcion: extractOpcion, _buildAvisoMensaje, _shouldShowAviso };

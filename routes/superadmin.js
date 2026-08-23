@@ -78,6 +78,7 @@ router.get('/tenants', requireSuperadmin, async (req, res) => {
               ten_vence, ten_created_at,
               addon_contabilidad,
               ten_agente_wa, ten_agente_wa_hora_inicio, ten_agente_wa_hora_fin,
+              ten_aviso_emergencia, ten_aviso_clave,
               ten_nit, ten_direccion, ten_telefono_empresa, ten_email, ten_website
        FROM b2c_tenant
        ORDER BY uid_tenant`
@@ -142,6 +143,7 @@ router.patch('/tenants/:id', requireSuperadmin, async (req, res) => {
     'ten_estado', 'ten_plan', 'ten_vence',
     'addon_contabilidad',
     'ten_agente_wa', 'ten_agente_wa_hora_inicio', 'ten_agente_wa_hora_fin',
+    'ten_aviso_emergencia', 'ten_aviso_clave',
     'ten_nit', 'ten_direccion', 'ten_telefono_empresa', 'ten_email', 'ten_website',
   ];
 
