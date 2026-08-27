@@ -120,9 +120,8 @@ async function createTenantClient(tenantId) {
       info.ready = false;
       const err = lastDisconnect?.error;
       const statusCode = err instanceof Boom ? err.output?.statusCode : undefined;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
-      log.warn(`[WA][tenant ${tid}] Conexión cerrada — código: ${statusCode}, reconectar: ${shouldReconnect}`);
+      log.warn(`[WA][tenant ${tid}] Conexión cerrada — código: ${statusCode}`);
 
       pool.delete(tid);
 
@@ -131,14 +130,21 @@ async function createTenantClient(tenantId) {
       // que se dan 440 mutuamente en un ciclo infinito.
       if (info._skipReconnect) return;
 
-      if (shouldReconnect) {
-        setTimeout(() => {
-          log.info(`[WA][tenant ${tid}] Reconectando...`);
-          createTenantClient(tid).catch(e =>
-            log.warn(`[WA] Error reconectando tenant ${tid}: ${e.message}`)
-          );
-        }, 5000);
-      } else {
+      // 440 = connectionReplaced: WhatsApp expulsó este cliente porque otra sesión tomó el control.
+      // Reconectar automáticamente genera un nuevo conflicto → loop infinito de 440.
+      // El usuario debe reconectar manualmente desde el dashboard.
+      if (statusCode === DisconnectReason.connectionReplaced) {
+        log.warn(`[WA][tenant ${tid}] Sesión reemplazada (440) — reconexión manual requerida: /api/whatsapp/qr`);
+        return;
+      }
+
+      // 403 = forbidden: cuenta suspendida o restringida por WhatsApp.
+      if (statusCode === DisconnectReason.forbidden) {
+        log.warn(`[WA][tenant ${tid}] Cuenta restringida por WhatsApp (403) — sin reconexión automática`);
+        return;
+      }
+
+      if (statusCode === DisconnectReason.loggedOut) {
         // Logged out — borrar sesión local y pedir nuevo QR
         const folder = getAuthFolder(tid);
         try { fs.rmSync(folder, { recursive: true, force: true }); } catch (_) {}
@@ -148,6 +154,14 @@ async function createTenantClient(tenantId) {
             log.warn(`[WA] Error post-logout tenant ${tid}: ${e.message}`)
           );
         }, 3000);
+      } else {
+        // Otros códigos (515 restart, 408 timeout, 428 closed, etc.) → reconectar
+        setTimeout(() => {
+          log.info(`[WA][tenant ${tid}] Reconectando...`);
+          createTenantClient(tid).catch(e =>
+            log.warn(`[WA] Error reconectando tenant ${tid}: ${e.message}`)
+          );
+        }, 5000);
       }
     }
   });
