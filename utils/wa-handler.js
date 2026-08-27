@@ -549,7 +549,21 @@ async function handleAgente(conn, senderPhone, tenantId, text, senderJid) {
 
   try {
     log.info(`🤖 wa-agente: procesando mensaje de ****${senderPhone.slice(-4)}`);
-    const respuesta = await responderConIA(conn, senderPhone, tenantId, text, tallerPhone);
+    const respuestaRaw = await responderConIA(conn, senderPhone, tenantId, text, tallerPhone);
+
+    // Detectar marcador de escalada — Claude lo pone cuando la consulta requiere atención humana
+    let respuesta = respuestaRaw;
+    if (respuestaRaw.startsWith('[ESCALADA]')) {
+      respuesta = respuestaRaw.replace(/^\[ESCALADA\]\s*/, '');
+      if (tallerPhone) {
+        const notifPhone = tallerPhone.startsWith('57') ? tallerPhone : `57${tallerPhone}`;
+        const maskedSender = `****${senderPhone.slice(-4)}`;
+        sendWAMessage(tenantId, `${notifPhone}@s.whatsapp.net`,
+          `⚠️ *Atención requerida en WhatsApp*\n\nEl cliente que escribe desde *${maskedSender}* está solicitando información que requiere tu atención directa.\n\nRevisa el chat y responde cuando puedas. — Asistente SU HERRAMIENTA`
+        ).catch(e => log.warn({ err: e.message }, 'wa-agente: no se pudo enviar notificación de escalada'));
+      }
+    }
+
     log.info(`🤖 wa-agente: respuesta lista (${respuesta.length} chars), enviando...`);
 
     const mensajeFinal = avisoPendiente ? _buildAvisoMensaje(avisoText, respuesta) : respuesta;
