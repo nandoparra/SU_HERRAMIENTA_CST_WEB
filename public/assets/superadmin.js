@@ -332,42 +332,20 @@ async function toggleUser(uid, estadoActual) {
 }
 
 // ── Init WA ───────────────────────────────────────────────────────────────────
-let _qrPoll = null;
-
+// Abre la página de QR del dashboard en una nueva pestaña.
+// Usar UNA SOLA interfaz de conexión evita la race condition 440
+// que ocurre cuando dos sesiones se inicializan simultáneamente.
 async function initWA(id) {
-  if (!confirm(`¿Inicializar WhatsApp para el tenant #${id}? Se mostrará el QR en el browser.`)) return;
+  if (!confirm(`¿Conectar WhatsApp para el tenant #${id}?\n\nSe abrirá la página de QR en una nueva pestaña. Escanea desde ahí con el teléfono.`)) return;
   try {
-    await api('POST', `/tenants/${id}/init-wa`);
-    openQR(id);
+    // Buscar dominio custom del tenant
+    const tenants = await api('GET', '/tenants');
+    const t = tenants.find(x => x.uid_tenant === id);
+    const domain = t?.ten_dominio_custom ? `https://${t.ten_dominio_custom}` : window.location.origin;
+    window.open(`${domain}/api/whatsapp/qr`, '_blank');
   } catch (e) {
     showToast(e.message, true);
   }
-}
-
-function openQR(tenantId) {
-  document.getElementById('qrContainer').innerHTML = '<span style="color:#64748b;font-size:13px;">Generando QR…</span>';
-  document.getElementById('qrStatus').textContent = '';
-  document.getElementById('qrOverlay').classList.add('open');
-  let secs = 0;
-  _qrPoll = setInterval(async () => {
-    secs += 2;
-    if (secs >= 70) { clearInterval(_qrPoll); document.getElementById('qrStatus').textContent = 'QR expirado. Cierra y vuelve a inicializar.'; return; }
-    try {
-      const r = await fetch(`/superadmin/api/tenants/${tenantId}/wa-qr`, { credentials: 'include' });
-      if (r.status === 404) { document.getElementById('qrStatus').textContent = `Esperando QR… (${secs}s)`; return; }
-      const { qr } = await r.json();
-      if (qr) {
-        document.getElementById('qrContainer').innerHTML = `<img src="${qr}" style="width:240px;height:240px;border-radius:8px;">`;
-        document.getElementById('qrStatus').textContent = 'Escanea antes de que expire (~60s desde la generación)';
-        clearInterval(_qrPoll);
-      }
-    } catch (_) {}
-  }, 2000);
-}
-
-function closeQR() {
-  clearInterval(_qrPoll);
-  document.getElementById('qrOverlay').classList.remove('open');
 }
 
 // ── Consumo IA ────────────────────────────────────────────────────────────────
