@@ -10,7 +10,7 @@ const db         = require('../utils/db');
 const { calcularCostoEstimadoUSD } = require('../utils/ia-uso');
 const { requireSuperadmin } = require('../middleware/requireSuperadmin');
 const { invalidateTenantCache } = require('../middleware/tenant');
-const { initTenantClient, sendWAMessage, getLastQR } = require('../utils/whatsapp-client');
+const { initTenantClient, resetTenantClient, sendWAMessage, getLastQR } = require('../utils/whatsapp-client');
 const qrcode = require('qrcode');
 const { parseColombianPhones }           = require('../utils/phones');
 const { logAudit } = require('../utils/audit');
@@ -335,7 +335,9 @@ router.get('/ia/uso', requireSuperadmin, async (req, res) => {
 router.post('/tenants/:id/init-wa', requireSuperadmin, (req, res) => {
   const id = Number(req.params.id);
   try {
-    initTenantClient(id);
+    // resetTenantClient destruye el cliente viejo (aunque esté en pool), borra los
+    // archivos de sesión del disco, y crea uno nuevo que emitirá QR fresco.
+    resetTenantClient(id);
     res.json({ success: true, message: `Cliente WA del tenant ${id} inicializado. El QR aparecerá en el browser en segundos.` });
   } catch (e) {
     res.status(500).json({ error: 'Error interno del servidor' });
