@@ -211,6 +211,11 @@ async function createTenantClient(tenantId) {
   return info;
 }
 
+function hasCredentials(tenantId) {
+  const folder = getAuthFolder(Number(tenantId));
+  try { return fs.existsSync(path.join(folder, 'creds.json')); } catch (_) { return false; }
+}
+
 function initTenantClient(tenantId = 1) {
   const tid = Number(tenantId);
   if (!pool.has(tid)) {
@@ -422,6 +427,7 @@ process.on('SIGTERM', async () => {
 });
 
 module.exports = {
+  hasCredentials,
   initTenantClient,
   isReady,
   sendWAMessage,
