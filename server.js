@@ -19,7 +19,7 @@ const session = require('express-session');
 const db      = require('./utils/db');
 const MySQLSessionStore = require('./utils/session-store');
 const { runMigrations, archivarConversacionesAntiguas } = require('./utils/migrations');
-const { initTenantClient } = require('./utils/whatsapp-client');
+const { initTenantClient, hasCredentials } = require('./utils/whatsapp-client');
 require('./utils/wa-handler'); // Listener de mensajes entrantes (autorización por WA)
 const apiKey  = require('./middleware/apiKey');
 const { requireLogin, requireInterno, requireAdmin } = require('./middleware/auth');
@@ -192,6 +192,19 @@ app.listen(PORT, async () => {
       log.info(`[WA] Esperando ${waDelay / 1000}s antes de inicializar (grace period contenedor anterior)…`);
       await new Promise(r => setTimeout(r, waDelay));
     }
-    initTenantClient(1);
+    // Inicializar sesiones WA para todos los tenants activos que ya tienen credenciales.
+    // Cada tenant en su propio try/catch — un fallo no afecta a los demás.
+    const [tenantRows] = await db.execute(
+      `SELECT uid_tenant FROM b2c_tenant WHERE ten_estado = 'activo' ORDER BY uid_tenant`
+    );
+    for (const { uid_tenant } of tenantRows) {
+      if (!hasCredentials(uid_tenant)) continue;
+      try {
+        initTenantClient(uid_tenant);
+        log.info(`[WA] Restaurando sesión tenant ${uid_tenant}`);
+      } catch (e) {
+        log.error({ err: e.message }, `[WA] Error iniciando WA tenant ${uid_tenant} — los demás tenants no se ven afectados`);
+      }
+    }
   }
 });

@@ -1087,7 +1087,30 @@ async function runMigrations() {
   await ensureTenantEmpresaColumns();
   await ensureIaUsoLog();
   await ensureWaAvisoEmergencia();
+  await ensurePartsNumberSeed();
   console.log('Migraciones completadas');
+}
+
+// Puebla ten_wa_parts_number del tenant 1 desde env si la columna está vacía.
+// Garantiza que el cambio a BD no rompe las notificaciones del taller original.
+async function ensurePartsNumberSeed() {
+  const raw = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/\D/g, '');
+  if (!raw) return; // env no configurada — nada que sembrar
+  const partsNumber = raw.slice(-10);
+  const conn = await db.getConnection();
+  try {
+    await conn.execute(
+      `UPDATE b2c_tenant
+       SET ten_wa_parts_number = ?
+       WHERE uid_tenant = 1 AND (ten_wa_parts_number IS NULL OR ten_wa_parts_number = '')`,
+      [partsNumber]
+    );
+    console.log('✅ ten_wa_parts_number tenant 1 verificado/sembrado desde env');
+  } catch (e) {
+    console.warn('⚠️ ensurePartsNumberSeed falló (no crítico):', String(e?.message || e));
+  } finally {
+    conn.release();
+  }
 }
 
 async function ensureIaUsoLog() {

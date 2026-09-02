@@ -315,8 +315,12 @@ async function handleOpcion(conn, pendiente, text, senderJid, tenantId = 1) {
     );
 
   } else if (text === '4') {
-    // Comunicar con asesor
-    const advisorNumber = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
+    // Comunicar con asesor — leer número desde BD, nunca fallback al de otro tenant
+    const [[tenantRow4]] = await conn.execute(
+      `SELECT ten_wa_parts_number FROM b2c_tenant WHERE uid_tenant = ?`,
+      [tenantId]
+    );
+    const advisorNumber = String(tenantRow4?.ten_wa_parts_number || '').replace(/[^0-9]/g, '');
     await conn.execute(
       `DELETE FROM b2c_wa_autorizacion_pendiente WHERE uid_autorizacion = ?`,
       [uid_autorizacion]
@@ -336,10 +340,13 @@ async function handleOpcion(conn, pendiente, text, senderJid, tenantId = 1) {
       await sendWAMessage(tenantId, `${phone}@c.us`,
         `📞 *ATENCIÓN REQUERIDA*\nEl cliente *${nombre}* (Orden #${orderRow?.ord_consecutivo || uid_orden}) solicita hablar con un asesor sobre su cotización.`
       );
+    } else {
+      log.warn(`[wa-handler] tenant ${tenantId}: ten_wa_parts_number no configurado — opción 4 sin notificación al asesor`);
     }
     // Confirmar al cliente
+    const contactoTexto = advisorNumber ? `nuestro asesor al *${advisorNumber}*` : `nuestro equipo directamente`;
     await sendWAMessage(tenantId, senderJid,
-      `Le comunicamos con nuestro asesor: *${advisorNumber}* — SU HERRAMIENTA CST`
+      `Le comunicamos con ${contactoTexto} — SU HERRAMIENTA CST`
     );
 
   } else {
@@ -423,9 +430,14 @@ async function handleSeleccionMaquinas(conn, pendiente, text, senderJid, tenantI
 // Misma lógica que POST /api/orders/:orderId/notify-parts
 // ─────────────────────────────────────────────────────────────────────────────
 async function enviarListaRepuestos(conn, uid_orden, tenantId = 1) {
-  const partsNumber = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
+  // Leer número de repuestos desde BD — nunca hacer fallback al de otro tenant
+  const [[tenantRow]] = await conn.execute(
+    `SELECT ten_wa_parts_number FROM b2c_tenant WHERE uid_tenant = ?`,
+    [tenantId]
+  );
+  const partsNumber = String(tenantRow?.ten_wa_parts_number || '').replace(/[^0-9]/g, '');
   if (!partsNumber) {
-    log.warn('⚠️ wa-handler: PARTS_WHATSAPP_NUMBER no configurado, se omite envío al encargado');
+    log.warn(`[wa-handler] tenant ${tenantId}: ten_wa_parts_number no configurado — se omite envío al encargado`);
     return;
   }
 
@@ -549,7 +561,21 @@ async function handleAgente(conn, senderPhone, tenantId, text, senderJid) {
 
   try {
     log.info(`🤖 wa-agente: procesando mensaje de ****${senderPhone.slice(-4)}`);
-    const respuesta = await responderConIA(conn, senderPhone, tenantId, text, tallerPhone);
+    const respuestaRaw = await responderConIA(conn, senderPhone, tenantId, text, tallerPhone);
+
+    // Detectar marcador de escalada — Claude lo pone cuando la consulta requiere atención humana
+    let respuesta = respuestaRaw;
+    if (respuestaRaw.startsWith('[ESCALADA]')) {
+      respuesta = respuestaRaw.replace(/^\[ESCALADA\]\s*/, '');
+      if (tallerPhone) {
+        const notifPhone = tallerPhone.startsWith('57') ? tallerPhone : `57${tallerPhone}`;
+        const maskedSender = `****${senderPhone.slice(-4)}`;
+        sendWAMessage(tenantId, `${notifPhone}@s.whatsapp.net`,
+          `⚠️ *Atención requerida en WhatsApp*\n\nEl cliente que escribe desde *${maskedSender}* está solicitando información que requiere tu atención directa.\n\nRevisa el chat y responde cuando puedas. — Asistente SU HERRAMIENTA`
+        ).catch(e => log.warn({ err: e.message }, 'wa-agente: no se pudo enviar notificación de escalada'));
+      }
+    }
+
     log.info(`🤖 wa-agente: respuesta lista (${respuesta.length} chars), enviando...`);
 
     const mensajeFinal = avisoPendiente ? _buildAvisoMensaje(avisoText, respuesta) : respuesta;

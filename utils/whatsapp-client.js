@@ -114,6 +114,9 @@ async function createTenantClient(tenantId) {
       log.info(`[WA][tenant ${tid}] CONECTADO y listo`);
       info.ready = true;
       info.lastQR = null;
+      // Re-insertar en el pool por si otro cliente concurrente hizo pool.delete(tid)
+      // antes de que este 'open' event se procesara (race condition en reconexiones)
+      if (!pool.has(tid) || pool.get(tid) !== info) pool.set(tid, info);
     }
 
     if (connection === 'close') {
@@ -206,6 +209,11 @@ async function createTenantClient(tenantId) {
   });
 
   return info;
+}
+
+function hasCredentials(tenantId) {
+  const folder = getAuthFolder(Number(tenantId));
+  try { return fs.existsSync(path.join(folder, 'creds.json')); } catch (_) { return false; }
 }
 
 function initTenantClient(tenantId = 1) {
@@ -419,6 +427,7 @@ process.on('SIGTERM', async () => {
 });
 
 module.exports = {
+  hasCredentials,
   initTenantClient,
   isReady,
   sendWAMessage,
