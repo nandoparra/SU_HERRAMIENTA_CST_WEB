@@ -1,5 +1,6 @@
 'use strict';
 const { isReady, sendWAMessage } = require('./whatsapp-client');
+const log = require('./logger');
 
 /**
  * Envía la lista de repuestos autorizados al encargado (PARTS_WHATSAPP_NUMBER).
@@ -11,8 +12,16 @@ const { isReady, sendWAMessage } = require('./whatsapp-client');
  * @returns {Promise<{ sent: boolean, maquinas: number, reason?: string }>}
  */
 async function enviarListaRepuestos(conn, tenantId, uidOrden, consecutivo) {
-  const partsNumber = String(process.env.PARTS_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
-  if (!partsNumber) return { sent: false, maquinas: 0, reason: 'PARTS_WHATSAPP_NUMBER no configurado en .env' };
+  // Leer número de repuestos desde BD — nunca hacer fallback al de otro tenant
+  const [[tenantRow]] = await conn.execute(
+    `SELECT ten_wa_parts_number FROM b2c_tenant WHERE uid_tenant = ?`,
+    [tenantId]
+  );
+  const partsNumber = String(tenantRow?.ten_wa_parts_number || '').replace(/[^0-9]/g, '');
+  if (!partsNumber) {
+    log.warn(`[repuestos-notifier] tenant ${tenantId}: ten_wa_parts_number no configurado — se omite envío al encargado`);
+    return { sent: false, maquinas: 0, reason: 'Número de encargado de repuestos no configurado para este taller' };
+  }
   if (!isReady(tenantId)) return { sent: false, maquinas: 0, reason: 'WhatsApp no está conectado' };
 
   const [maquinas] = await conn.execute(
