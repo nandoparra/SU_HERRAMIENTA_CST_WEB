@@ -798,7 +798,8 @@ Views.ordenes = {
       document.getElementById('amObservaciones').value = '';
       document.getElementById('amNuevaObs').value = '';
       ['amNombre','amMarca','amSerial','amRef'].forEach(id => document.getElementById(id).value = '');
-      document.getElementById('amBtnAgregar').disabled = true;
+      const _amBtnReset = document.getElementById('amBtnAgregar');
+      _amBtnReset.disabled = true; _amBtnReset.textContent = 'Agregar a la orden';
       document.getElementById('amBtnNueva').style.display = 'inline-block';
       document.getElementById('amBtnNueva').textContent = '+ Crear nueva máquina';
       document.getElementById('amSeparador').style.display = 'block';
