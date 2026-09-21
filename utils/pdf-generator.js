@@ -130,6 +130,16 @@ function generateQuotePDF({ order, machines, items, quoteNumber, tenant = {} }) 
       }
     }
 
+    // Pre-calcular alturas para filas de m\u00e1quina y subtotal (wrapping con referencia)
+    doc.font('Helvetica-Bold').fontSize(8.5);
+    const machineHeights = new Map();
+    for (const m of machines) {
+      const mn = [m.her_nombre, m.her_marca ? '(' + m.her_marca + ')' : '', m.her_referencia ? 'Ref:' + m.her_referencia : '', m.her_serial ? 'S/N:' + m.her_serial : ''].filter(Boolean).join(' ');
+      const titleH = Math.max(doc.heightOfString('Reparaci\u00f3n ' + mn, { width: COLS[0].width - 10 }) + 8, ROW_H);
+      const subH   = Math.max(doc.heightOfString('Subtotal \u2014 ' + mn, { width: COLS[0].width - 10 }) + 8, ROW_H);
+      machineHeights.set(String(m.uid_herramienta_orden), { titleH, subH });
+    }
+
     let y = MG;
 
     // \u2500\u2500 Header \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -245,12 +255,14 @@ function generateQuotePDF({ order, machines, items, quoteNumber, tenant = {} }) 
           const bold = (isMachine && col.key === 'nombre') || (isSubtotal && col.key === 'total');
           const sz   = isDesc ? 7.5 : 8.5;
           const clr  = isDesc ? C.gry : isSubtotal ? '#2d6a2d' : C.blk;
-          const padY = isDesc ? 4 : Math.max((rh - sz) / 2, 2);
-          const wrap = isDesc && col.key === 'nombre';
+          // Columna nombre en filas con wrapping: top-aligned; resto: centrado vertical
+          const isNameCol = col.key === 'nombre';
+          const wrap = (isDesc || isMachine || isSubtotal) && isNameCol;
+          const padY = wrap ? 4 : Math.max((rh - sz) / 2, 2);
           doc.save()
             .font(bold ? 'Helvetica-Bold' : 'Helvetica')
             .fontSize(sz).fillColor(clr)
-            .text(val, cx + 5, y + padY, { width: col.width - 10, align: wrap ? 'left' : col.align, lineBreak: wrap })
+            .text(val, cx + 5, y + padY, { width: col.width - 10, align: isNameCol ? 'left' : col.align, lineBreak: wrap })
             .restore();
         }
         cx += col.width;
@@ -264,12 +276,13 @@ function generateQuotePDF({ order, machines, items, quoteNumber, tenant = {} }) 
     for (const m of machines) {
       const k      = String(m.uid_herramienta_orden);
       const mItems = itemsByMachine.get(k) || [];
-      const mName  = [m.her_nombre, m.her_marca ? '(' + m.her_marca + ')' : '', m.her_serial ? 'S/N:' + m.her_serial : ''].filter(Boolean).join(' ');
+      const mName  = [m.her_nombre, m.her_marca ? '(' + m.her_marca + ')' : '', m.her_referencia ? 'Ref:' + m.her_referencia : '', m.her_serial ? 'S/N:' + m.her_serial : ''].filter(Boolean).join(' ');
+      const mh     = machineHeights.get(k) || { titleH: ROW_H, subH: ROW_H };
 
-      // Fila encabezado de m\u00e1quina
-      checkPageBreak(ROW_H);
+      // Fila encabezado de m\u00e1quina (altura din\u00e1mica, texto con wrapping)
+      checkPageBreak(mh.titleH);
       drawRow({ nombre: 'Reparaci\u00f3n ' + mName, precio: money(m.mano_obra), cantidad: '1', descuento: '0.00%', total: money(m.mano_obra) },
-        ROW_H, { isMachine: true });
+        mh.titleH, { isMachine: true });
 
       // Descripci\u00f3n completa (multi-l\u00ednea)
       if (m.descripcion_trabajo) {
@@ -289,11 +302,11 @@ function generateQuotePDF({ order, machines, items, quoteNumber, tenant = {} }) 
           ROW_H);
       }
 
-      // Subtotal por m\u00e1quina
+      // Subtotal por m\u00e1quina (altura din\u00e1mica, sin truncar)
       const machineTotal = Number(m.mano_obra || 0) + itemsTotal;
-      checkPageBreak(ROW_H);
-      drawRow({ nombre: 'Subtotal \u2014 ' + truncate(mName, 38), precio: '', cantidad: '', descuento: '', total: money(machineTotal) },
-        ROW_H, { isSubtotal: true });
+      checkPageBreak(mh.subH);
+      drawRow({ nombre: 'Subtotal \u2014 ' + mName, precio: '', cantidad: '', descuento: '', total: money(machineTotal) },
+        mh.subH, { isSubtotal: true });
 
       machineSummary.push({ name: mName, total: machineTotal });
     }
@@ -849,6 +862,15 @@ function generateReciboPDF({ recibo, tenant, cotizacion }) {
         }
       }
 
+      doc.font('Helvetica-Bold').fontSize(8.5);
+      const machineHeights = new Map();
+      for (const m of cotizacion.machines) {
+        const mn = [m.her_nombre, m.her_marca ? '(' + m.her_marca + ')' : '', m.her_referencia ? 'Ref:' + m.her_referencia : '', m.her_serial ? 'S/N:' + m.her_serial : ''].filter(Boolean).join(' ');
+        const titleH = Math.max(doc.heightOfString('Reparación ' + mn, { width: COLS[0].width - 10 }) + 8, ROW_H);
+        const subH   = Math.max(doc.heightOfString('Subtotal — ' + mn, { width: COLS[0].width - 10 }) + 8, ROW_H);
+        machineHeights.set(String(m.uid_herramienta_orden), { titleH, subH });
+      }
+
       function drawTblHeader() {
         fillRect(doc, MG, y, CW, TBL_H, C.dark);
         let cx = MG;
@@ -890,10 +912,11 @@ function generateReciboPDF({ recibo, tenant, cotizacion }) {
             const bold = (isMachine && col.key === 'nombre') || (isSubtotal && col.key === 'total');
             const sz   = isDesc ? 7.5 : 8.5;
             const clr  = isDesc ? C.gry : isSubtotal ? '#2d6a2d' : C.blk;
-            const padY = isDesc ? 4 : Math.max((rh - sz) / 2, 2);
-            const wrap = isDesc && col.key === 'nombre';
+            const isNameCol = col.key === 'nombre';
+            const wrap = (isDesc || isMachine || isSubtotal) && isNameCol;
+            const padY = wrap ? 4 : Math.max((rh - sz) / 2, 2);
             doc.save().font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(sz).fillColor(clr)
-              .text(val, cx + 5, y + padY, { width: col.width - 10, align: wrap ? 'left' : col.align, lineBreak: wrap })
+              .text(val, cx + 5, y + padY, { width: col.width - 10, align: isNameCol ? 'left' : col.align, lineBreak: wrap })
               .restore();
           }
           cx += col.width;
@@ -905,11 +928,12 @@ function generateReciboPDF({ recibo, tenant, cotizacion }) {
       for (const m of cotizacion.machines) {
         const k      = String(m.uid_herramienta_orden);
         const mItems = itemsByMachine.get(k) || [];
-        const mName  = [m.her_nombre, m.her_marca ? '(' + m.her_marca + ')' : '', m.her_serial ? 'S/N:' + m.her_serial : ''].filter(Boolean).join(' ');
+        const mName  = [m.her_nombre, m.her_marca ? '(' + m.her_marca + ')' : '', m.her_referencia ? 'Ref:' + m.her_referencia : '', m.her_serial ? 'S/N:' + m.her_serial : ''].filter(Boolean).join(' ');
+        const mh     = machineHeights.get(k) || { titleH: ROW_H, subH: ROW_H };
 
-        checkPB(ROW_H);
+        checkPB(mh.titleH);
         drawRow({ nombre: 'Reparación ' + mName, precio: money(m.mano_obra), cantidad: '1', descuento: '0.00%', total: money(m.mano_obra) },
-          ROW_H, { isMachine: true });
+          mh.titleH, { isMachine: true });
 
         if (m.descripcion_trabajo) {
           const dh = descHeights.get(k) || 14;
@@ -926,8 +950,8 @@ function generateReciboPDF({ recibo, tenant, cotizacion }) {
         }
 
         const machineTotal = Number(m.mano_obra || 0) + itemsTotal;
-        checkPB(ROW_H);
-        drawRow({ nombre: 'Subtotal — ' + truncate(mName, 38), total: money(machineTotal) }, ROW_H, { isSubtotal: true });
+        checkPB(mh.subH);
+        drawRow({ nombre: 'Subtotal — ' + mName, total: money(machineTotal) }, mh.subH, { isSubtotal: true });
         machineSummary.push({ name: mName, total: machineTotal });
       }
 
