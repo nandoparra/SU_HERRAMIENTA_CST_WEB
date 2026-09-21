@@ -86,7 +86,7 @@ function buildMaintenancePrompt(machine, workDesc, items) {
 // ─── Helper: queries comunes ──────────────────────────────────────────────────
 async function getMachineWithItems(conn, uidOrden, equipmentOrderId) {
   const [[machine]] = await conn.execute(
-    `SELECT cm.*, h.her_nombre, h.her_marca, h.her_serial,
+    `SELECT cm.*, h.her_nombre, h.her_marca, h.her_serial, h.her_referencia,
              ho.hor_tecnico, ho.hor_cargo_tecnico, ho.hor_proximo_mantenimiento
      FROM b2c_cotizacion_maquina cm
      LEFT JOIN b2c_herramienta_orden ho
@@ -120,7 +120,7 @@ async function getMachineWithItems(conn, uidOrden, equipmentOrderId) {
 
 async function getAllMachinesWithItems(conn, uidOrden) {
   const [machines] = await conn.execute(
-    `SELECT cm.*, h.her_nombre, h.her_marca, h.her_serial,
+    `SELECT cm.*, h.her_nombre, h.her_marca, h.her_serial, h.her_referencia,
              ho.hor_tecnico, ho.hor_cargo_tecnico, ho.hor_proximo_mantenimiento
      FROM b2c_cotizacion_maquina cm
      LEFT JOIN b2c_herramienta_orden ho
