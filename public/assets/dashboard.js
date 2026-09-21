@@ -815,12 +815,22 @@ Views.ordenes = {
       const modal = document.getElementById('agregarMaquinaModal');
       modal.style.display = 'flex';
       try {
-        const maquinas = await fetch(`${API}/crear-orden/herramientas/${uidCliente}`).then(r=>r.json());
+        const [maquinas, detalle] = await Promise.all([
+          fetch(`${API}/crear-orden/herramientas/${uidCliente}`).then(r=>r.json()),
+          fetch(`${API}/orders/${uidOrden}/detalle`).then(r=>r.json()).catch(()=>({ maquinas: [] })),
+        ]);
+        const yaEnOrden = new Set((detalle.maquinas || []).map(m => m.uid_herramienta));
         if (maquinas.length === 0) {
           sel.innerHTML = '<option value="">-- Este cliente no tiene máquinas registradas --</option>';
         } else {
           sel.innerHTML = '<option value="">-- Seleccionar máquina --</option>' +
-            maquinas.map(m => `<option value="${m.uid_herramienta}">${esc(m.her_nombre)}${m.her_marca?' — '+esc(m.her_marca):''}${m.her_serial?' ('+esc(m.her_serial)+')':''}</option>`).join('');
+            maquinas.map(m => {
+              const id   = esc(m.her_nombre);
+              const sub  = [m.her_marca ? '— ' + esc(m.her_marca) : '', m.her_serial ? 'S/N: ' + esc(m.her_serial) : '', m.her_referencia ? 'Ref: ' + esc(m.her_referencia) : ''].filter(Boolean).join(' | ');
+              const ident = sub || '(Sin identificador)';
+              const ya   = yaEnOrden.has(m.uid_herramienta);
+              return `<option value="${m.uid_herramienta}" ${ya ? 'disabled' : ''}>${id} ${ident}${ya ? ' ✓ ya en esta orden' : ''}</option>`;
+            }).join('');
         }
         document.getElementById('amBtnNueva').style.display = 'inline-block';
       } catch(e) {
@@ -2811,8 +2821,10 @@ Views.nuevaOrden = {
       } else {
         sel.innerHTML = '<option value="">-- Seleccionar máquina --</option>' +
           data.map(h => {
-            const ya = no_maquinas.find(m => m.uid_herramienta === h.uid_herramienta);
-            return `<option value="${h.uid_herramienta}" ${ya?'disabled':''}>${esc(h.her_nombre)}${h.her_marca?' — '+esc(h.her_marca):''}${h.her_serial?' ('+esc(h.her_serial)+')':''}${ya?' ✓ ya en orden':''}</option>`;
+            const ya   = no_maquinas.find(m => m.uid_herramienta === h.uid_herramienta);
+            const sub  = [h.her_marca ? '— ' + esc(h.her_marca) : '', h.her_serial ? 'S/N: ' + esc(h.her_serial) : '', h.her_referencia ? 'Ref: ' + esc(h.her_referencia) : ''].filter(Boolean).join(' | ');
+            const ident = sub || '(Sin identificador)';
+            return `<option value="${h.uid_herramienta}" ${ya?'disabled':''}>${esc(h.her_nombre)} ${ident}${ya?' ✓ ya en orden':''}</option>`;
           }).join('');
       }
     };
