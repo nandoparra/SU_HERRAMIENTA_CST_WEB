@@ -102,8 +102,8 @@ async function generarFactura({ orden, cliente, maquinas, paymentForm = 'CASH', 
     .map(m => {
       const nombreMaquina = [m.her_nombre, m.her_marca].filter(Boolean).join(' ') || 'Reparación';
       const descripcion   = m.descripcion_trabajo
-        ? `${nombreMaquina} — ${m.descripcion_trabajo}`
-        : nombreMaquina;
+        ? `Orden #${orden.ord_consecutivo} — ${nombreMaquina} — ${m.descripcion_trabajo}`
+        : `Orden #${orden.ord_consecutivo} — ${nombreMaquina}`;
       return {
         id: ALEGRA_SERVICIO_ID,
         price: Number(m.subtotal),
