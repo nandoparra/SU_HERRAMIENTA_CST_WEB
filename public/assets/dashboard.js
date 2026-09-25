@@ -2795,7 +2795,10 @@ Views.nuevaOrden = {
       document.getElementById('no_mm_error').style.display = 'none';
       document.getElementById('no_mm_nuevaObs').value = '';
       ['no_mm_nombre','no_mm_marca','no_mm_serial','no_mm_ref'].forEach(id => document.getElementById(id).value = '');
-      document.getElementById('no_mm_btnAgregar').disabled = true;
+      const _noBtnReset = document.getElementById('no_mm_btnAgregar');
+      _noBtnReset.disabled = true; _noBtnReset.textContent = 'Agregar a la orden';
+      document.getElementById('no_mm_selectRow').style.display = 'block';
+      document.getElementById('no_mm_separador').style.display = 'block';
       // Reset guarantee fields
       document.getElementById('no_mm_chkGarantia').checked = false;
       document.getElementById('no_mm_garantiaFields').style.display = 'none';

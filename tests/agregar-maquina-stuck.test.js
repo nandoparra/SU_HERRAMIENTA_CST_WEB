@@ -2,12 +2,17 @@
 /**
  * Tests — fix-agregar-maquina-stuck
  *
- * Verifica estructuralmente que ord_abrirAgregarMaquina resetea
- * tanto disabled como textContent del botón "Agregar a la orden".
+ * Cubre DOS flujos donde el modal "Agregar máquina" se queda atascado:
  *
- * Bug: tras un envío exitoso el texto del botón quedaba en "⏳ Agregando..."
- * porque ord_abrirAgregarMaquina solo hacía disabled=true pero nunca
- * restablecía textContent. El próximo open del modal mostraba el texto stale.
+ * 1. ord_abrirAgregarMaquina — agregar máquina a una orden YA GUARDADA
+ *    Bug: solo reseteaba disabled=true, nunca textContent.
+ *
+ * 2. no_abrirModalMaquina — asistente de Nueva Orden (paso Máquinas)
+ *    Bug: al crear una máquina nueva (modo nueva), no_toggleNuevaMaqModal
+ *    oculta no_mm_selectRow + no_mm_separador. La función de cierre exitoso
+ *    (no_cerrarModalMaquina) solo esconde el modal sin restaurar el DOM.
+ *    Al volver a abrir: selectRow/separador siguen ocultos (desplegable
+ *    desaparece) y el botón muestra "⏳ Agregando..." stale.
  *
  * Unitario — no requiere servidor ni BD.
  */
@@ -96,5 +101,68 @@ test('ord_toggleNuevaMaquina habilita amBtnAgregar cuando _amModoNueva=true', ()
   assert.ok(
     fnBody.includes("'amBtnAgregar').disabled = false"),
     'ord_toggleNuevaMaquina debe habilitar amBtnAgregar cuando se activa el modo nueva'
+  );
+});
+
+// ── no_abrirModalMaquina: resetea textContent + selectRow + separador ────────
+
+test('no_abrirModalMaquina resetea no_mm_btnAgregar.textContent a "Agregar a la orden"', () => {
+  const code = src();
+
+  const fnStart = code.indexOf('window.no_abrirModalMaquina');
+  assert.ok(fnStart !== -1, 'No se encontró window.no_abrirModalMaquina');
+
+  const fnEnd = code.indexOf('window.no_cerrarModalMaquina', fnStart);
+  const fnBody = code.slice(fnStart, fnEnd);
+
+  assert.ok(
+    fnBody.includes("textContent = 'Agregar a la orden'"),
+    'no_abrirModalMaquina debe resetear no_mm_btnAgregar.textContent para evitar texto stale "⏳ Agregando..."'
+  );
+});
+
+test('no_abrirModalMaquina restaura no_mm_selectRow visible (display block)', () => {
+  const code = src();
+
+  const fnStart = code.indexOf('window.no_abrirModalMaquina');
+  const fnEnd   = code.indexOf('window.no_cerrarModalMaquina', fnStart);
+  const fnBody  = code.slice(fnStart, fnEnd);
+
+  // no_toggleNuevaMaqModal lo pone en 'none'; la reapertura debe restaurarlo
+  assert.ok(
+    fnBody.includes("'no_mm_selectRow'") && fnBody.includes("'block'"),
+    'no_abrirModalMaquina debe restaurar no_mm_selectRow a display:block para que el desplegable de máquinas aparezca'
+  );
+});
+
+test('no_abrirModalMaquina restaura no_mm_separador visible (display block)', () => {
+  const code = src();
+
+  const fnStart = code.indexOf('window.no_abrirModalMaquina');
+  const fnEnd   = code.indexOf('window.no_cerrarModalMaquina', fnStart);
+  const fnBody  = code.slice(fnStart, fnEnd);
+
+  assert.ok(
+    fnBody.includes("'no_mm_separador'") && fnBody.includes("'block'"),
+    'no_abrirModalMaquina debe restaurar no_mm_separador a display:block'
+  );
+});
+
+test('no_confirmarAgregarMaquina re-habilita el botón en el bloque catch', () => {
+  const code = src();
+
+  const fnStart = code.indexOf('window.no_confirmarAgregarMaquina');
+  assert.ok(fnStart !== -1, 'No se encontró window.no_confirmarAgregarMaquina');
+
+  const fnEnd = code.indexOf('window.no_quitarMaquina', fnStart);
+  const fnBody = code.slice(fnStart, fnEnd);
+
+  assert.ok(
+    fnBody.includes("btn.disabled = false"),
+    'no_confirmarAgregarMaquina catch debe hacer btn.disabled = false'
+  );
+  assert.ok(
+    fnBody.includes("btn.textContent = 'Agregar a la orden'"),
+    "no_confirmarAgregarMaquina catch debe restablecer btn.textContent = 'Agregar a la orden'"
   );
 });
