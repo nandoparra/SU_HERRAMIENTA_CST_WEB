@@ -6,6 +6,9 @@
  * 1. solicitudes-taller.js usa requireInterno (permite A, F, T) — NO requireAdminFuncionario
  * 2. dashboard.js bypass incluye /taller/ (next('router') para no interceptar las rutas del taller)
  * 3. Las 4 rutas de solicitudes-taller tienen los paths correctos
+ * 4. contable.js usa requireAddonContabilidad SOLO para rutas /contable — no como filtro global
+ *    (causa raíz del 403: el middleware global bloqueaba cualquier request que atravesara
+ *    contable.js cuando addon_contabilidad=0, incluyendo /taller/ montado después)
  *
  * Todos unitarios — no requieren servidor ni BD.
  */
@@ -95,5 +98,40 @@ test("dashboard.js bypass llama next('router') para /taller/ ANTES de requireInt
   assert.ok(
     tallerIdx < requireInternoIdx,
     "/taller/ check must appear before requireInterno call in the bypass"
+  );
+});
+
+// ── contable.js: requireAddonContabilidad con prefijo de ruta ────────────────
+// Causa raíz del 403: contable.js tenía router.use(requireAddonContabilidad) sin
+// prefijo de ruta, lo que disparaba para CUALQUIER path — incluyendo /taller/*.
+// Si addon_contabilidad=0, el middleware devolvía 403 antes de que el request
+// llegara a solicitudes-taller.js (montado después de contable en server.js).
+
+test("contable.js aplica requireAddonContabilidad SOLO a /contable/* (no como middleware global)", () => {
+  const CONTABLE = path.join(__dirname, '../routes/contable.js');
+  const src = fs.readFileSync(CONTABLE, 'utf8');
+
+  // NO debe haber router.use(requireAddonContabilidad) sin prefijo de ruta
+  assert.ok(
+    !src.includes("router.use(requireAddonContabilidad)"),
+    "contable.js NO debe tener router.use(requireAddonContabilidad) sin prefijo — bloquea rutas de otros módulos cuando addon está inactivo"
+  );
+
+  // Sí debe tener requireAddonContabilidad acotado al prefijo /contable
+  assert.ok(
+    src.includes("'/contable'") && src.includes("requireAddonContabilidad"),
+    "contable.js debe aplicar requireAddonContabilidad con prefijo '/contable'"
+  );
+});
+
+test("contable.js NO tiene router.use(requireAdminFuncionario) como middleware global sin prefijo", () => {
+  const CONTABLE = path.join(__dirname, '../routes/contable.js');
+  const src = fs.readFileSync(CONTABLE, 'utf8');
+
+  // La línea sola "router.use(requireAdminFuncionario);" sin prefijo de ruta
+  // también afectaría a requests de otros módulos que pasen por contable.js.
+  assert.ok(
+    !src.match(/^router\.use\(requireAdminFuncionario\)/m),
+    "contable.js NO debe tener router.use(requireAdminFuncionario) global sin prefijo de ruta"
   );
 });

@@ -14,8 +14,11 @@ const { UPLOADS_DIR, checkMagicBytes } = require('../utils/uploads');
 const { logAudit } = require('../utils/audit');
 const log = require('../utils/logger');
 
-router.use(requireAdminFuncionario);
-router.use(requireAddonContabilidad);
+// Restringir al prefijo /contable para no bloquear rutas de otros módulos
+// montados después en server.js (como solicitudes-taller, wa-conversaciones).
+// Sin el prefijo de ruta, router.use() dispara para CUALQUIER path que entre
+// a este router — incluyendo rutas que no le pertenecen.
+router.use('/contable', requireAdminFuncionario, requireAddonContabilidad);
 
 // ── Multer para facturas de egreso (imagen o PDF) ─────────────────────────────
 const facturaStorage = multer.diskStorage({
