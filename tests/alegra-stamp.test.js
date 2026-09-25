@@ -84,4 +84,15 @@ describe('alegra-factura — parámetro stamp en payload de creación de factura
       'El payload debe incluir al menos un ítem');
     assert.ok(capturedPayload.items[0].price > 0, 'El precio del ítem debe ser > 0');
   });
+
+  test('la descripción de cada ítem incluye el número de la orden', async () => {
+    // FAKE_ORDEN.ord_consecutivo = 9001, máquina = 'TALADRO BOSCH', trabajo = 'Revisión general'
+    // Esperado: "Orden #9001 — TALADRO BOSCH — Revisión general"
+    assert.ok(capturedPayload !== null, 'alegraPost fue llamado');
+    const desc = capturedPayload.items[0]?.description;
+    assert.ok(
+      typeof desc === 'string' && desc.startsWith(`Orden #${FAKE_ORDEN.ord_consecutivo}`),
+      `La descripción del ítem debe empezar con "Orden #${FAKE_ORDEN.ord_consecutivo}", recibido: "${desc}"`
+    );
+  });
 });
